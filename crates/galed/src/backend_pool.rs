@@ -80,10 +80,11 @@ impl BackendPool {
     }
 
     fn owner_of(&self, id: &str) -> Result<usize, HwError> {
-        if let Some(index) = self.owners.read().unwrap().get(id).copied() {
+        let owners = self.owners.read().unwrap();
+        if let Some(index) = owners.get(id).copied() {
             return Ok(index);
         }
-        if self.handles.len() == 1 {
+        if owners.is_empty() && self.handles.len() == 1 {
             return Ok(0);
         }
         Err(HwError::UnknownId(id.to_string()))
