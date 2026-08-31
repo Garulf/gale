@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod commander_core;
 pub mod commander_pro;
 pub mod transport;
 

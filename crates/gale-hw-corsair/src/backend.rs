@@ -1,3 +1,4 @@
+use crate::commander_core::CommanderCore;
 use crate::commander_pro::CommanderPro;
 use crate::transport::HidapiTransport;
 use crate::CorsairDevice;
@@ -8,16 +9,35 @@ pub const VID_CORSAIR: u16 = 0x1b1c;
 
 const PID_COMMANDER_PRO: u16 = 0x0c10;
 const PID_OBSIDIAN_1000D: u16 = 0x1d00;
+const PID_COMMANDER_CORE: u16 = 0x0c1c;
+const PID_COMMANDER_CORE_XT: u16 = 0x0c2a;
+const PID_COMMANDER_ST: u16 = 0x0c32;
 
-const KNOWN_DEVICES: &[(u16, u16)] = &[
-    (VID_CORSAIR, PID_COMMANDER_PRO),
-    (VID_CORSAIR, PID_OBSIDIAN_1000D),
-];
+const COMMANDER_CORE_INTERFACE: i32 = 0;
 
-fn commander_pro_slug(pid: u16) -> &'static str {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DriverKind {
+    CommanderPro,
+    CommanderCore { has_pump: bool },
+}
+
+fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
+    if vid != VID_CORSAIR {
+        return None;
+    }
     match pid {
-        PID_OBSIDIAN_1000D => "obsidian-1000d",
-        _ => "commander-pro",
+        PID_COMMANDER_PRO => Some((DriverKind::CommanderPro, "commander-pro")),
+        PID_OBSIDIAN_1000D => Some((DriverKind::CommanderPro, "obsidian-1000d")),
+        PID_COMMANDER_CORE => Some((
+            DriverKind::CommanderCore { has_pump: true },
+            "commander-core",
+        )),
+        PID_COMMANDER_CORE_XT => Some((
+            DriverKind::CommanderCore { has_pump: false },
+            "commander-core-xt",
+        )),
+        PID_COMMANDER_ST => Some((DriverKind::CommanderCore { has_pump: true }, "commander-st")),
+        _ => None,
     }
 }
 
@@ -34,16 +54,26 @@ impl CorsairBackend {
             for info in api.device_list() {
                 let vid = info.vendor_id();
                 let pid = info.product_id();
-                if !KNOWN_DEVICES.contains(&(vid, pid)) {
+                let Some((kind, slug)) = driver_for(vid, pid) else {
+                    continue;
+                };
+                if matches!(kind, DriverKind::CommanderCore { .. })
+                    && info.interface_number() != COMMANDER_CORE_INTERFACE
+                {
                     continue;
                 }
-                match api.open(vid, pid) {
+                match api.open_path(info.path()) {
                     Ok(device) => {
                         let transport = Box::new(HidapiTransport::new(device));
-                        devices.push(Box::new(CommanderPro::new(
-                            transport,
-                            commander_pro_slug(pid),
-                        )));
+                        let driver: Box<dyn CorsairDevice> = match kind {
+                            DriverKind::CommanderPro => {
+                                Box::new(CommanderPro::new(transport, slug))
+                            }
+                            DriverKind::CommanderCore { has_pump } => {
+                                Box::new(CommanderCore::new(transport, slug, has_pump))
+                            }
+                        };
+                        devices.push(driver);
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -234,6 +264,34 @@ mod tests {
             self.released = true;
             Ok(())
         }
+    }
+
+    #[test]
+    fn commander_core_family_pids_map_to_the_core_driver() {
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c1c),
+            Some((
+                DriverKind::CommanderCore { has_pump: true },
+                "commander-core"
+            ))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c2a),
+            Some((
+                DriverKind::CommanderCore { has_pump: false },
+                "commander-core-xt"
+            ))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c32),
+            Some((DriverKind::CommanderCore { has_pump: true }, "commander-st"))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c10),
+            Some((DriverKind::CommanderPro, "commander-pro"))
+        );
+        assert_eq!(driver_for(VID_CORSAIR, 0x0c33), None);
+        assert_eq!(driver_for(0x1234, 0x0c1c), None);
     }
 
     #[test]
