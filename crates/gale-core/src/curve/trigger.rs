@@ -12,7 +12,14 @@ pub struct TriggerCurve {
 
 impl TriggerCurve {
     pub fn new(sensor: Id, on_temp: f64, off_temp: f64, on_duty: f64, off_duty: f64) -> Self {
-        Self { sensor, on_temp, off_temp, on_duty, off_duty, active: false }
+        Self {
+            sensor,
+            on_temp,
+            off_temp,
+            on_duty,
+            off_duty,
+            active: false,
+        }
     }
 }
 
@@ -24,7 +31,11 @@ impl Curve for TriggerCurve {
         } else if temp <= self.off_temp {
             self.active = false;
         }
-        Some(if self.active { self.on_duty } else { self.off_duty })
+        Some(if self.active {
+            self.on_duty
+        } else {
+            self.off_duty
+        })
     }
 }
 

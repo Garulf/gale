@@ -13,8 +13,21 @@ pub struct TargetCurve {
 }
 
 impl TargetCurve {
-    pub fn new(sensor: Id, target_temp: f64, step_pct_per_sec: f64, min_duty: f64, max_duty: f64) -> Self {
-        Self { sensor, target_temp, step_pct_per_sec, min_duty, max_duty, duty: min_duty }
+    pub fn new(
+        sensor: Id,
+        target_temp: f64,
+        step_pct_per_sec: f64,
+        min_duty: f64,
+        max_duty: f64,
+    ) -> Self {
+        Self {
+            sensor,
+            target_temp,
+            step_pct_per_sec,
+            min_duty,
+            max_duty,
+            duty: min_duty,
+        }
     }
 }
 

@@ -41,7 +41,10 @@ pub struct ApiConfig {
 
 impl Default for ApiConfig {
     fn default() -> Self {
-        Self { bind: default_bind(), api_key: None }
+        Self {
+            bind: default_bind(),
+            api_key: None,
+        }
     }
 }
 
@@ -148,7 +151,12 @@ mode = "max"
         let profile = &cfg.profiles["quiet"];
         assert_eq!(profile.assignments["hwmon/nct6798/pwm1"], "cpu");
         match &profile.curves["cpu"] {
-            CurveConfig::Point { sensor, points, hysteresis, response } => {
+            CurveConfig::Point {
+                sensor,
+                points,
+                hysteresis,
+                response,
+            } => {
                 assert_eq!(sensor, "hwmon/nct6798/temp1");
                 assert_eq!(points, &vec![[30.0, 20.0], [70.0, 100.0]]);
                 assert_eq!(hysteresis, &Some(HysteresisConfig { up: 2.0, down: 5.0 }));
@@ -167,6 +175,9 @@ mode = "max"
 
     #[test]
     fn bad_toml_is_a_parse_error() {
-        assert!(matches!(GaleConfig::from_toml("not toml ["), Err(ConfigError::Parse(_))));
+        assert!(matches!(
+            GaleConfig::from_toml("not toml ["),
+            Err(ConfigError::Parse(_))
+        ));
     }
 }

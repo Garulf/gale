@@ -17,7 +17,11 @@ pub struct MixCurve {
 
 impl Curve for MixCurve {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64> {
-        let values: Vec<f64> = self.sources.iter().filter_map(|id| ctx.resolve(id)).collect();
+        let values: Vec<f64> = self
+            .sources
+            .iter()
+            .filter_map(|id| ctx.resolve(id))
+            .collect();
         if values.is_empty() {
             return None;
         }

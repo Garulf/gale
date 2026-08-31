@@ -24,9 +24,13 @@ mod tests {
         set.insert("src".into(), Box::new(FlatCurve { duty: 33.0 }));
         let sensors = HashMap::new();
         let ctx = EvalContext::new(&set, &sensors, 1.0);
-        let mut c = SyncCurve { source: "src".into() };
+        let mut c = SyncCurve {
+            source: "src".into(),
+        };
         assert_eq!(c.evaluate(&ctx), Some(33.0));
-        let mut miss = SyncCurve { source: "ghost".into() };
+        let mut miss = SyncCurve {
+            source: "ghost".into(),
+        };
         assert_eq!(miss.evaluate(&ctx), None);
     }
 }

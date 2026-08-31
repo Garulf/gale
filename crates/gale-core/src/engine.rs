@@ -9,9 +9,20 @@ pub struct FanEngine {
     assignments: HashMap<Id, Id>,
 }
 
+impl std::fmt::Debug for FanEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FanEngine")
+            .field("assignments", &self.assignments)
+            .finish()
+    }
+}
+
 impl FanEngine {
     pub fn new(curves: CurveSet, assignments: HashMap<Id, Id>) -> Self {
-        Self { curves, assignments }
+        Self {
+            curves,
+            assignments,
+        }
     }
 
     pub fn assignments(&self) -> &HashMap<Id, Id> {
@@ -46,8 +57,11 @@ mod tests {
     fn tick_returns_duty_for_every_assigned_control() {
         let mut set = CurveSet::new();
         set.insert("quiet".into(), Box::new(FlatCurve { duty: 30.0 }));
-        let assignments: HashMap<String, String> =
-            [("pwm1".to_string(), "quiet".to_string()), ("pwm2".to_string(), "quiet".to_string())].into();
+        let assignments: HashMap<String, String> = [
+            ("pwm1".to_string(), "quiet".to_string()),
+            ("pwm2".to_string(), "quiet".to_string()),
+        ]
+        .into();
         let mut engine = FanEngine::new(set, assignments);
         let duties = engine.tick(&sensors(&[]), 1.0);
         assert_eq!(duties["pwm1"], 30.0);
@@ -57,9 +71,18 @@ mod tests {
     #[test]
     fn unresolved_curve_fails_safe_to_100() {
         let mut set = CurveSet::new();
-        set.insert("cpu".into(), Box::new(PointCurve::new("t".into(), vec![(30.0, 20.0), (70.0, 100.0)])));
-        let assignments: HashMap<String, String> =
-            [("pwm1".to_string(), "cpu".to_string()), ("pwm2".to_string(), "ghost".to_string())].into();
+        set.insert(
+            "cpu".into(),
+            Box::new(PointCurve::new(
+                "t".into(),
+                vec![(30.0, 20.0), (70.0, 100.0)],
+            )),
+        );
+        let assignments: HashMap<String, String> = [
+            ("pwm1".to_string(), "cpu".to_string()),
+            ("pwm2".to_string(), "ghost".to_string()),
+        ]
+        .into();
         let mut engine = FanEngine::new(set, assignments);
         let duties = engine.tick(&sensors(&[("t", None)]), 1.0);
         assert_eq!(duties["pwm1"], FAIL_SAFE_PCT);
@@ -71,8 +94,11 @@ mod tests {
         let mut set = CurveSet::new();
         set.insert("hot".into(), Box::new(FlatCurve { duty: 250.0 }));
         set.insert("neg".into(), Box::new(FlatCurve { duty: -10.0 }));
-        let assignments: HashMap<String, String> =
-            [("pwm1".to_string(), "hot".to_string()), ("pwm2".to_string(), "neg".to_string())].into();
+        let assignments: HashMap<String, String> = [
+            ("pwm1".to_string(), "hot".to_string()),
+            ("pwm2".to_string(), "neg".to_string()),
+        ]
+        .into();
         let mut engine = FanEngine::new(set, assignments);
         let duties = engine.tick(&sensors(&[]), 1.0);
         assert_eq!(duties["pwm1"], 100.0);

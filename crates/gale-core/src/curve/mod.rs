@@ -129,7 +129,12 @@ mod tests {
     fn resolve_memoizes_within_one_context() {
         let calls = std::rc::Rc::new(std::cell::Cell::new(0));
         let mut set = CurveSet::new();
-        set.insert("a".into(), Box::new(Counting { calls: calls.clone() }));
+        set.insert(
+            "a".into(),
+            Box::new(Counting {
+                calls: calls.clone(),
+            }),
+        );
         let s = sensors(&[]);
         let ctx = EvalContext::new(&set, &s, 1.0);
         assert_eq!(ctx.resolve("a"), Some(42.0));

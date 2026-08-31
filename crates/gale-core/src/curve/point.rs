@@ -134,7 +134,10 @@ mod tests {
         assert_eq!(eval_at(&mut c, Some(41.9)), Some(35.0));
         assert_eq!(eval_at(&mut c, Some(36.0)), Some(35.0));
         let result = eval_at(&mut c, Some(42.1)).unwrap();
-        assert!((result - 38.15).abs() < 1e-9, "expected ~38.15, got {result}");
+        assert!(
+            (result - 38.15).abs() < 1e-9,
+            "expected ~38.15, got {result}"
+        );
     }
 
     #[test]
