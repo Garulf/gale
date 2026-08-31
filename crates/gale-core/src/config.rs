@@ -115,6 +115,21 @@ impl GaleConfig {
     }
 }
 
+impl GaleConfig {
+    pub fn default_config() -> Self {
+        Self {
+            tick_interval_ms: default_tick(),
+            api: ApiConfig::default(),
+            active_profile: "default".to_string(),
+            profiles: [(
+                "default".to_string(),
+                ProfileConfig { curves: HashMap::new(), assignments: HashMap::new() },
+            )]
+            .into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
