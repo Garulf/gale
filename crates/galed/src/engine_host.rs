@@ -55,18 +55,21 @@ impl EngineHost {
 
     pub async fn tick(&self, dt_secs: f64) {
         let sensors = self.backend.read_all().await;
-        let (duties, manual, active_profile) = {
+        let (mut duties, manual, active_profile, assigned) = {
             let mut state = self.state.lock().unwrap();
             let mut duties = state.engine.tick(&sensors, dt_secs);
             for (id, duty) in &state.manual {
                 duties.insert(id.clone(), *duty);
             }
+            let assigned: HashSet<Id> = state.engine.assignments().keys().cloned().collect();
             (
                 duties,
                 state.manual.clone(),
                 state.config.active_profile.clone(),
+                assigned,
             )
         };
+        let mut failed: HashSet<Id> = HashSet::new();
         for (id, duty) in &duties {
             match self.backend.set_duty(id, *duty).await {
                 Ok(()) => {
@@ -74,9 +77,26 @@ impl EngineHost {
                 }
                 Err(error) => {
                     tracing::warn!(%id, %error, "duty write failed, skipping control this tick");
+                    failed.insert(id.clone());
                 }
             }
         }
+        duties.retain(|id, _| !failed.contains(id));
+
+        let stale: Vec<Id> = {
+            let claimed = self.claimed.lock().unwrap();
+            claimed
+                .iter()
+                .filter(|id| !assigned.contains(*id) && !manual.contains_key(*id))
+                .cloned()
+                .collect()
+        };
+        for id in stale {
+            if self.backend.release(&id).await.is_ok() {
+                self.claimed.lock().unwrap().remove(&id);
+            }
+        }
+
         self.snapshot_tx.send_replace(Snapshot {
             sensors,
             duties,
@@ -129,6 +149,16 @@ impl EngineHost {
             self.claimed.lock().unwrap().remove(id);
         }
         Ok(())
+    }
+
+    pub fn claimed_ids(&self) -> Vec<Id> {
+        self.claimed.lock().unwrap().iter().cloned().collect()
+    }
+
+    pub fn blocking_release_claimed(&self) {
+        for id in self.claimed_ids() {
+            self.backend.blocking_release(&id);
+        }
     }
 
     pub async fn release_all(&self) {
@@ -196,6 +226,42 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert!(!state.lock().unwrap().duties.contains_key("pwm2"));
         let snapshot = host.subscribe().borrow().clone();
         assert_eq!(snapshot.manual["pwm1"], 33.0);
+        assert!(!snapshot.duties.contains_key("pwm2"));
+        assert_eq!(snapshot.duties["pwm1"], 33.0);
+    }
+
+    #[tokio::test]
+    async fn clear_manual_release_is_not_reclaimed_by_next_tick() {
+        let (host, state) = setup(&[("t1", Some(50.0))]);
+        host.set_manual("extra/pwm", 50.0).await.unwrap();
+        host.tick(1.0).await;
+        host.clear_manual("extra/pwm").await.unwrap();
+        assert_eq!(
+            state.lock().unwrap().released,
+            vec!["extra/pwm".to_string()]
+        );
+        host.tick(1.0).await;
+        assert_eq!(
+            state.lock().unwrap().released,
+            vec!["extra/pwm".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_claim_from_replaced_config_is_released_exactly_once() {
+        let (host, state) = setup(&[("t1", Some(50.0))]);
+        host.tick(1.0).await;
+        let mut new = GaleConfig::from_toml(CONFIG).unwrap();
+        new.profiles
+            .get_mut("p")
+            .unwrap()
+            .assignments
+            .remove("pwm2");
+        host.replace_config(new).await.unwrap();
+        assert_eq!(state.lock().unwrap().released, vec!["pwm2".to_string()]);
+        host.tick(1.0).await;
+        host.tick(1.0).await;
+        assert_eq!(state.lock().unwrap().released, vec!["pwm2".to_string()]);
     }
 
     #[tokio::test]
@@ -234,6 +300,15 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         host.set_manual("pwm1", 20.0).await.unwrap();
         host.clear_manual("pwm1").await.unwrap();
         assert_eq!(state.lock().unwrap().released.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn claimed_ids_returns_claimed_set_after_tick() {
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.tick(1.0).await;
+        let mut ids = host.claimed_ids();
+        ids.sort();
+        assert_eq!(ids, vec!["pwm1".to_string(), "pwm2".to_string()]);
     }
 
     #[tokio::test]

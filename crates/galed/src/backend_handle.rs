@@ -75,6 +75,13 @@ impl BackendHandle {
         self.send(Command::Release(id.to_string(), reply)).await?;
         rx.await.map_err(|_| thread_gone())?
     }
+
+    pub fn blocking_release(&self, id: &str) {
+        let (reply, _rx) = oneshot::channel();
+        let _ = self
+            .tx
+            .blocking_send(Command::Release(id.to_string(), reply));
+    }
 }
 
 #[cfg(test)]

@@ -72,6 +72,7 @@ pub fn spawn_config_watcher(
             }
         });
     })?;
+    std::fs::create_dir_all(&watch_dir)?;
     watcher.watch(&watch_dir, RecursiveMode::NonRecursive)?;
     Ok(watcher)
 }
@@ -121,6 +122,18 @@ duty = 42.0
         tokio::time::sleep(Duration::from_millis(400)).await;
         task.abort();
         assert_eq!(state.lock().unwrap().released, vec!["pwm1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn spawn_config_watcher_creates_missing_parent_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let watch_dir = dir.path().join("missing").join("nested");
+        let store = Arc::new(ConfigStore::new(watch_dir.join("config.toml")));
+        assert!(!watch_dir.exists());
+        let (host, _state) = setup();
+        let watcher = spawn_config_watcher(store, host);
+        assert!(watcher.is_ok());
+        assert!(watch_dir.exists());
     }
 
     #[tokio::test]

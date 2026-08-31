@@ -44,6 +44,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    install_panic_release_hook(host.clone());
     let heartbeat = Arc::new(Mutex::new(Instant::now()));
     tokio::spawn(runtime::tick_loop(
         host.clone(),
@@ -87,6 +88,21 @@ async fn main() {
     }
     tracing::info!("shutting down, releasing all controls");
     host.release_all().await;
+}
+
+fn install_panic_release_hook(host: Arc<EngineHost>) {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        eprintln!("panic detected, attempting best-effort release of claimed controls: {info}");
+        let host = host.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let _ = std::thread::spawn(move || {
+            host.blocking_release_claimed();
+            let _ = done_tx.send(());
+        });
+        let _ = done_rx.recv_timeout(std::time::Duration::from_secs(2));
+        previous_hook(info);
+    }));
 }
 
 async fn shutdown_signal() {
