@@ -1,3 +1,6 @@
+pub mod flat;
+pub mod sync;
+
 use crate::Id;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
