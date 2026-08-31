@@ -1,4 +1,5 @@
 pub mod flat;
+pub mod mix;
 pub mod point;
 pub mod sync;
 
