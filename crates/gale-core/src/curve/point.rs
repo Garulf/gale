@@ -6,6 +6,8 @@ pub struct PointCurve {
     points: Vec<(f64, f64)>,
     hysteresis: Option<(f64, f64)>,
     effective_temp: Option<f64>,
+    response: Option<(f64, f64)>,
+    last_output: Option<f64>,
 }
 
 impl PointCurve {
@@ -16,12 +18,32 @@ impl PointCurve {
             points,
             hysteresis: None,
             effective_temp: None,
+            response: None,
+            last_output: None,
         }
     }
 
     pub fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
         self.hysteresis = Some((up, down));
         self
+    }
+
+    pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
+        self.response = Some((rise_pct_per_sec, fall_pct_per_sec));
+        self
+    }
+
+    fn apply_response(&mut self, target: f64, dt_secs: f64) -> f64 {
+        let Some((rise, fall)) = self.response else {
+            return target;
+        };
+        let output = match self.last_output {
+            None => target,
+            Some(prev) if target > prev => prev + (target - prev).min(rise * dt_secs),
+            Some(prev) => prev - (prev - target).min(fall * dt_secs),
+        };
+        self.last_output = Some(output);
+        output
     }
 
     fn apply_hysteresis(&mut self, temp: f64) -> f64 {
@@ -55,7 +77,8 @@ impl PointCurve {
 impl Curve for PointCurve {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64> {
         let temp = self.apply_hysteresis(ctx.sensor(&self.sensor)?);
-        self.duty_for(temp)
+        let target = self.duty_for(temp)?;
+        Some(self.apply_response(target, ctx.dt_secs))
     }
 }
 
@@ -127,5 +150,33 @@ mod tests {
         assert_eq!(eval_at(&mut c, Some(40.0)), Some(35.0));
         assert_eq!(eval_at(&mut c, None), None);
         assert_eq!(eval_at(&mut c, Some(41.0)), Some(35.0));
+    }
+
+    #[test]
+    fn response_limits_rise_and_fall_per_second() {
+        let mut c = curve().with_response(10.0, 20.0);
+        assert_eq!(eval_at(&mut c, Some(30.0)), Some(20.0));
+        assert_eq!(eval_at(&mut c, Some(70.0)), Some(30.0));
+        assert_eq!(eval_at(&mut c, Some(70.0)), Some(40.0));
+        assert_eq!(eval_at(&mut c, Some(30.0)), Some(20.0));
+    }
+
+    #[test]
+    fn response_scales_with_dt() {
+        let mut c = curve().with_response(10.0, 10.0);
+        let set = CurveSet::new();
+        let s1: HashMap<_, _> = [("t".to_string(), Some(30.0))].into();
+        let ctx1 = EvalContext::new(&set, &s1, 1.0);
+        assert_eq!(c.evaluate(&ctx1), Some(20.0));
+        let s2: HashMap<_, _> = [("t".to_string(), Some(70.0))].into();
+        let ctx2 = EvalContext::new(&set, &s2, 0.5);
+        assert_eq!(c.evaluate(&ctx2), Some(25.0));
+    }
+
+    #[test]
+    fn response_reaches_target_without_overshoot() {
+        let mut c = curve().with_response(50.0, 50.0);
+        assert_eq!(eval_at(&mut c, Some(30.0)), Some(20.0));
+        assert_eq!(eval_at(&mut c, Some(50.0)), Some(50.0));
     }
 }
