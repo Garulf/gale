@@ -38,13 +38,20 @@ pub fn spawn_config_watcher(
     host: Arc<EngineHost>,
 ) -> notify::Result<notify::RecommendedWatcher> {
     let config_path = store.path().to_path_buf();
-    let watch_dir = config_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+    let watch_dir = config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     let runtime = tokio::runtime::Handle::current();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else {
             return;
         };
-        if !event.paths.iter().any(|p| p.ends_with(config_path.file_name().unwrap_or_default())) {
+        if !event
+            .paths
+            .iter()
+            .any(|p| p.ends_with(config_path.file_name().unwrap_or_default()))
+        {
             return;
         }
         if store.recently_saved(Duration::from_secs(2)) {
@@ -92,8 +99,13 @@ duty = 42.0
 
     fn setup() -> (Arc<EngineHost>, Arc<Mutex<Recorded>>) {
         let state = Arc::new(Mutex::new(Recorded::default()));
-        let handle = BackendHandle::spawn(Box::new(RecordingBackend { state: state.clone() }));
-        (EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap(), state)
+        let handle = BackendHandle::spawn(Box::new(RecordingBackend {
+            state: state.clone(),
+        }));
+        (
+            EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap(),
+            state,
+        )
     }
 
     #[tokio::test]

@@ -35,7 +35,9 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/ws", get(ws_upgrade))
         .layer(middleware::from_fn_with_state(ctx.clone(), require_api_key))
         .with_state(ctx.clone());
-    Router::new().nest("/api", api).route("/", get(|| async { "gale" }))
+    Router::new()
+        .nest("/api", api)
+        .route("/", get(|| async { "gale" }))
 }
 
 async fn require_api_key(
@@ -44,8 +46,10 @@ async fn require_api_key(
     next: Next,
 ) -> Response {
     if let Some(expected) = &ctx.api_key {
-        let provided =
-            request.headers().get("X-Api-Key").and_then(|v| v.to_str().ok());
+        let provided = request
+            .headers()
+            .get("X-Api-Key")
+            .and_then(|v| v.to_str().ok());
         if provided != Some(expected.as_str()) {
             return StatusCode::UNAUTHORIZED.into_response();
         }
@@ -74,7 +78,10 @@ fn config_error_response(error: ConfigError) -> Response {
 }
 
 async fn apply_and_persist(ctx: &ApiContext, config: GaleConfig) -> Result<(), Response> {
-    ctx.host.replace_config(config.clone()).await.map_err(config_error_response)?;
+    ctx.host
+        .replace_config(config.clone())
+        .await
+        .map_err(config_error_response)?;
     if let Err(error) = ctx.store.save(&config) {
         tracing::warn!(%error, "config persisted to disk failed");
     }
@@ -106,7 +113,10 @@ async fn set_control(
     Json(body): Json<DutyBody>,
 ) -> Response {
     if !body.duty.is_finite() || !(0.0..=100.0).contains(&body.duty) {
-        return (StatusCode::BAD_REQUEST, "duty must be a finite percent in 0..=100")
+        return (
+            StatusCode::BAD_REQUEST,
+            "duty must be a finite percent in 0..=100",
+        )
             .into_response();
     }
     match ctx.host.set_manual(&id, body.duty).await {
@@ -200,8 +210,7 @@ duty = 10.0
 
     fn make_router(api_key: Option<String>) -> (axum::Router, Arc<EngineHost>) {
         let handle = BackendHandle::spawn(Box::new(NullBackend));
-        let host =
-            EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap();
+        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(ConfigStore::new(dir.path().join("config.toml")));
         std::mem::forget(dir);

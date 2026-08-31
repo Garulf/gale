@@ -15,7 +15,10 @@ pub struct BackendHandle {
 }
 
 fn thread_gone() -> HwError {
-    HwError::Io { path: "backend".into(), message: "backend thread terminated".into() }
+    HwError::Io {
+        path: "backend".into(),
+        message: "backend thread terminated".into(),
+    }
 }
 
 impl BackendHandle {
@@ -62,7 +65,8 @@ impl BackendHandle {
 
     pub async fn set_duty(&self, id: &str, pct: f64) -> Result<(), HwError> {
         let (reply, rx) = oneshot::channel();
-        self.send(Command::SetDuty(id.to_string(), pct, reply)).await?;
+        self.send(Command::SetDuty(id.to_string(), pct, reply))
+            .await?;
         rx.await.map_err(|_| thread_gone())?
     }
 
@@ -93,7 +97,10 @@ mod tests {
         fn enumerate(&mut self) -> Result<Inventory, HwError> {
             Ok(Inventory {
                 sensors: Vec::new(),
-                controls: vec![ControlInfo { id: "fake/p1".into(), label: "p1".into() }],
+                controls: vec![ControlInfo {
+                    id: "fake/p1".into(),
+                    label: "p1".into(),
+                }],
             })
         }
 

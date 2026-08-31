@@ -10,7 +10,10 @@ pub struct ConfigStore {
 
 impl ConfigStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, last_saved: Mutex::new(None) }
+        Self {
+            path,
+            last_saved: Mutex::new(None),
+        }
     }
 
     pub fn default_path() -> PathBuf {

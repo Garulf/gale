@@ -123,7 +123,10 @@ impl GaleConfig {
             active_profile: "default".to_string(),
             profiles: [(
                 "default".to_string(),
-                ProfileConfig { curves: HashMap::new(), assignments: HashMap::new() },
+                ProfileConfig {
+                    curves: HashMap::new(),
+                    assignments: HashMap::new(),
+                },
             )]
             .into(),
         }

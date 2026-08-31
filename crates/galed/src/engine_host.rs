@@ -34,7 +34,11 @@ impl EngineHost {
         let engine = build_engine(&config)?;
         let (snapshot_tx, _) = watch::channel(Snapshot::default());
         Ok(Arc::new(Self {
-            state: Mutex::new(HostState { config, engine, manual: HashMap::new() }),
+            state: Mutex::new(HostState {
+                config,
+                engine,
+                manual: HashMap::new(),
+            }),
             claimed: Mutex::new(HashSet::new()),
             backend,
             snapshot_tx,
@@ -57,7 +61,11 @@ impl EngineHost {
             for (id, duty) in &state.manual {
                 duties.insert(id.clone(), *duty);
             }
-            (duties, state.manual.clone(), state.config.active_profile.clone())
+            (
+                duties,
+                state.manual.clone(),
+                state.config.active_profile.clone(),
+            )
         };
         for (id, duty) in &duties {
             match self.backend.set_duty(id, *duty).await {
@@ -69,8 +77,12 @@ impl EngineHost {
                 }
             }
         }
-        self.snapshot_tx
-            .send_replace(Snapshot { sensors, duties, manual, active_profile });
+        self.snapshot_tx.send_replace(Snapshot {
+            sensors,
+            duties,
+            manual,
+            active_profile,
+        });
     }
 
     pub async fn replace_config(&self, new: GaleConfig) -> Result<(), ConfigError> {
@@ -98,7 +110,11 @@ impl EngineHost {
     pub async fn set_manual(&self, id: &str, duty: f64) -> Result<(), HwError> {
         self.backend.set_duty(id, duty).await?;
         self.claimed.lock().unwrap().insert(id.to_string());
-        self.state.lock().unwrap().manual.insert(id.to_string(), duty);
+        self.state
+            .lock()
+            .unwrap()
+            .manual
+            .insert(id.to_string(), duty);
         Ok(())
     }
 
@@ -151,7 +167,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             sensors: sensors.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
             ..Recorded::default()
         }));
-        let handle = BackendHandle::spawn(Box::new(RecordingBackend { state: state.clone() }));
+        let handle = BackendHandle::spawn(Box::new(RecordingBackend {
+            state: state.clone(),
+        }));
         let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap();
         (host, state)
     }
@@ -195,7 +213,11 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.tick(1.0).await;
         let mut new = GaleConfig::from_toml(CONFIG).unwrap();
-        new.profiles.get_mut("p").unwrap().assignments.remove("pwm2");
+        new.profiles
+            .get_mut("p")
+            .unwrap()
+            .assignments
+            .remove("pwm2");
         host.replace_config(new).await.unwrap();
         assert_eq!(state.lock().unwrap().released, vec!["pwm2".to_string()]);
     }
@@ -205,7 +227,10 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.set_manual("extra/pwm", 80.0).await.unwrap();
         host.clear_manual("extra/pwm").await.unwrap();
-        assert_eq!(state.lock().unwrap().released, vec!["extra/pwm".to_string()]);
+        assert_eq!(
+            state.lock().unwrap().released,
+            vec!["extra/pwm".to_string()]
+        );
         host.set_manual("pwm1", 20.0).await.unwrap();
         host.clear_manual("pwm1").await.unwrap();
         assert_eq!(state.lock().unwrap().released.len(), 1);

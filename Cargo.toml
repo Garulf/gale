@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/gale-core", "crates/gale-hw", "crates/gale-hw-hwmon", "crates/galed"]
+members = ["crates/gale-core", "crates/gale-hw", "crates/gale-hw-hwmon", "crates/galed", "crates/gale-cli"]
 
 [workspace.package]
 version = "0.1.0"

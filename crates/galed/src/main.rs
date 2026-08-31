@@ -1,11 +1,11 @@
+use gale_hw::composite::CompositeBackend;
+use gale_hw::Backend;
+use gale_hw_hwmon::HwmonBackend;
 use galed::api::{self, ApiContext};
 use galed::backend_handle::BackendHandle;
 use galed::config_store::ConfigStore;
 use galed::engine_host::EngineHost;
 use galed::runtime;
-use gale_hw::composite::CompositeBackend;
-use gale_hw::Backend;
-use gale_hw_hwmon::HwmonBackend;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 use tracing_subscriber::EnvFilter;
@@ -45,8 +45,16 @@ async fn main() {
         }
     };
     let heartbeat = Arc::new(Mutex::new(Instant::now()));
-    tokio::spawn(runtime::tick_loop(host.clone(), config.tick_interval_ms, heartbeat.clone()));
-    tokio::spawn(runtime::watchdog(host.clone(), config.tick_interval_ms, heartbeat));
+    tokio::spawn(runtime::tick_loop(
+        host.clone(),
+        config.tick_interval_ms,
+        heartbeat.clone(),
+    ));
+    tokio::spawn(runtime::watchdog(
+        host.clone(),
+        config.tick_interval_ms,
+        heartbeat,
+    ));
     let _watcher = match runtime::spawn_config_watcher(store.clone(), host.clone()) {
         Ok(watcher) => Some(watcher),
         Err(error) => {
@@ -85,9 +93,8 @@ async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("sigterm handler");
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("sigterm handler");
         tokio::select! {
             _ = ctrl_c => {}
             _ = sigterm.recv() => {}
