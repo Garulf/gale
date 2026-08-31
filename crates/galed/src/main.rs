@@ -1,1 +1,100 @@
-fn main() {}
+use galed::api::{self, ApiContext};
+use galed::backend_handle::BackendHandle;
+use galed::config_store::ConfigStore;
+use galed::engine_host::EngineHost;
+use galed::runtime;
+use gale_hw::composite::CompositeBackend;
+use gale_hw::Backend;
+use gale_hw_hwmon::HwmonBackend;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
+use tracing_subscriber::EnvFilter;
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .init();
+    let store = Arc::new(ConfigStore::new(ConfigStore::default_path()));
+    let config = match store.load() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("failed to load config {}: {error}", store.path().display());
+            std::process::exit(1);
+        }
+    };
+    let backends: Vec<Box<dyn Backend>> = vec![Box::new(HwmonBackend::new())];
+    let handle = BackendHandle::spawn(Box::new(CompositeBackend::new(backends)));
+    let inventory = match handle.enumerate().await {
+        Ok(inventory) => inventory,
+        Err(error) => {
+            eprintln!("hardware enumeration failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!(
+        sensors = inventory.sensors.len(),
+        controls = inventory.controls.len(),
+        "hardware enumerated"
+    );
+    let host = match EngineHost::new(config.clone(), handle) {
+        Ok(host) => host,
+        Err(error) => {
+            eprintln!("invalid config: {error}");
+            std::process::exit(1);
+        }
+    };
+    let heartbeat = Arc::new(Mutex::new(Instant::now()));
+    tokio::spawn(runtime::tick_loop(host.clone(), config.tick_interval_ms, heartbeat.clone()));
+    tokio::spawn(runtime::watchdog(host.clone(), config.tick_interval_ms, heartbeat));
+    let _watcher = match runtime::spawn_config_watcher(store.clone(), host.clone()) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            tracing::warn!(%error, "config hot-reload unavailable");
+            None
+        }
+    };
+    let ctx = ApiContext {
+        host: host.clone(),
+        store,
+        inventory: Arc::new(RwLock::new(inventory)),
+        api_key: config.api.api_key.clone(),
+    };
+    let listener = match tokio::net::TcpListener::bind(&config.api.bind).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            eprintln!("cannot bind {}: {error}", config.api.bind);
+            std::process::exit(1);
+        }
+    };
+    tracing::info!(bind = %config.api.bind, "gale daemon listening");
+    let server = axum::serve(listener, api::router(ctx));
+    tokio::select! {
+        result = server => {
+            if let Err(error) = result {
+                tracing::error!(%error, "server error");
+            }
+        }
+        _ = shutdown_signal() => {}
+    }
+    tracing::info!("shutting down, releasing all controls");
+    host.release_all().await;
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("sigterm handler");
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
+    }
+}

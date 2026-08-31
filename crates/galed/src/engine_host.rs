@@ -129,50 +129,9 @@ impl EngineHost {
 mod tests {
     use super::*;
     use crate::backend_handle::BackendHandle;
+    use crate::test_support::{Recorded, RecordingBackend};
     use gale_core::config::GaleConfig;
-    use gale_hw::{Backend, HwError, Id, Inventory};
-    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
-
-    #[derive(Default)]
-    struct Recorded {
-        duties: HashMap<Id, f64>,
-        released: Vec<Id>,
-        fail_ids: Vec<Id>,
-        sensors: HashMap<Id, Option<f64>>,
-    }
-
-    struct RecordingBackend {
-        state: Arc<Mutex<Recorded>>,
-    }
-
-    impl Backend for RecordingBackend {
-        fn name(&self) -> &str {
-            "recording"
-        }
-
-        fn enumerate(&mut self) -> Result<Inventory, HwError> {
-            Ok(Inventory::default())
-        }
-
-        fn read_all(&mut self) -> HashMap<Id, Option<f64>> {
-            self.state.lock().unwrap().sensors.clone()
-        }
-
-        fn set_duty(&mut self, id: &str, pct: f64) -> Result<(), HwError> {
-            let mut state = self.state.lock().unwrap();
-            if state.fail_ids.iter().any(|f| f == id) {
-                return Err(HwError::UnknownId(id.to_string()));
-            }
-            state.duties.insert(id.to_string(), pct);
-            Ok(())
-        }
-
-        fn release(&mut self, id: &str) -> Result<(), HwError> {
-            self.state.lock().unwrap().released.push(id.to_string());
-            Ok(())
-        }
-    }
 
     const CONFIG: &str = r#"
 active_profile = "p"
