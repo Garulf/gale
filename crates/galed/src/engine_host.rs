@@ -1,4 +1,4 @@
-use crate::backend_handle::BackendHandle;
+use crate::backend_pool::BackendPool;
 use gale_core::build::build_engine;
 use gale_core::config::{ConfigError, GaleConfig};
 use gale_core::engine::FanEngine;
@@ -25,12 +25,12 @@ struct HostState {
 pub struct EngineHost {
     state: Mutex<HostState>,
     claimed: Mutex<HashSet<Id>>,
-    backend: BackendHandle,
+    backend: BackendPool,
     snapshot_tx: watch::Sender<Snapshot>,
 }
 
 impl EngineHost {
-    pub fn new(config: GaleConfig, backend: BackendHandle) -> Result<Arc<Self>, ConfigError> {
+    pub fn new(config: GaleConfig, backend: BackendPool) -> Result<Arc<Self>, ConfigError> {
         let engine = build_engine(&config)?;
         let (snapshot_tx, _) = watch::channel(Snapshot::default());
         Ok(Arc::new(Self {
@@ -200,7 +200,8 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let handle = BackendHandle::spawn(Box::new(RecordingBackend {
             state: state.clone(),
         }));
-        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap();
+        let pool = BackendPool::new(vec![handle]);
+        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
         (host, state)
     }
 

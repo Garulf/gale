@@ -162,6 +162,7 @@ async fn send_snapshot(
 mod tests {
     use super::*;
     use crate::backend_handle::BackendHandle;
+    use crate::backend_pool::BackendPool;
     use crate::config_store::ConfigStore;
     use crate::engine_host::EngineHost;
     use axum::body::Body;
@@ -210,7 +211,8 @@ duty = 10.0
 
     fn make_router(api_key: Option<String>) -> (axum::Router, Arc<EngineHost>) {
         let handle = BackendHandle::spawn(Box::new(NullBackend));
-        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap();
+        let pool = BackendPool::new(vec![handle]);
+        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(ConfigStore::new(dir.path().join("config.toml")));
         std::mem::forget(dir);

@@ -81,6 +81,7 @@ pub fn spawn_config_watcher(
 mod tests {
     use super::*;
     use crate::backend_handle::BackendHandle;
+    use crate::backend_pool::BackendPool;
     use crate::engine_host::EngineHost;
     use crate::test_support::{Recorded, RecordingBackend};
     use gale_core::config::GaleConfig;
@@ -103,8 +104,9 @@ duty = 42.0
         let handle = BackendHandle::spawn(Box::new(RecordingBackend {
             state: state.clone(),
         }));
+        let pool = BackendPool::new(vec![handle]);
         (
-            EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), handle).unwrap(),
+            EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap(),
             state,
         )
     }

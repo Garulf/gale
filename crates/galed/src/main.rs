@@ -1,8 +1,7 @@
-use gale_hw::composite::CompositeBackend;
-use gale_hw::Backend;
 use gale_hw_hwmon::HwmonBackend;
 use galed::api::{self, ApiContext};
 use galed::backend_handle::BackendHandle;
+use galed::backend_pool::BackendPool;
 use galed::config_store::ConfigStore;
 use galed::engine_host::EngineHost;
 use galed::runtime;
@@ -23,21 +22,14 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let backends: Vec<Box<dyn Backend>> = vec![Box::new(HwmonBackend::new())];
-    let handle = BackendHandle::spawn(Box::new(CompositeBackend::new(backends)));
-    let inventory = match handle.enumerate().await {
-        Ok(inventory) => inventory,
-        Err(error) => {
-            eprintln!("hardware enumeration failed: {error}");
-            std::process::exit(1);
-        }
-    };
+    let pool = BackendPool::new(vec![BackendHandle::spawn(Box::new(HwmonBackend::new()))]);
+    let inventory = pool.enumerate().await;
     tracing::info!(
         sensors = inventory.sensors.len(),
         controls = inventory.controls.len(),
         "hardware enumerated"
     );
-    let host = match EngineHost::new(config.clone(), handle) {
+    let host = match EngineHost::new(config.clone(), pool) {
         Ok(host) => host,
         Err(error) => {
             eprintln!("invalid config: {error}");
