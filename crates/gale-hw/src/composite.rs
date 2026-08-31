@@ -30,16 +30,24 @@ impl Backend for CompositeBackend {
 
     fn enumerate(&mut self) -> Result<Inventory, HwError> {
         let mut merged = Inventory::default();
-        self.owners.clear();
+        let previous_owners = std::mem::take(&mut self.owners);
         for (index, backend) in self.backends.iter_mut().enumerate() {
-            let Ok(inventory) = backend.enumerate() else {
-                continue;
-            };
-            for control in &inventory.controls {
-                self.owners.insert(control.id.clone(), index);
+            match backend.enumerate() {
+                Ok(inventory) => {
+                    for control in &inventory.controls {
+                        self.owners.insert(control.id.clone(), index);
+                    }
+                    merged.sensors.extend(inventory.sensors);
+                    merged.controls.extend(inventory.controls);
+                }
+                Err(_) => {
+                    for (id, owner) in &previous_owners {
+                        if *owner == index {
+                            self.owners.insert(id.clone(), index);
+                        }
+                    }
+                }
             }
-            merged.sensors.extend(inventory.sensors);
-            merged.controls.extend(inventory.controls);
         }
         Ok(merged)
     }
@@ -66,10 +74,12 @@ mod tests {
     use super::*;
     use crate::{Backend, ControlInfo, HwError, Id, Inventory, SensorInfo, SensorKind};
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     struct Child {
         name: &'static str,
-        fail_enumerate: bool,
+        fail_enumerate: Arc<AtomicBool>,
         last_set: Option<(Id, f64)>,
         released: Vec<Id>,
     }
@@ -78,7 +88,16 @@ mod tests {
         fn new(name: &'static str) -> Self {
             Self {
                 name,
-                fail_enumerate: false,
+                fail_enumerate: Arc::new(AtomicBool::new(false)),
+                last_set: None,
+                released: Vec::new(),
+            }
+        }
+
+        fn with_fail_flag(name: &'static str, fail_enumerate: Arc<AtomicBool>) -> Self {
+            Self {
+                name,
+                fail_enumerate,
                 last_set: None,
                 released: Vec::new(),
             }
@@ -91,7 +110,7 @@ mod tests {
         }
 
         fn enumerate(&mut self) -> Result<Inventory, HwError> {
-            if self.fail_enumerate {
+            if self.fail_enumerate.load(Ordering::SeqCst) {
                 return Err(HwError::Io {
                     path: self.name.into(),
                     message: "boom".into(),
@@ -157,13 +176,30 @@ mod tests {
 
     #[test]
     fn failing_child_is_skipped_not_fatal() {
-        let mut broken = Child::new("broken");
-        broken.fail_enumerate = true;
+        let fail = Arc::new(AtomicBool::new(true));
+        let broken = Child::with_fail_flag("broken", fail);
         let mut composite =
             CompositeBackend::new(vec![Box::new(broken), Box::new(Child::new("ok"))]);
         let inventory = composite.enumerate().unwrap();
         assert_eq!(inventory.sensors.len(), 1);
         assert_eq!(inventory.sensors[0].id, "ok/t1");
         composite.set_duty("ok/p1", 10.0).unwrap();
+    }
+
+    #[test]
+    fn reenumerate_with_transient_failure_still_routes_release_and_keeps_inventory() {
+        let fail_b = Arc::new(AtomicBool::new(false));
+        let mut composite = CompositeBackend::new(vec![
+            Box::new(Child::new("a")),
+            Box::new(Child::with_fail_flag("b", fail_b.clone())),
+        ]);
+        composite.enumerate().unwrap();
+        composite.set_duty("b/p1", 40.0).unwrap();
+
+        fail_b.store(true, Ordering::SeqCst);
+        let inventory = composite.enumerate().unwrap();
+
+        assert!(inventory.controls.iter().any(|c| c.id == "a/p1"));
+        composite.release("b/p1").unwrap();
     }
 }

@@ -65,7 +65,13 @@ impl HwmonBackend {
         chips
     }
 
-    fn scan_chip(&mut self, chip: &str, dir: &Path, inventory: &mut Inventory) {
+    fn scan_chip(
+        &mut self,
+        chip: &str,
+        dir: &Path,
+        inventory: &mut Inventory,
+        previous: &HashMap<Id, ControlEntry>,
+    ) {
         let Ok(entries) = fs::read_dir(dir) else {
             return;
         };
@@ -78,12 +84,17 @@ impl HwmonBackend {
             } else if is_pwm_file(&file) {
                 let id = format!("hwmon/{chip}/{file}");
                 let enable = dir.join(format!("{file}_enable"));
+                let pwm_path = entry.path();
+                let saved_enable = previous
+                    .get(&id)
+                    .filter(|old| old.pwm_path == pwm_path)
+                    .and_then(|old| old.saved_enable.clone());
                 self.controls.insert(
                     id.clone(),
                     ControlEntry {
-                        pwm_path: entry.path(),
+                        pwm_path,
                         enable_path: enable.exists().then_some(enable),
-                        saved_enable: None,
+                        saved_enable,
                     },
                 );
                 inventory.controls.push(ControlInfo {
@@ -155,10 +166,10 @@ impl Backend for HwmonBackend {
 
     fn enumerate(&mut self) -> Result<Inventory, HwError> {
         self.sensors.clear();
-        self.controls.clear();
+        let previous = std::mem::take(&mut self.controls);
         let mut inventory = Inventory::default();
         for (chip, dir) in self.chips() {
-            self.scan_chip(&chip, &dir, &mut inventory);
+            self.scan_chip(&chip, &dir, &mut inventory, &previous);
         }
         inventory.sensors.sort_by(|a, b| a.id.cmp(&b.id));
         inventory.controls.sort_by(|a, b| a.id.cmp(&b.id));
@@ -187,6 +198,12 @@ impl Backend for HwmonBackend {
             .controls
             .get_mut(id)
             .ok_or_else(|| HwError::UnknownId(id.to_string()))?;
+        if !pct.is_finite() {
+            return Err(HwError::Io {
+                path: control.pwm_path.display().to_string(),
+                message: "non-finite duty".into(),
+            });
+        }
         if control.saved_enable.is_none() {
             if let Some(enable_path) = &control.enable_path {
                 let current =
@@ -385,6 +402,31 @@ mod tests {
         backend.set_duty("hwmon/amdgpu/pwm1", 100.0).unwrap();
         assert_eq!(read_file(&chip1, "pwm1"), "255");
         backend.release("hwmon/amdgpu/pwm1").unwrap();
+    }
+
+    #[test]
+    fn reenumerate_preserves_claim_state_so_release_still_restores() {
+        let tree = mock_tree();
+        let chip0 = tree.path().join("hwmon0");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        backend.set_duty("hwmon/nct6798/pwm1", 60.0).unwrap();
+        assert_eq!(read_file(&chip0, "pwm1_enable"), "1");
+        backend.enumerate().unwrap();
+        backend.release("hwmon/nct6798/pwm1").unwrap();
+        assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
+    }
+
+    #[test]
+    fn set_duty_rejects_non_finite_percentages() {
+        let tree = mock_tree();
+        let chip0 = tree.path().join("hwmon0");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        let result = backend.set_duty("hwmon/nct6798/pwm1", f64::NAN);
+        assert!(matches!(result, Err(HwError::Io { .. })));
+        assert_eq!(read_file(&chip0, "pwm1"), "128");
+        assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
     }
 
     #[test]
