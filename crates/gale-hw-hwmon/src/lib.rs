@@ -111,6 +111,10 @@ fn numbered_stem(file: &str, prefix: &str, suffix: &str) -> Option<String> {
     (!digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())).then(|| stem.to_string())
 }
 
+fn read_number(path: &Path) -> Option<f64> {
+    fs::read_to_string(path).ok().and_then(|s| s.trim().parse().ok())
+}
+
 fn is_pwm_file(file: &str) -> bool {
     file.strip_prefix("pwm")
         .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
@@ -134,7 +138,20 @@ impl Backend for HwmonBackend {
     }
 
     fn read_all(&mut self) -> HashMap<Id, Option<f64>> {
-        HashMap::new()
+        let mut values = HashMap::new();
+        for (id, sensor) in &self.sensors {
+            let raw = read_number(&sensor.path);
+            let value = match sensor.kind {
+                SensorKind::Temp => raw.map(|v| v / 1000.0),
+                _ => raw,
+            };
+            values.insert(id.clone(), value);
+        }
+        for (id, control) in &self.controls {
+            let value = read_number(&control.pwm_path).map(|v| v / 255.0 * 100.0);
+            values.insert(id.clone(), value);
+        }
+        values
     }
 
     fn set_duty(&mut self, id: &str, _pct: f64) -> Result<(), HwError> {
@@ -226,5 +243,32 @@ mod tests {
         let inventory = backend.enumerate().unwrap();
         assert_eq!(inventory.controls.len(), 1);
         assert_eq!(inventory.sensors.len(), 3);
+    }
+
+    #[test]
+    fn read_all_converts_units_and_covers_controls() {
+        let tree = mock_tree();
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        let values = backend.read_all();
+        assert_eq!(values["hwmon/nct6798/temp1"], Some(45.0));
+        assert_eq!(values["hwmon/amdgpu/temp1"], Some(60.0));
+        assert_eq!(values["hwmon/nct6798/fan1"], Some(1200.0));
+        let duty = values["hwmon/nct6798/pwm1"].unwrap();
+        assert!((duty - 50.196).abs() < 0.01);
+        assert_eq!(values.len(), 4);
+    }
+
+    #[test]
+    fn unreadable_sensor_reads_none_not_zero() {
+        let tree = mock_tree();
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        fs::remove_file(tree.path().join("hwmon1").join("temp1_input")).unwrap();
+        write(&tree.path().join("hwmon0"), "temp1_input", "garbage\n");
+        let values = backend.read_all();
+        assert_eq!(values["hwmon/amdgpu/temp1"], None);
+        assert_eq!(values["hwmon/nct6798/temp1"], None);
+        assert_eq!(values["hwmon/nct6798/fan1"], Some(1200.0));
     }
 }
