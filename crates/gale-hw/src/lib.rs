@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod composite;
+
 pub type Id = String;
 
 #[derive(Debug, thiserror::Error)]
