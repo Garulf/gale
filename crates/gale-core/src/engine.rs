@@ -34,7 +34,10 @@ impl FanEngine {
         self.assignments
             .iter()
             .map(|(control, curve)| {
-                let duty = ctx.resolve(curve).unwrap_or(FAIL_SAFE_PCT);
+                let duty = ctx
+                    .resolve(curve)
+                    .filter(|d| d.is_finite())
+                    .unwrap_or(FAIL_SAFE_PCT);
                 (control.clone(), duty.clamp(0.0, 100.0))
             })
             .collect()
@@ -103,5 +106,22 @@ mod tests {
         let duties = engine.tick(&sensors(&[]), 1.0);
         assert_eq!(duties["pwm1"], 100.0);
         assert_eq!(duties["pwm2"], 0.0);
+    }
+
+    #[test]
+    fn nan_duty_fails_safe() {
+        let mut set = CurveSet::new();
+        set.insert("broken".into(), Box::new(FlatCurve { duty: f64::NAN }));
+        let assignments: HashMap<String, String> =
+            [("pwm1".to_string(), "broken".to_string())].into();
+        let mut engine = FanEngine::new(set, assignments);
+        let duties = engine.tick(&sensors(&[]), 1.0);
+        assert_eq!(duties["pwm1"], FAIL_SAFE_PCT);
+    }
+
+    #[test]
+    fn engine_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<FanEngine>();
     }
 }

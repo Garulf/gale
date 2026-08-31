@@ -9,7 +9,7 @@ use crate::Id;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-pub trait Curve {
+pub trait Curve: Send {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64>;
 }
 
@@ -92,11 +92,11 @@ mod tests {
     }
 
     struct Counting {
-        calls: std::rc::Rc<std::cell::Cell<u32>>,
+        calls: std::sync::Arc<std::sync::atomic::AtomicU32>,
     }
     impl Curve for Counting {
         fn evaluate(&mut self, _ctx: &EvalContext) -> Option<f64> {
-            self.calls.set(self.calls.get() + 1);
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Some(42.0)
         }
     }
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn resolve_memoizes_within_one_context() {
-        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let mut set = CurveSet::new();
         set.insert(
             "a".into(),
@@ -139,7 +139,7 @@ mod tests {
         let ctx = EvalContext::new(&set, &s, 1.0);
         assert_eq!(ctx.resolve("a"), Some(42.0));
         assert_eq!(ctx.resolve("a"), Some(42.0));
-        assert_eq!(calls.get(), 1);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
