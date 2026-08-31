@@ -2,6 +2,7 @@ pub mod flat;
 pub mod mix;
 pub mod point;
 pub mod sync;
+pub mod trigger;
 
 use crate::Id;
 use std::cell::RefCell;
