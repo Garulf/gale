@@ -1,0 +1,11 @@
+[package]
+name = "gale-hw-hwmon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gale-hw = { path = "../gale-hw" }
+
+[dev-dependencies]
+tempfile = "3"
