@@ -69,7 +69,10 @@ mod tests {
                     label: "t1".into(),
                     kind: SensorKind::Temp,
                 }],
-                controls: vec![ControlInfo { id: "fake/p1".into(), label: "p1".into() }],
+                controls: vec![ControlInfo {
+                    id: "fake/p1".into(),
+                    label: "p1".into(),
+                }],
             })
         }
 
@@ -86,7 +89,10 @@ mod tests {
         }
 
         fn release(&mut self, id: &str) -> Result<(), HwError> {
-            self.duties.remove(id).map(|_| ()).ok_or_else(|| HwError::UnknownId(id.to_string()))
+            self.duties
+                .remove(id)
+                .map(|_| ())
+                .ok_or_else(|| HwError::UnknownId(id.to_string()))
         }
     }
 
@@ -94,18 +100,26 @@ mod tests {
     fn backend_is_usable_as_send_trait_object() {
         fn assert_send<T: Send + ?Sized>() {}
         assert_send::<dyn Backend>();
-        let mut backend: Box<dyn Backend> = Box::new(FakeBackend { duties: HashMap::new() });
+        let mut backend: Box<dyn Backend> = Box::new(FakeBackend {
+            duties: HashMap::new(),
+        });
         assert_eq!(backend.name(), "fake");
         let inventory = backend.enumerate().unwrap();
         assert_eq!(inventory.sensors[0].kind, SensorKind::Temp);
         assert_eq!(backend.read_all()["fake/t1"], Some(42.0));
         backend.set_duty("fake/p1", 55.0).unwrap();
         backend.release("fake/p1").unwrap();
-        assert!(matches!(backend.set_duty("fake/nope", 1.0), Err(HwError::UnknownId(_))));
+        assert!(matches!(
+            backend.set_duty("fake/nope", 1.0),
+            Err(HwError::UnknownId(_))
+        ));
     }
 
     #[test]
     fn sensor_kind_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&SensorKind::Temp).unwrap(), "\"temp\"");
+        assert_eq!(
+            serde_json::to_string(&SensorKind::Temp).unwrap(),
+            "\"temp\""
+        );
     }
 }

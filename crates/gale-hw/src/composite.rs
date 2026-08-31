@@ -8,11 +8,17 @@ pub struct CompositeBackend {
 
 impl CompositeBackend {
     pub fn new(backends: Vec<Box<dyn Backend>>) -> Self {
-        Self { backends, owners: HashMap::new() }
+        Self {
+            backends,
+            owners: HashMap::new(),
+        }
     }
 
     fn owner_of(&mut self, id: &str) -> Result<&mut Box<dyn Backend>, HwError> {
-        let index = *self.owners.get(id).ok_or_else(|| HwError::UnknownId(id.to_string()))?;
+        let index = *self
+            .owners
+            .get(id)
+            .ok_or_else(|| HwError::UnknownId(id.to_string()))?;
         Ok(&mut self.backends[index])
     }
 }
@@ -70,7 +76,12 @@ mod tests {
 
     impl Child {
         fn new(name: &'static str) -> Self {
-            Self { name, fail_enumerate: false, last_set: None, released: Vec::new() }
+            Self {
+                name,
+                fail_enumerate: false,
+                last_set: None,
+                released: Vec::new(),
+            }
         }
     }
 
@@ -81,7 +92,10 @@ mod tests {
 
         fn enumerate(&mut self) -> Result<Inventory, HwError> {
             if self.fail_enumerate {
-                return Err(HwError::Io { path: self.name.into(), message: "boom".into() });
+                return Err(HwError::Io {
+                    path: self.name.into(),
+                    message: "boom".into(),
+                });
             }
             Ok(Inventory {
                 sensors: vec![SensorInfo {
@@ -131,8 +145,14 @@ mod tests {
         composite.enumerate().unwrap();
         composite.set_duty("b/p1", 40.0).unwrap();
         composite.release("b/p1").unwrap();
-        assert!(matches!(composite.set_duty("ghost/p1", 1.0), Err(HwError::UnknownId(_))));
-        assert!(matches!(composite.release("ghost/p1"), Err(HwError::UnknownId(_))));
+        assert!(matches!(
+            composite.set_duty("ghost/p1", 1.0),
+            Err(HwError::UnknownId(_))
+        ));
+        assert!(matches!(
+            composite.release("ghost/p1"),
+            Err(HwError::UnknownId(_))
+        ));
     }
 
     #[test]
