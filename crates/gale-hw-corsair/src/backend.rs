@@ -1,10 +1,25 @@
+use crate::commander_pro::CommanderPro;
+use crate::transport::HidapiTransport;
 use crate::CorsairDevice;
 use gale_hw::{Backend, ControlInfo, HwError, Id, Inventory, SensorInfo};
 use std::collections::HashMap;
 
 pub const VID_CORSAIR: u16 = 0x1b1c;
 
-const KNOWN_DEVICES: &[(u16, u16)] = &[];
+const PID_COMMANDER_PRO: u16 = 0x0c10;
+const PID_OBSIDIAN_1000D: u16 = 0x1d00;
+
+const KNOWN_DEVICES: &[(u16, u16)] = &[
+    (VID_CORSAIR, PID_COMMANDER_PRO),
+    (VID_CORSAIR, PID_OBSIDIAN_1000D),
+];
+
+fn commander_pro_slug(pid: u16) -> &'static str {
+    match pid {
+        PID_OBSIDIAN_1000D => "obsidian-1000d",
+        _ => "commander-pro",
+    }
+}
 
 pub struct CorsairBackend {
     devices: Vec<Box<dyn CorsairDevice>>,
@@ -14,15 +29,30 @@ pub struct CorsairBackend {
 
 impl CorsairBackend {
     pub fn new() -> Self {
-        let devices: Vec<Box<dyn CorsairDevice>> = Vec::new();
+        let mut devices: Vec<Box<dyn CorsairDevice>> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
             for info in api.device_list() {
-                if KNOWN_DEVICES.contains(&(info.vendor_id(), info.product_id())) {
-                    tracing::debug!(
-                        vid = info.vendor_id(),
-                        pid = info.product_id(),
-                        "matched known corsair device, no driver registered yet"
-                    );
+                let vid = info.vendor_id();
+                let pid = info.product_id();
+                if !KNOWN_DEVICES.contains(&(vid, pid)) {
+                    continue;
+                }
+                match api.open(vid, pid) {
+                    Ok(device) => {
+                        let transport = Box::new(HidapiTransport::new(device));
+                        devices.push(Box::new(CommanderPro::new(
+                            transport,
+                            commander_pro_slug(pid),
+                        )));
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            vid,
+                            pid,
+                            %error,
+                            "matched known corsair device but failed to open it"
+                        );
+                    }
                 }
             }
         }

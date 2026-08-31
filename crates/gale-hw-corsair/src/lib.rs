@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod commander_pro;
 pub mod transport;
 
 use std::collections::HashMap;
