@@ -4,12 +4,37 @@ use crate::Id;
 pub struct PointCurve {
     sensor: Id,
     points: Vec<(f64, f64)>,
+    hysteresis: Option<(f64, f64)>,
+    effective_temp: Option<f64>,
 }
 
 impl PointCurve {
     pub fn new(sensor: Id, mut points: Vec<(f64, f64)>) -> Self {
         points.sort_by(|a, b| a.0.total_cmp(&b.0));
-        Self { sensor, points }
+        Self {
+            sensor,
+            points,
+            hysteresis: None,
+            effective_temp: None,
+        }
+    }
+
+    pub fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
+        self.hysteresis = Some((up, down));
+        self
+    }
+
+    fn apply_hysteresis(&mut self, temp: f64) -> f64 {
+        let Some((up, down)) = self.hysteresis else {
+            return temp;
+        };
+        match self.effective_temp {
+            Some(eff) if temp <= eff + up && temp >= eff - down => eff,
+            _ => {
+                self.effective_temp = Some(temp);
+                temp
+            }
+        }
     }
 
     fn duty_for(&self, temp: f64) -> Option<f64> {
@@ -29,7 +54,7 @@ impl PointCurve {
 
 impl Curve for PointCurve {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64> {
-        let temp = ctx.sensor(&self.sensor)?;
+        let temp = self.apply_hysteresis(ctx.sensor(&self.sensor)?);
         self.duty_for(temp)
     }
 }
@@ -77,5 +102,30 @@ mod tests {
     fn empty_points_returns_none() {
         let mut c = PointCurve::new("t".into(), vec![]);
         assert_eq!(eval_at(&mut c, Some(50.0)), None);
+    }
+
+    #[test]
+    fn hysteresis_ignores_small_moves_in_both_directions() {
+        let mut c = curve().with_hysteresis(2.0, 5.0);
+        assert_eq!(eval_at(&mut c, Some(40.0)), Some(35.0));
+        assert_eq!(eval_at(&mut c, Some(41.9)), Some(35.0));
+        assert_eq!(eval_at(&mut c, Some(36.0)), Some(35.0));
+        let result = eval_at(&mut c, Some(42.1)).unwrap();
+        assert!((result - 38.15).abs() < 1e-9, "expected ~38.15, got {result}");
+    }
+
+    #[test]
+    fn hysteresis_tracks_after_large_drop() {
+        let mut c = curve().with_hysteresis(2.0, 5.0);
+        assert_eq!(eval_at(&mut c, Some(60.0)), Some(75.0));
+        assert_eq!(eval_at(&mut c, Some(54.0)), Some(60.0));
+    }
+
+    #[test]
+    fn hysteresis_survives_unavailable_reading() {
+        let mut c = curve().with_hysteresis(2.0, 5.0);
+        assert_eq!(eval_at(&mut c, Some(40.0)), Some(35.0));
+        assert_eq!(eval_at(&mut c, None), None);
+        assert_eq!(eval_at(&mut c, Some(41.0)), Some(35.0));
     }
 }
