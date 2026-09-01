@@ -1,5 +1,6 @@
 use crate::commander_core::CommanderCore;
 use crate::commander_pro::CommanderPro;
+use crate::hydro_platinum::HydroPlatinum;
 use crate::transport::HidapiTransport;
 use crate::CorsairDevice;
 use gale_hw::{Backend, ControlInfo, HwError, Id, Inventory, SensorInfo};
@@ -15,10 +16,28 @@ const PID_COMMANDER_ST: u16 = 0x0c32;
 
 const COMMANDER_CORE_INTERFACE: i32 = 0;
 
+// PIDs and fan counts from liquidctl's HydroPlatinum._MATCHES
+// (liquidctl/driver/hydro_platinum.py)
+const HYDRO_PLATINUM_MATCHES: &[(u16, &str, usize)] = &[
+    (0x0c18, "h100i-platinum", 2),
+    (0x0c19, "h100i-platinum-se", 2),
+    (0x0c17, "h115i-platinum", 2),
+    (0x0c29, "h60i-pro-xt", 2),
+    (0x0c20, "h100i-pro-xt", 2),
+    (0x0c21, "h115i-pro-xt", 2),
+    (0x0c22, "h150i-pro-xt", 3),
+    (0x0c35, "h100i-elite-rgb", 2),
+    (0x0c36, "h115i-elite-rgb", 2),
+    (0x0c37, "h150i-elite-rgb", 3),
+    (0x0c40, "h100i-elite-rgb-white", 2),
+    (0x0c41, "h150i-elite-rgb-white", 3),
+];
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum DriverKind {
     CommanderPro,
     CommanderCore { has_pump: bool },
+    HydroPlatinum { fan_count: usize },
 }
 
 fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
@@ -37,7 +56,17 @@ fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
             "commander-core-xt",
         )),
         PID_COMMANDER_ST => Some((DriverKind::CommanderCore { has_pump: true }, "commander-st")),
-        _ => None,
+        _ => HYDRO_PLATINUM_MATCHES
+            .iter()
+            .find(|(match_pid, _, _)| *match_pid == pid)
+            .map(|(_, slug, fan_count)| {
+                (
+                    DriverKind::HydroPlatinum {
+                        fan_count: *fan_count,
+                    },
+                    *slug,
+                )
+            }),
     }
 }
 
@@ -71,6 +100,9 @@ impl CorsairBackend {
                             }
                             DriverKind::CommanderCore { has_pump } => {
                                 Box::new(CommanderCore::new(transport, slug, has_pump))
+                            }
+                            DriverKind::HydroPlatinum { fan_count } => {
+                                Box::new(HydroPlatinum::new(transport, slug, fan_count))
                             }
                         };
                         devices.push(driver);
@@ -264,6 +296,26 @@ mod tests {
             self.released = true;
             Ok(())
         }
+    }
+
+    #[test]
+    fn hydro_platinum_family_pids_map_to_the_hydro_platinum_driver() {
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c17),
+            Some((DriverKind::HydroPlatinum { fan_count: 2 }, "h115i-platinum"))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c22),
+            Some((DriverKind::HydroPlatinum { fan_count: 3 }, "h150i-pro-xt"))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x0c41),
+            Some((
+                DriverKind::HydroPlatinum { fan_count: 3 },
+                "h150i-elite-rgb-white"
+            ))
+        );
+        assert_eq!(driver_for(VID_CORSAIR, 0x0c99), None);
     }
 
     #[test]
