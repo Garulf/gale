@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod commander_core;
 pub mod commander_pro;
+pub mod corsair_psu;
 pub mod hydro_platinum;
 pub mod transport;
 

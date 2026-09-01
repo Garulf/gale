@@ -472,6 +472,7 @@ dependencies = [
  "axum",
  "gale-core",
  "gale-hw",
+ "gale-hw-corsair",
  "gale-hw-hwmon",
  "http-body-util",
  "notify",

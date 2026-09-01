@@ -8,6 +8,7 @@ license.workspace = true
 gale-core = { path = "../gale-core" }
 gale-hw = { path = "../gale-hw" }
 gale-hw-hwmon = { path = "../gale-hw-hwmon" }
+gale-hw-corsair = { path = "../gale-hw-corsair" }
 axum = { version = "0.7", features = ["ws"] }
 notify = "6"
 serde = { version = "1", features = ["derive"] }

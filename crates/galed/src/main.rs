@@ -1,3 +1,4 @@
+use gale_hw_corsair::CorsairBackend;
 use gale_hw_hwmon::HwmonBackend;
 use galed::api::{self, ApiContext};
 use galed::backend_handle::BackendHandle;
@@ -22,7 +23,10 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let pool = BackendPool::new(vec![BackendHandle::spawn(Box::new(HwmonBackend::new()))]);
+    let pool = BackendPool::new(vec![
+        BackendHandle::spawn(Box::new(HwmonBackend::new())),
+        BackendHandle::spawn(Box::new(CorsairBackend::new())),
+    ]);
     let inventory = pool.enumerate().await;
     tracing::info!(
         sensors = inventory.sensors.len(),

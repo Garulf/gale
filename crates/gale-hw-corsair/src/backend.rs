@@ -1,5 +1,6 @@
 use crate::commander_core::CommanderCore;
 use crate::commander_pro::CommanderPro;
+use crate::corsair_psu::CorsairPsu;
 use crate::hydro_platinum::HydroPlatinum;
 use crate::transport::HidapiTransport;
 use crate::CorsairDevice;
@@ -33,11 +34,29 @@ const HYDRO_PLATINUM_MATCHES: &[(u16, &str, usize)] = &[
     (0x0c41, "h150i-elite-rgb-white", 3),
 ];
 
+// PIDs from liquidctl's CorsairHidPsu._MATCHES
+// (liquidctl/driver/corsair_hid_psu.py)
+const CORSAIR_PSU_MATCHES: &[(u16, &str)] = &[
+    (0x1c05, "hx750i"),
+    (0x1c06, "hx850i"),
+    (0x1c07, "hx1000i"),
+    (0x1c08, "hx1200i"),
+    (0x1c23, "hx1200i-atx31"),
+    (0x1c27, "hx1200i-atx31-2"),
+    (0x1c0a, "rm650i"),
+    (0x1c0b, "rm750i"),
+    (0x1c0c, "rm850i"),
+    (0x1c0d, "rm1000i"),
+    (0x1c1e, "hx1000i-2022"),
+    (0x1c1f, "hx1500i"),
+];
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum DriverKind {
     CommanderPro,
     CommanderCore { has_pump: bool },
     HydroPlatinum { fan_count: usize },
+    CorsairPsu,
 }
 
 fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
@@ -66,6 +85,12 @@ fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
                     },
                     *slug,
                 )
+            })
+            .or_else(|| {
+                CORSAIR_PSU_MATCHES
+                    .iter()
+                    .find(|(match_pid, _)| *match_pid == pid)
+                    .map(|(_, slug)| (DriverKind::CorsairPsu, *slug))
             }),
     }
 }
@@ -104,6 +129,7 @@ impl CorsairBackend {
                             DriverKind::HydroPlatinum { fan_count } => {
                                 Box::new(HydroPlatinum::new(transport, slug, fan_count))
                             }
+                            DriverKind::CorsairPsu => Box::new(CorsairPsu::new(transport, slug)),
                         };
                         devices.push(driver);
                     }
@@ -344,6 +370,23 @@ mod tests {
         );
         assert_eq!(driver_for(VID_CORSAIR, 0x0c33), None);
         assert_eq!(driver_for(0x1234, 0x0c1c), None);
+    }
+
+    #[test]
+    fn hxi_and_rmi_psu_pids_map_to_the_corsair_psu_driver() {
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x1c07),
+            Some((DriverKind::CorsairPsu, "hx1000i"))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x1c0a),
+            Some((DriverKind::CorsairPsu, "rm650i"))
+        );
+        assert_eq!(
+            driver_for(VID_CORSAIR, 0x1c1f),
+            Some((DriverKind::CorsairPsu, "hx1500i"))
+        );
+        assert_eq!(driver_for(VID_CORSAIR, 0x1cff), None);
     }
 
     #[test]
