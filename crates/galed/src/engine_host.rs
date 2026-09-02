@@ -5,7 +5,7 @@ use gale_core::engine::FanEngine;
 use gale_hw::{HwError, Id};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::watch;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -27,6 +27,7 @@ pub struct EngineHost {
     claimed: Mutex<HashSet<Id>>,
     backend: BackendPool,
     snapshot_tx: watch::Sender<Snapshot>,
+    known_sensors: RwLock<HashSet<Id>>,
 }
 
 impl EngineHost {
@@ -42,6 +43,7 @@ impl EngineHost {
             claimed: Mutex::new(HashSet::new()),
             backend,
             snapshot_tx,
+            known_sensors: RwLock::new(HashSet::new()),
         }))
     }
 
@@ -51,6 +53,26 @@ impl EngineHost {
 
     pub fn config(&self) -> GaleConfig {
         self.state.lock().unwrap().config.clone()
+    }
+
+    pub fn set_known_sensors(&self, sensors: HashSet<Id>) {
+        *self.known_sensors.write().unwrap() = sensors;
+    }
+
+    pub fn config_warnings(&self, config: &GaleConfig) -> Vec<String> {
+        let known = self.known_sensors.read().unwrap();
+        if known.is_empty() {
+            return Vec::new();
+        }
+        let Some(profile) = config.profiles.get(&config.active_profile) else {
+            return Vec::new();
+        };
+        profile
+            .referenced_sensors()
+            .into_iter()
+            .filter(|sensor| !known.contains(sensor))
+            .map(|sensor| format!("referenced sensor not found on hardware: {sensor}"))
+            .collect()
     }
 
     pub async fn tick(&self, dt_secs: f64) {
@@ -310,6 +332,31 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let mut ids = host.claimed_ids();
         ids.sort();
         assert_eq!(ids, vec!["pwm1".to_string(), "pwm2".to_string()]);
+    }
+
+    #[test]
+    fn config_warnings_empty_when_known_sensors_never_set() {
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        let config = GaleConfig::from_toml(CONFIG).unwrap();
+        assert!(host.config_warnings(&config).is_empty());
+    }
+
+    #[test]
+    fn config_warnings_flags_referenced_but_unknown_sensor() {
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.set_known_sensors(["other".to_string()].into());
+        let config = GaleConfig::from_toml(CONFIG).unwrap();
+        let warnings = host.config_warnings(&config);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("t1"));
+    }
+
+    #[test]
+    fn config_warnings_empty_when_known_sensor_matches() {
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.set_known_sensors(["t1".to_string()].into());
+        let config = GaleConfig::from_toml(CONFIG).unwrap();
+        assert!(host.config_warnings(&config).is_empty());
     }
 
     #[tokio::test]

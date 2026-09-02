@@ -1,7 +1,7 @@
 use crate::curve::mix::MixMode;
 use crate::Id;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -54,6 +54,22 @@ pub struct ProfileConfig {
     pub curves: HashMap<Id, CurveConfig>,
     #[serde(default)]
     pub assignments: HashMap<Id, Id>,
+}
+
+impl ProfileConfig {
+    pub fn referenced_sensors(&self) -> BTreeSet<Id> {
+        self.curves
+            .values()
+            .filter_map(|curve| match curve {
+                CurveConfig::Point { sensor, .. } => Some(sensor.clone()),
+                CurveConfig::Trigger { sensor, .. } => Some(sensor.clone()),
+                CurveConfig::Target { sensor, .. } => Some(sensor.clone()),
+                CurveConfig::Flat { .. } | CurveConfig::Mix { .. } | CurveConfig::Sync { .. } => {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -197,5 +213,67 @@ mode = "max"
             GaleConfig::from_toml("not toml ["),
             Err(ConfigError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn referenced_sensors_covers_all_variants() {
+        let profile = ProfileConfig {
+            curves: [
+                (
+                    "point".to_string(),
+                    CurveConfig::Point {
+                        sensor: "s_point".to_string(),
+                        points: vec![[0.0, 0.0]],
+                        hysteresis: None,
+                        response: None,
+                    },
+                ),
+                (
+                    "trigger".to_string(),
+                    CurveConfig::Trigger {
+                        sensor: "s_trigger".to_string(),
+                        on_temp: 60.0,
+                        off_temp: 50.0,
+                        on_duty: 100.0,
+                        off_duty: 20.0,
+                    },
+                ),
+                (
+                    "target".to_string(),
+                    CurveConfig::Target {
+                        sensor: "s_target".to_string(),
+                        target_temp: 60.0,
+                        step_pct_per_sec: 5.0,
+                        min_duty: 20.0,
+                        max_duty: 100.0,
+                    },
+                ),
+                ("flat".to_string(), CurveConfig::Flat { duty: 50.0 }),
+                (
+                    "mix".to_string(),
+                    CurveConfig::Mix {
+                        sources: vec!["point".to_string()],
+                        mode: MixMode::Max,
+                    },
+                ),
+                (
+                    "sync".to_string(),
+                    CurveConfig::Sync {
+                        source: "point".to_string(),
+                    },
+                ),
+            ]
+            .into(),
+            assignments: HashMap::new(),
+        };
+        let referenced = profile.referenced_sensors();
+        assert_eq!(
+            referenced,
+            BTreeSet::from([
+                "s_point".to_string(),
+                "s_trigger".to_string(),
+                "s_target".to_string(),
+            ])
+        );
     }
 }

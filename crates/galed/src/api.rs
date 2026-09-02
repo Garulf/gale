@@ -9,7 +9,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use gale_core::config::{ConfigError, GaleConfig};
 use gale_hw::Inventory;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
@@ -30,6 +30,7 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/status", get(status))
         .route("/inventory", get(inventory))
         .route("/config", get(get_config).put(put_config))
+        .route("/warnings", get(get_warnings))
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
         .route("/ws", get(ws_upgrade))
@@ -69,6 +70,17 @@ async fn get_config(State(ctx): State<ApiContext>) -> Response {
     Json(ctx.host.config()).into_response()
 }
 
+#[derive(Serialize)]
+struct WarningsResponse {
+    warnings: Vec<String>,
+}
+
+async fn get_warnings(State(ctx): State<ApiContext>) -> Response {
+    let config = ctx.host.config();
+    let warnings = ctx.host.config_warnings(&config);
+    Json(WarningsResponse { warnings }).into_response()
+}
+
 fn config_error_response(error: ConfigError) -> Response {
     let status = match error {
         ConfigError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
@@ -89,8 +101,15 @@ async fn apply_and_persist(ctx: &ApiContext, config: GaleConfig) -> Result<(), R
 }
 
 async fn put_config(State(ctx): State<ApiContext>, Json(config): Json<GaleConfig>) -> Response {
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    match apply_and_persist(&ctx, config.clone()).await {
+        Ok(()) => {
+            let warnings = ctx.host.config_warnings(&config);
+            if warnings.is_empty() {
+                StatusCode::NO_CONTENT.into_response()
+            } else {
+                (StatusCode::OK, Json(WarningsResponse { warnings })).into_response()
+            }
+        }
         Err(response) => response,
     }
 }
@@ -170,7 +189,7 @@ mod tests {
     use gale_core::config::GaleConfig;
     use gale_hw::{Backend, HwError, Id, Inventory};
     use http_body_util::BodyExt;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, RwLock};
     use tower::util::ServiceExt;
 
@@ -346,5 +365,86 @@ duty = 10.0
             .await
             .unwrap();
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn config_put_returns_warnings_for_ghost_sensor_and_204_for_clean() {
+        let (router, host) = make_router(None);
+        host.set_known_sensors(["t1".to_string()].into());
+
+        let mut with_ghost = GaleConfig::from_toml(CONFIG).unwrap();
+        with_ghost.profiles.get_mut("p").unwrap().curves.insert(
+            "cpu".to_string(),
+            gale_core::config::CurveConfig::Point {
+                sensor: "ghost".to_string(),
+                points: vec![[30.0, 20.0], [70.0, 100.0]],
+                hysteresis: None,
+                response: None,
+            },
+        );
+        let warned = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&with_ghost).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(warned.status(), StatusCode::OK);
+        let json = body_json(warned).await;
+        assert_eq!(json["warnings"].as_array().unwrap().len(), 1);
+        assert!(json["warnings"][0].as_str().unwrap().contains("ghost"));
+
+        let clean = GaleConfig::from_toml(CONFIG).unwrap();
+        let ok = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&clean).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn get_warnings_reports_current_config_warnings() {
+        let (router, host) = make_router(None);
+        host.set_known_sensors(HashSet::new());
+        let response = router
+            .clone()
+            .oneshot(Request::get("/api/warnings").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["warnings"].as_array().unwrap().len(), 0);
+
+        host.set_known_sensors(["other".to_string()].into());
+        let mut config = host.config();
+        config.profiles.get_mut("p").unwrap().curves.insert(
+            "cpu".to_string(),
+            gale_core::config::CurveConfig::Point {
+                sensor: "ghost".to_string(),
+                points: vec![[30.0, 20.0], [70.0, 100.0]],
+                hysteresis: None,
+                response: None,
+            },
+        );
+        host.replace_config(config).await.unwrap();
+        let response = router
+            .oneshot(Request::get("/api/warnings").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["warnings"].as_array().unwrap().len(), 1);
     }
 }

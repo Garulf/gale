@@ -43,6 +43,16 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    host.set_known_sensors(
+        inventory
+            .sensors
+            .iter()
+            .map(|sensor| sensor.id.clone())
+            .collect(),
+    );
+    for warning in host.config_warnings(&config) {
+        tracing::warn!(%warning, "config warning");
+    }
     install_panic_release_hook(host.clone());
     let heartbeat = Arc::new(Mutex::new(Instant::now()));
     tokio::spawn(runtime::tick_loop(
