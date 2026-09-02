@@ -1,0 +1,13 @@
+Gale is licensed under the GNU General Public License v3.0 or later (see LICENSE).
+The gale-core crate is additionally available under the MIT License (see crates/gale-core/LICENSE).
+
+Gale contains code derived from other projects:
+
+- liquidctl (https://github.com/liquidctl/liquidctl), GPL-3.0-or-later.
+  Protocol logic in crates/gale-hw-corsair/src/commander_pro.rs, commander_core.rs,
+  hydro_platinum.rs and corsair_psu.rs is ported from liquidctl's drivers.
+- LibreHardwareMonitor (https://github.com/LibreHardwareMonitor/LibreHardwareMonitor), MPL-2.0.
+  The Nuvoton Super I/O driver in crates/gale-hw-superio is ported from
+  LibreHardwareMonitorLib/Hardware/Motherboard/Lpc; those files keep their MPL-2.0 headers.
+- PawnIO.Modules (https://github.com/namazso/PawnIO.Modules), LGPL-2.1.
+  crates/gale-hw-superio embeds the signed LpcIO module binary unmodified.

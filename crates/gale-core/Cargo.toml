@@ -2,7 +2,7 @@
 name = "gale-core"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license = "MIT"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

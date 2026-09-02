@@ -7,7 +7,7 @@ project:
   owner: Garulf
   repo: gale
   version: "0.1.0"
-  license: MIT
+  license: GPL-3.0-or-later
   tagline: An API-first fan control daemon for Linux.
 badges:
   - license

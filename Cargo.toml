@@ -5,4 +5,3 @@ members = ["crates/gale-core", "crates/gale-hw", "crates/gale-hw-hwmon", "crates
 [workspace.package]
 version = "0.1.0" # x-release-please-version
 edition = "2021"
-license = "MIT"

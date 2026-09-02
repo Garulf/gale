@@ -103,4 +103,6 @@ Issues and pull requests are welcome at [Garulf/gale](https://github.com/Garulf/
 
 ## License
 
-MIT
+GPL-3.0-or-later for the daemon, CLI and hardware drivers. The curve engine
+(`gale-core`) is also available under MIT so it can be reused in permissive projects.
+See NOTICE for the projects Gale's drivers are derived from.
