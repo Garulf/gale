@@ -1,11 +1,5 @@
-pub mod backend;
-pub mod detect;
 pub mod ffi_util;
 pub mod module_blob;
-pub mod nct677x;
-#[cfg(windows)]
-pub mod pawnio;
-pub mod restore;
 pub mod transport;
 
 pub const PAWNIO_URL: &str = "https://pawnio.eu";
