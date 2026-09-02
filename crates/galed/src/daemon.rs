@@ -119,7 +119,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     let bound_addr = listener
         .local_addr()
         .expect("bound tcp listener has a local address");
-    tracing::info!(bind = %config.api.bind, "gale daemon listening");
+    tracing::info!(bind = %bound_addr, "gale daemon listening");
     if let Some(on_ready) = options.on_ready {
         on_ready(bound_addr);
     }

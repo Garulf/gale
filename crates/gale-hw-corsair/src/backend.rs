@@ -146,12 +146,15 @@ fn assign_slug(family: &str, serial: Option<&str>, taken: &HashSet<String>) -> S
     }
 }
 
+const VENDOR_DEFINED_USAGE_PAGE: u16 = 0xFF00;
+
 pub(crate) struct Candidate {
     pub vid: u16,
     pub pid: u16,
     pub interface: i32,
     pub serial: Option<String>,
     pub path: std::ffi::CString,
+    pub usage_page: u16,
 }
 
 pub(crate) fn group_candidates(candidates: Vec<Candidate>) -> Vec<Vec<Candidate>> {
@@ -170,6 +173,9 @@ pub(crate) fn group_candidates(candidates: Vec<Candidate>) -> Vec<Vec<Candidate>
                 groups.push(vec![candidate]);
             }
         }
+    }
+    for group in &mut groups {
+        group.sort_by_key(|candidate| candidate.usage_page < VENDOR_DEFINED_USAGE_PAGE);
     }
     groups
 }
@@ -210,6 +216,7 @@ impl CorsairBackend {
                     interface: info.interface_number(),
                     serial: info.serial_number().map(str::to_string),
                     path: info.path().to_owned(),
+                    usage_page: info.usage_page(),
                 });
             }
             for group in group_candidates(candidates) {
@@ -620,12 +627,24 @@ mod tests {
         serial: Option<&str>,
         path: &str,
     ) -> Candidate {
+        candidate_with_usage_page(vid, pid, interface, serial, path, 0x0001)
+    }
+
+    fn candidate_with_usage_page(
+        vid: u16,
+        pid: u16,
+        interface: i32,
+        serial: Option<&str>,
+        path: &str,
+        usage_page: u16,
+    ) -> Candidate {
         Candidate {
             vid,
             pid,
             interface,
             serial: serial.map(str::to_string),
             path: std::ffi::CString::new(path).unwrap(),
+            usage_page,
         }
     }
 
@@ -678,5 +697,73 @@ mod tests {
         let group0_paths: Vec<_> = groups[0].iter().map(|c| c.path.to_str().unwrap()).collect();
         assert_eq!(group0_paths, vec!["path0", "path2"]);
         assert_eq!(groups[1][0].path.to_str().unwrap(), "path1");
+    }
+
+    #[test]
+    fn group_candidates_sorts_vendor_defined_collections_first() {
+        let candidates = vec![
+            candidate_with_usage_page(
+                VID_CORSAIR,
+                PID_COMMANDER_CORE,
+                0,
+                Some("SN1"),
+                "path0",
+                0x0001,
+            ),
+            candidate_with_usage_page(
+                VID_CORSAIR,
+                PID_COMMANDER_CORE,
+                1,
+                Some("SN1"),
+                "path1",
+                0xFF00,
+            ),
+            candidate_with_usage_page(
+                VID_CORSAIR,
+                PID_COMMANDER_CORE,
+                2,
+                Some("SN1"),
+                "path2",
+                0x0001,
+            ),
+        ];
+        let groups = group_candidates(candidates);
+        assert_eq!(groups.len(), 1);
+        let paths: Vec<_> = groups[0].iter().map(|c| c.path.to_str().unwrap()).collect();
+        assert_eq!(paths, vec!["path1", "path0", "path2"]);
+    }
+
+    #[test]
+    fn group_candidates_keeps_relative_order_of_multiple_vendor_defined_collections() {
+        let candidates = vec![
+            candidate_with_usage_page(
+                VID_CORSAIR,
+                PID_COMMANDER_CORE,
+                0,
+                Some("SN1"),
+                "path0",
+                0x0001,
+            ),
+            candidate_with_usage_page(
+                VID_CORSAIR,
+                PID_COMMANDER_CORE,
+                1,
+                Some("SN1"),
+                "path1",
+                0xFF00,
+            ),
+            candidate_with_usage_page(
+                VID_CORSAIR,
+                PID_COMMANDER_CORE,
+                2,
+                Some("SN1"),
+                "path2",
+                0xFF01,
+            ),
+        ];
+        let groups = group_candidates(candidates);
+        assert_eq!(groups.len(), 1);
+        let paths: Vec<_> = groups[0].iter().map(|c| c.path.to_str().unwrap()).collect();
+        assert_eq!(paths, vec!["path1", "path2", "path0"]);
     }
 }

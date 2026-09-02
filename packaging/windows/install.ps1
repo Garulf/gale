@@ -45,10 +45,7 @@ function Install-Gale {
         Copy-Item (Join-Path $PSScriptRoot "config.example.toml") $configPath
     }
 
-    if ($serviceExists) {
-        sc.exe config galed start= auto binPath= $binPath | Out-Null
-    }
-    else {
+    if (-not $serviceExists) {
         New-Service -Name galed -DisplayName "Gale fan control" -BinaryPathName $binPath -StartupType Automatic | Out-Null
     }
 
@@ -74,7 +71,7 @@ function Uninstall-Gale {
         Remove-Item $BinDir -Recurse -Force
     }
 
-    Write-Host "galed uninstalled. Config and logs kept under $DataDir"
+    Write-Host "galed uninstalled. Config kept under $DataDir"
 }
 
 Assert-Admin
