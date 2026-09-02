@@ -50,9 +50,7 @@ async fn main() {
             .map(|sensor| sensor.id.clone())
             .collect(),
     );
-    for warning in host.config_warnings(&config) {
-        tracing::warn!(%warning, "config warning");
-    }
+    host.log_config_warnings(&config);
     install_panic_release_hook(host.clone());
     let heartbeat = Arc::new(Mutex::new(Instant::now()));
     tokio::spawn(runtime::tick_loop(

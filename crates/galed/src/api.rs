@@ -69,8 +69,40 @@ async fn require_api_key(
 fn query_param(query: Option<&str>, name: &str) -> Option<String> {
     query?.split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;
-        (key == name).then(|| value.to_string())
+        (key == name).then(|| percent_decode(value))
     })
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+                match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                    Some(byte) => {
+                        out.push(byte);
+                        i += 3;
+                    }
+                    None => {
+                        out.push(bytes[i]);
+                        i += 1;
+                    }
+                }
+            }
+            byte => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 async fn api_not_found() -> Response {
@@ -600,5 +632,17 @@ duty = 10.0
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert_eq!(json["warnings"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn query_param_decodes_encoded_space_and_plus() {
+        assert_eq!(
+            query_param(Some("api_key=sek%20ret%2B1"), "api_key").as_deref(),
+            Some("sek ret+1")
+        );
+        assert_eq!(
+            query_param(Some("api_key=sek+ret%2B1"), "api_key").as_deref(),
+            Some("sek ret+1")
+        );
     }
 }

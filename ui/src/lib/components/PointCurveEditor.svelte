@@ -14,12 +14,7 @@
 
   let svgEl;
   let dragId = null;
-  let addedIdSeq = 0;
-
-  function newAddedId() {
-    addedIdSeq += 1;
-    return `added-${addedIdSeq}`;
-  }
+  let didDrag = false;
 
   function xToPx(temp) {
     return PAD_LEFT + (temp / 100) * PLOT_W;
@@ -71,6 +66,7 @@
 
   function pointerMove(event) {
     if (dragId === null) return;
+    didDrag = true;
     const { x, y } = clientToPlot(event);
     const temp = round1(pxToTemp(x));
     const duty = round1(pxToDuty(y));
@@ -89,9 +85,17 @@
   }
 
   function addPoint(event) {
+    if (didDrag) {
+      didDrag = false;
+      return;
+    }
     if (event.target !== svgEl && !event.target.classList.contains('plot-bg')) return;
     const { x, y } = clientToPlot(event);
-    const point = { id: newAddedId(), temp: round1(pxToTemp(x)), duty: round1(pxToDuty(y)) };
+    const point = {
+      id: crypto.randomUUID(),
+      temp: round1(pxToTemp(x)),
+      duty: round1(pxToDuty(y)),
+    };
     onChange([...points, point]);
   }
 

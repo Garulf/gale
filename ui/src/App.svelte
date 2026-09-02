@@ -3,6 +3,7 @@
   import { connect, connected, snapshot } from './lib/store.js';
   import { page } from './lib/page.js';
   import { refreshWarnings } from './lib/warnings.js';
+  import { unauthorized, saveApiKey } from './lib/auth.js';
   import WarningsBanner from './lib/components/WarningsBanner.svelte';
   import Dashboard from './pages/Dashboard.svelte';
   import Curves from './pages/Curves.svelte';
@@ -10,6 +11,15 @@
 
   const disconnect = connect();
   onDestroy(disconnect);
+
+  let keyDraft = '';
+
+  function submitKey() {
+    const key = keyDraft.trim();
+    if (!key) return;
+    saveApiKey(key);
+    window.location.reload();
+  }
 
   const pages = { dashboard: Dashboard, curves: Curves, config: Config };
 
@@ -45,6 +55,12 @@
       <span class="conn-label">{$connected ? 'live' : 'reconnecting'}</span>
       {#if activeProfile}
         <span class="profile">profile: {activeProfile}</span>
+      {/if}
+      {#if $unauthorized}
+        <form class="key-form" on:submit|preventDefault={submitKey}>
+          <input type="password" placeholder="api key" bind:value={keyDraft} />
+          <button type="submit">Save</button>
+        </form>
       {/if}
     </header>
     <WarningsBanner />
@@ -127,6 +143,29 @@
   .profile {
     margin-left: auto;
     opacity: 0.8;
+  }
+
+  .key-form {
+    display: flex;
+    gap: 0.4rem;
+    margin-left: auto;
+  }
+
+  .key-form input {
+    background: #14161a;
+    color: inherit;
+    border: 1px solid #2a2f38;
+    border-radius: 4px;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .key-form button {
+    background: #2a2f38;
+    color: inherit;
+    border: none;
+    border-radius: 4px;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
   }
 
   main {

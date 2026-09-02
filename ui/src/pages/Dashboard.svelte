@@ -50,19 +50,21 @@
     return [...byGroup.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }
 
-  function dutyFor(id) {
-    if (!$snapshot) return null;
-    return $snapshot.duties ? $snapshot.duties[id] ?? null : null;
-  }
+  $: duties = ($snapshot && $snapshot.duties) || {};
+  $: manual = ($snapshot && $snapshot.manual) || {};
+  $: draftValues = computeDrafts(controls, duties, drafts);
 
-  function isManual(id) {
-    return !!($snapshot && $snapshot.manual && id in $snapshot.manual);
-  }
-
-  function draftFor(id) {
-    if (drafts[id] !== undefined) return drafts[id];
-    const current = dutyFor(id);
-    return current === null ? 50 : Math.round(current);
+  function computeDrafts(ctrls, dutyMap, draftMap) {
+    const result = {};
+    for (const control of ctrls) {
+      if (draftMap[control.id] !== undefined) {
+        result[control.id] = draftMap[control.id];
+      } else {
+        const current = dutyMap[control.id] ?? null;
+        result[control.id] = current === null ? 50 : Math.round(current);
+      }
+    }
+    return result;
   }
 
   function setDraft(id, value) {
@@ -72,7 +74,7 @@
   async function apply(id) {
     pending = { ...pending, [id]: true };
     try {
-      await setControl(id, draftFor(id));
+      await setControl(id, draftValues[id]);
       await refreshWarnings();
     } catch (err) {
       error = err.message;
@@ -136,24 +138,24 @@
         <div class="card control">
           <div class="control-head">
             <span class="label">{control.label}</span>
-            {#if isManual(control.id)}
+            {#if control.id in manual}
               <span class="badge">manual</span>
             {/if}
           </div>
           <div class="control-body">
-            <span class="duty">{formatValue(dutyFor(control.id), 'duty')}%</span>
+            <span class="duty">{formatValue(duties[control.id] ?? null, 'duty')}%</span>
             <input
               type="range"
               min="0"
               max="100"
-              value={draftFor(control.id)}
+              value={draftValues[control.id]}
               on:input={(event) => setDraft(control.id, event.target.value)}
             />
             <input
               type="number"
               min="0"
               max="100"
-              value={draftFor(control.id)}
+              value={draftValues[control.id]}
               on:input={(event) => setDraft(control.id, event.target.value)}
             />
             <button disabled={pending[control.id]} on:click={() => apply(control.id)}>
@@ -161,7 +163,7 @@
             </button>
             <button
               class="secondary"
-              disabled={pending[control.id] || !isManual(control.id)}
+              disabled={pending[control.id] || !(control.id in manual)}
               on:click={() => release(control.id)}
             >
               Release

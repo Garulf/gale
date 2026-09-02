@@ -62,10 +62,11 @@ pub fn spawn_config_watcher(
         runtime.spawn(async move {
             match store.load() {
                 Ok(config) => {
-                    if let Err(error) = host.replace_config(config).await {
+                    if let Err(error) = host.replace_config(config.clone()).await {
                         tracing::warn!(%error, "hot-reload rejected invalid config");
                     } else {
                         tracing::info!("config hot-reloaded");
+                        host.log_config_warnings(&config);
                     }
                 }
                 Err(error) => tracing::warn!(%error, "hot-reload could not parse config"),

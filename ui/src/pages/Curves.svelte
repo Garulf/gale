@@ -20,11 +20,8 @@
   const CURVE_TYPES = ['point', 'flat', 'mix', 'sync', 'trigger', 'target'];
   const MIX_MODES = ['max', 'min', 'avg'];
 
-  let pointIdSeq = 0;
-
   function newPointId() {
-    pointIdSeq += 1;
-    return `pt-${pointIdSeq}`;
+    return crypto.randomUUID();
   }
 
   function tagPoints(pairs) {
@@ -249,9 +246,11 @@
     config = config;
   }
 
-  function liveTempFor(sensorId) {
-    if (!sensorId || !$snapshot || !$snapshot.sensors) return null;
-    const value = $snapshot.sensors[sensorId];
+  $: liveTemp = liveTempFor(selectedCurve && selectedCurve.sensor, $snapshot);
+
+  function liveTempFor(sensorId, snap) {
+    if (!sensorId || !snap || !snap.sensors) return null;
+    const value = snap.sensors[sensorId];
     return value === null || value === undefined ? null : value;
   }
 
@@ -261,12 +260,58 @@
       )
     : [];
 
+  function isBadNumber(value) {
+    return value === null || value === undefined || typeof value !== 'number' || Number.isNaN(value);
+  }
+
+  function validationError(wireConfig) {
+    for (const profileConfig of Object.values(wireConfig.profiles)) {
+      for (const [curveId, curve] of Object.entries(profileConfig.curves)) {
+        const label = `Curve "${curveId}"`;
+        if (curve.type === 'point') {
+          for (const [temp, duty] of curve.points) {
+            if (isBadNumber(temp)) return `${label}: a point's temperature must be a number`;
+            if (isBadNumber(duty)) return `${label}: a point's duty must be a number`;
+          }
+          if (curve.hysteresis) {
+            if (isBadNumber(curve.hysteresis.up)) return `${label}: hysteresis up must be a number`;
+            if (isBadNumber(curve.hysteresis.down)) return `${label}: hysteresis down must be a number`;
+          }
+          if (curve.response) {
+            if (isBadNumber(curve.response.rise_pct_per_sec))
+              return `${label}: response rise %/s must be a number`;
+            if (isBadNumber(curve.response.fall_pct_per_sec))
+              return `${label}: response fall %/s must be a number`;
+          }
+        } else if (curve.type === 'flat') {
+          if (isBadNumber(curve.duty)) return `${label}: duty must be a number`;
+        } else if (curve.type === 'trigger') {
+          for (const field of ['on_temp', 'off_temp', 'on_duty', 'off_duty']) {
+            if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;
+          }
+        } else if (curve.type === 'target') {
+          for (const field of ['target_temp', 'step_pct_per_sec', 'min_duty', 'max_duty']) {
+            if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;
+          }
+        }
+      }
+    }
+    return '';
+  }
+
   async function save() {
     saving = true;
     error = '';
     saveWarnings = [];
+    const wireConfig = toWireConfig(config);
+    const invalid = validationError(wireConfig);
+    if (invalid) {
+      error = invalid;
+      saving = false;
+      return;
+    }
     try {
-      const result = await putConfig(toWireConfig(config));
+      const result = await putConfig(wireConfig);
       saveWarnings = (result && result.warnings) || [];
       await refreshWarnings();
     } catch (err) {
@@ -366,7 +411,7 @@
 
               <PointCurveEditor
                 points={selectedCurve.points}
-                liveTemp={liveTempFor(selectedCurve.sensor)}
+                {liveTemp}
                 onChange={(points) => setCurveField('points', points)}
               />
 

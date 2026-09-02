@@ -59,6 +59,12 @@ impl EngineHost {
         *self.known_sensors.write().unwrap() = sensors;
     }
 
+    pub fn log_config_warnings(&self, config: &GaleConfig) {
+        for warning in self.config_warnings(config) {
+            tracing::warn!(%warning, "config warning");
+        }
+    }
+
     pub fn config_warnings(&self, config: &GaleConfig) -> Vec<String> {
         let known = self.known_sensors.read().unwrap();
         if known.is_empty() {

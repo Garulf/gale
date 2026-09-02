@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { getStatus } from './api.js';
 
 export const snapshot = writable(null);
 export const connected = writable(false);
@@ -46,6 +47,7 @@ export function connect() {
       if (closedByUs) {
         return;
       }
+      getStatus().catch(() => {});
       setTimeout(open, backoff);
       backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
     };

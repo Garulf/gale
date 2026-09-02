@@ -1,3 +1,5 @@
+import { markUnauthorized } from './auth.js';
+
 function apiKey() {
   try {
     return localStorage.getItem('gale_api_key') || '';
@@ -21,7 +23,12 @@ async function request(path, options) {
     headers: headers(options && options.headers),
   });
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    if (response.status === 401) {
+      markUnauthorized();
+    }
+    const text = await response.text().catch(() => '');
+    const detail = text.trim() || response.statusText;
+    throw new Error(`${response.status} ${detail}`);
   }
   return response;
 }
