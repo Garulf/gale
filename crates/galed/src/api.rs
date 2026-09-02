@@ -142,11 +142,8 @@ fn config_error_response(error: ConfigError) -> Response {
     (status, error.to_string()).into_response()
 }
 
-async fn apply_and_persist(ctx: &ApiContext, config: GaleConfig) -> Result<(), Response> {
-    ctx.host
-        .replace_config(config.clone())
-        .await
-        .map_err(config_error_response)?;
+async fn apply_and_persist(ctx: &ApiContext, config: GaleConfig) -> Result<(), ConfigError> {
+    ctx.host.replace_config(config.clone()).await?;
     if let Err(error) = ctx.store.save(&config) {
         tracing::warn!(%error, "config persisted to disk failed");
     }
@@ -173,7 +170,7 @@ async fn put_config(State(ctx): State<ApiContext>, Json(mut config): Json<GaleCo
                 (StatusCode::OK, Json(WarningsResponse { warnings })).into_response()
             }
         }
-        Err(response) => response,
+        Err(error) => config_error_response(error),
     }
 }
 
@@ -185,7 +182,7 @@ async fn activate_profile(State(ctx): State<ApiContext>, Path(name): Path<String
     config.active_profile = name;
     match apply_and_persist(&ctx, config).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(response) => response,
+        Err(error) => config_error_response(error),
     }
 }
 
