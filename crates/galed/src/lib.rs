@@ -4,6 +4,7 @@ pub mod backend_pool;
 pub mod claims_journal;
 pub mod config_store;
 pub mod engine_host;
+pub mod paths;
 pub mod runtime;
 #[cfg(test)]
 pub mod test_support;

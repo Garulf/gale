@@ -1,4 +1,5 @@
 use gale_hw_corsair::CorsairBackend;
+#[cfg(target_os = "linux")]
 use gale_hw_hwmon::HwmonBackend;
 use gale_hw_nvidia::NvidiaBackend;
 use galed::api::{self, ApiContext};
@@ -31,6 +32,10 @@ async fn main() {
         tracing::info!(restored, path = %restore_path.display(), "restored claims left by a previous run");
     }
 
+    if let Err(error) = galed::paths::ensure_dirs() {
+        tracing::warn!(%error, "failed to create default gale directories");
+    }
+
     let store = Arc::new(ConfigStore::new(ConfigStore::default_path()));
     let config = match store.load() {
         Ok(config) => config,
@@ -39,7 +44,9 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let mut handles = vec![BackendHandle::spawn(Box::new(HwmonBackend::new()))];
+    let mut handles: Vec<BackendHandle> = Vec::new();
+    #[cfg(target_os = "linux")]
+    handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
     for backend in CorsairBackend::open_all() {
         handles.push(BackendHandle::spawn(Box::new(backend)));
     }

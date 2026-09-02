@@ -25,3 +25,9 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+      - id: cargo-check-windows
+        name: cargo check windows
+        entry: cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

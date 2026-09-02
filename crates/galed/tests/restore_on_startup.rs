@@ -1,3 +1,5 @@
+#![cfg(target_os = "linux")]
+
 use galed::claims_journal::{self, JournalEntry};
 use std::fs;
 use std::io::Write;

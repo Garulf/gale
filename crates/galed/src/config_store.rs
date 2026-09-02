@@ -17,9 +17,7 @@ impl ConfigStore {
     }
 
     pub fn default_path() -> PathBuf {
-        std::env::var("GALE_CONFIG")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("/etc/gale/config.toml"))
+        crate::paths::config_path()
     }
 
     pub fn path(&self) -> &Path {

@@ -398,6 +398,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert!(host.config_warnings(&config).is_empty());
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn claiming_a_hwmon_control_journals_its_restore_hint_and_survives_unclean_death() {
         use crate::backend_handle::BackendHandle;

@@ -28,3 +28,13 @@ sudo packaging/install.sh --uninstall
 - `systemd/galed.service`: systemd unit for the daemon
 - `udev/60-gale-corsair.rules`: udev rule granting hidraw access to Corsair devices
 - `install.sh`: installs and uninstalls the above
+
+## Windows compile gate
+
+A pre-push hook checks that the workspace still compiles for Windows. To run
+it locally:
+
+```
+sudo apt-get install mingw-w64 && rustup target add x86_64-pc-windows-gnu
+cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
+```

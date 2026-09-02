@@ -7,7 +7,6 @@ license = "GPL-3.0-or-later"
 [dependencies]
 gale-core = { path = "../gale-core" }
 gale-hw = { path = "../gale-hw" }
-gale-hw-hwmon = { path = "../gale-hw-hwmon" }
 gale-hw-corsair = { path = "../gale-hw-corsair" }
 gale-hw-nvidia = { path = "../gale-hw-nvidia" }
 axum = { version = "0.7", features = ["ws"] }
@@ -20,6 +19,9 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gale-hw-hwmon = { path = "../gale-hw-hwmon" }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

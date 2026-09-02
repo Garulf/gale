@@ -15,8 +15,7 @@ pub struct JournalEntry {
 }
 
 pub fn default_path() -> PathBuf {
-    let dir = std::env::var("GALE_RUNTIME_DIR").unwrap_or_else(|_| "/run/gale".to_string());
-    PathBuf::from(dir).join("claims.json")
+    crate::paths::runtime_dir().join("claims.json")
 }
 
 pub fn backend_kind_of(id: &str) -> String {
