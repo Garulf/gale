@@ -5,7 +5,9 @@ use crate::hydro_platinum::HydroPlatinum;
 use crate::transport::HidapiTransport;
 use crate::CorsairDevice;
 use gale_hw::{Backend, ControlInfo, HwError, Id, Inventory, SensorInfo};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+const SERIAL_SLUG_MAX_LEN: usize = 12;
 
 pub const VID_CORSAIR: u16 = 0x1b1c;
 
@@ -112,21 +114,36 @@ fn build_driver(
     }
 }
 
-fn assign_family_slugs(bases: &[String]) -> Vec<String> {
-    let mut counts: HashMap<String, u32> = HashMap::new();
-    bases
-        .iter()
-        .map(|base| {
-            let seen = counts.entry(base.clone()).or_insert(0);
-            let slug = if *seen == 0 {
-                base.clone()
-            } else {
-                format!("{base}-{seen}")
-            };
-            *seen += 1;
-            slug
-        })
+fn sanitize_serial(serial: &str) -> String {
+    serial
+        .chars()
+        .flat_map(|c| c.to_lowercase())
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        .take(SERIAL_SLUG_MAX_LEN)
         .collect()
+}
+
+fn assign_slug(family: &str, serial: Option<&str>, taken: &HashSet<String>) -> String {
+    if let Some(serial) = serial {
+        let sanitized = sanitize_serial(serial);
+        if !sanitized.is_empty() {
+            let candidate = format!("{family}-{sanitized}");
+            if !taken.contains(&candidate) {
+                return candidate;
+            }
+        }
+    }
+    if !taken.contains(family) {
+        return family.to_string();
+    }
+    let mut suffix = 1;
+    loop {
+        let candidate = format!("{family}-{suffix}");
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
 }
 
 pub struct CorsairBackend {
@@ -145,7 +162,7 @@ impl CorsairBackend {
     }
 
     pub fn open_all() -> Vec<CorsairBackend> {
-        let mut opened: Vec<(String, Box<dyn CorsairDevice>)> = Vec::new();
+        let mut opened: Vec<(String, Option<String>, Box<dyn CorsairDevice>)> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
             for info in api.device_list() {
                 let vid = info.vendor_id();
@@ -158,11 +175,12 @@ impl CorsairBackend {
                 {
                     continue;
                 }
+                let serial = info.serial_number().map(str::to_string);
                 match api.open_path(info.path()) {
                     Ok(device) => {
                         let transport = Box::new(HidapiTransport::new(device));
                         let driver = build_driver(kind, slug, transport);
-                        opened.push((slug.to_string(), driver));
+                        opened.push((slug.to_string(), serial, driver));
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -175,12 +193,14 @@ impl CorsairBackend {
                 }
             }
         }
-        let bases: Vec<String> = opened.iter().map(|(base, _)| base.clone()).collect();
-        let slugs = assign_family_slugs(&bases);
+        let mut taken: HashSet<String> = HashSet::new();
         opened
             .into_iter()
-            .zip(slugs)
-            .map(|((_, device), slug)| CorsairBackend::with_device(slug, device))
+            .map(|(family, serial, device)| {
+                let slug = assign_slug(&family, serial.as_deref(), &taken);
+                taken.insert(slug.clone());
+                CorsairBackend::with_device(slug, device)
+            })
             .collect()
     }
 }
@@ -416,9 +436,44 @@ mod tests {
     }
 
     #[test]
-    fn assign_family_slugs_suffixes_duplicates_in_enumeration_order() {
-        let bases = vec!["h100i".to_string(), "h100i".to_string()];
-        assert_eq!(assign_family_slugs(&bases), vec!["h100i", "h100i-1"]);
+    fn assign_slug_uses_family_and_sanitized_serial() {
+        let taken = std::collections::HashSet::new();
+        assert_eq!(assign_slug("h100i", Some("ABC123"), &taken), "h100i-abc123");
+    }
+
+    #[test]
+    fn assign_slug_falls_back_to_family_when_serial_is_missing_or_empty() {
+        let taken = std::collections::HashSet::new();
+        assert_eq!(assign_slug("h100i", Some(""), &taken), "h100i");
+        assert_eq!(assign_slug("h100i", None, &taken), "h100i");
+    }
+
+    #[test]
+    fn assign_slug_falls_back_to_dash_n_on_collision() {
+        let mut taken = std::collections::HashSet::new();
+        taken.insert("h100i-abc123".to_string());
+        assert_eq!(assign_slug("h100i", Some("ABC123"), &taken), "h100i");
+
+        taken.insert("h100i".to_string());
+        assert_eq!(assign_slug("h100i", Some("ABC123"), &taken), "h100i-1");
+    }
+
+    #[test]
+    fn assign_slug_sanitizes_case_and_non_alphanumeric_characters() {
+        let taken = std::collections::HashSet::new();
+        assert_eq!(
+            assign_slug("h100i", Some("AB-12_34!!"), &taken),
+            "h100i-ab1234"
+        );
+    }
+
+    #[test]
+    fn assign_slug_truncates_sanitized_serial_to_twelve_characters() {
+        let taken = std::collections::HashSet::new();
+        assert_eq!(
+            assign_slug("h100i", Some("ABCDEFGHIJKLMNOP"), &taken),
+            "h100i-abcdefghijkl"
+        );
     }
 
     #[test]
