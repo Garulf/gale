@@ -23,10 +23,11 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let pool = BackendPool::new(vec![
-        BackendHandle::spawn(Box::new(HwmonBackend::new())),
-        BackendHandle::spawn(Box::new(CorsairBackend::new())),
-    ]);
+    let mut handles = vec![BackendHandle::spawn(Box::new(HwmonBackend::new()))];
+    for backend in CorsairBackend::open_all() {
+        handles.push(BackendHandle::spawn(Box::new(backend)));
+    }
+    let pool = BackendPool::new(handles);
     let inventory = pool.enumerate().await;
     tracing::info!(
         sensors = inventory.sensors.len(),

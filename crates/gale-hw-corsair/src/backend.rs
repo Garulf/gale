@@ -95,15 +95,57 @@ fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
     }
 }
 
+fn build_driver(
+    kind: DriverKind,
+    slug: &'static str,
+    transport: Box<HidapiTransport>,
+) -> Box<dyn CorsairDevice> {
+    match kind {
+        DriverKind::CommanderPro => Box::new(CommanderPro::new(transport, slug)),
+        DriverKind::CommanderCore { has_pump } => {
+            Box::new(CommanderCore::new(transport, slug, has_pump))
+        }
+        DriverKind::HydroPlatinum { fan_count } => {
+            Box::new(HydroPlatinum::new(transport, slug, fan_count))
+        }
+        DriverKind::CorsairPsu => Box::new(CorsairPsu::new(transport, slug)),
+    }
+}
+
+fn assign_family_slugs(bases: &[String]) -> Vec<String> {
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    bases
+        .iter()
+        .map(|base| {
+            let seen = counts.entry(base.clone()).or_insert(0);
+            let slug = if *seen == 0 {
+                base.clone()
+            } else {
+                format!("{base}-{seen}")
+            };
+            *seen += 1;
+            slug
+        })
+        .collect()
+}
+
 pub struct CorsairBackend {
-    devices: Vec<Box<dyn CorsairDevice>>,
-    assigned_slugs: Vec<String>,
-    controls_index: HashMap<Id, (usize, String)>,
+    slug: String,
+    device: Box<dyn CorsairDevice>,
+    controls: HashMap<Id, String>,
 }
 
 impl CorsairBackend {
-    pub fn new() -> Self {
-        let mut devices: Vec<Box<dyn CorsairDevice>> = Vec::new();
+    pub fn with_device(slug: String, device: Box<dyn CorsairDevice>) -> Self {
+        Self {
+            slug,
+            device,
+            controls: HashMap::new(),
+        }
+    }
+
+    pub fn open_all() -> Vec<CorsairBackend> {
+        let mut opened: Vec<(String, Box<dyn CorsairDevice>)> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
             for info in api.device_list() {
                 let vid = info.vendor_id();
@@ -119,19 +161,8 @@ impl CorsairBackend {
                 match api.open_path(info.path()) {
                     Ok(device) => {
                         let transport = Box::new(HidapiTransport::new(device));
-                        let driver: Box<dyn CorsairDevice> = match kind {
-                            DriverKind::CommanderPro => {
-                                Box::new(CommanderPro::new(transport, slug))
-                            }
-                            DriverKind::CommanderCore { has_pump } => {
-                                Box::new(CommanderCore::new(transport, slug, has_pump))
-                            }
-                            DriverKind::HydroPlatinum { fan_count } => {
-                                Box::new(HydroPlatinum::new(transport, slug, fan_count))
-                            }
-                            DriverKind::CorsairPsu => Box::new(CorsairPsu::new(transport, slug)),
-                        };
-                        devices.push(driver);
+                        let driver = build_driver(kind, slug, transport);
+                        opened.push((slug.to_string(), driver));
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -144,38 +175,13 @@ impl CorsairBackend {
                 }
             }
         }
-        Self::with_devices(devices)
-    }
-
-    pub fn with_devices(devices: Vec<Box<dyn CorsairDevice>>) -> Self {
-        Self {
-            devices,
-            assigned_slugs: Vec::new(),
-            controls_index: HashMap::new(),
-        }
-    }
-
-    fn assign_slugs(&self) -> Vec<String> {
-        let mut counts: HashMap<String, u32> = HashMap::new();
-        let mut slugs = Vec::with_capacity(self.devices.len());
-        for device in &self.devices {
-            let base = device.slug().to_string();
-            let seen = counts.entry(base.clone()).or_insert(0);
-            let slug = if *seen == 0 {
-                base.clone()
-            } else {
-                format!("{base}-{seen}")
-            };
-            *seen += 1;
-            slugs.push(slug);
-        }
-        slugs
-    }
-}
-
-impl Default for CorsairBackend {
-    fn default() -> Self {
-        Self::new()
+        let bases: Vec<String> = opened.iter().map(|(base, _)| base.clone()).collect();
+        let slugs = assign_family_slugs(&bases);
+        opened
+            .into_iter()
+            .zip(slugs)
+            .map(|((_, device), slug)| CorsairBackend::with_device(slug, device))
+            .collect()
     }
 }
 
@@ -199,31 +205,20 @@ impl Backend for CorsairBackend {
     }
 
     fn enumerate(&mut self) -> Result<Inventory, HwError> {
-        let slugs = self.assign_slugs();
-        self.assigned_slugs = slugs.clone();
-        self.controls_index.clear();
+        self.controls.clear();
+        let channels = self
+            .device
+            .channels()
+            .map_err(|message| device_error(&self.slug, message))?;
         let mut inventory = Inventory::default();
-        for (index, (slug, device)) in slugs.iter().zip(self.devices.iter_mut()).enumerate() {
-            let channels = match device.channels() {
-                Ok(channels) => channels,
-                Err(message) => {
-                    tracing::warn!(
-                        slug,
-                        message,
-                        "corsair device failed to enumerate channels, skipping"
-                    );
-                    continue;
-                }
-            };
-            for (channel, kind, label) in channels.sensors {
-                let id = format!("corsair/{slug}/{channel}");
-                inventory.sensors.push(SensorInfo { id, label, kind });
-            }
-            for (channel, label) in channels.controls {
-                let id = format!("corsair/{slug}/{channel}");
-                self.controls_index.insert(id.clone(), (index, channel));
-                inventory.controls.push(ControlInfo { id, label });
-            }
+        for (channel, kind, label) in channels.sensors {
+            let id = format!("corsair/{}/{channel}", self.slug);
+            inventory.sensors.push(SensorInfo { id, label, kind });
+        }
+        for (channel, label) in channels.controls {
+            let id = format!("corsair/{}/{channel}", self.slug);
+            self.controls.insert(id.clone(), channel);
+            inventory.controls.push(ControlInfo { id, label });
         }
         inventory.sensors.sort_by(|a, b| a.id.cmp(&b.id));
         inventory.controls.sort_by(|a, b| a.id.cmp(&b.id));
@@ -231,35 +226,32 @@ impl Backend for CorsairBackend {
     }
 
     fn read_all(&mut self) -> HashMap<Id, Option<f64>> {
-        let mut values = HashMap::new();
-        for (slug, device) in self.assigned_slugs.iter().zip(self.devices.iter_mut()) {
-            for (channel, value) in device.read() {
-                let id = format!("corsair/{slug}/{channel}");
-                values.insert(id, value);
-            }
-        }
-        values
+        self.device
+            .read()
+            .into_iter()
+            .map(|(channel, value)| (format!("corsair/{}/{channel}", self.slug), value))
+            .collect()
     }
 
     fn set_duty(&mut self, id: &str, pct: f64) -> Result<(), HwError> {
-        let (index, channel) = self
-            .controls_index
+        let channel = self
+            .controls
             .get(id)
             .ok_or_else(|| HwError::UnknownId(id.to_string()))?;
         if !pct.is_finite() {
             return Err(non_finite_error(id));
         }
-        self.devices[*index]
+        self.device
             .set_duty(channel, pct)
             .map_err(|message| device_error(id, message))
     }
 
     fn release(&mut self, id: &str) -> Result<(), HwError> {
-        let (index, channel) = self
-            .controls_index
+        let channel = self
+            .controls
             .get(id)
             .ok_or_else(|| HwError::UnknownId(id.to_string()))?;
-        self.devices[*index]
+        self.device
             .release(channel)
             .map_err(|message| device_error(id, message))
     }
@@ -411,7 +403,8 @@ mod tests {
 
     #[test]
     fn enumerate_shapes_ids_as_corsair_slug_channel() {
-        let mut backend = CorsairBackend::with_devices(vec![Box::new(FakeDevice::new("h100i"))]);
+        let mut backend =
+            CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
         let inventory = backend.enumerate().unwrap();
         let sensor_ids: Vec<_> = inventory.sensors.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(
@@ -423,50 +416,37 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_slugs_get_suffixes_in_enumeration_order() {
-        let mut backend = CorsairBackend::with_devices(vec![
-            Box::new(FakeDevice::new("h100i")),
-            Box::new(FakeDevice::new("h100i")),
-        ]);
-        let inventory = backend.enumerate().unwrap();
-        let control_ids: Vec<_> = inventory.controls.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(
-            control_ids,
-            vec!["corsair/h100i-1/pwm1", "corsair/h100i/pwm1"]
-        );
+    fn assign_family_slugs_suffixes_duplicates_in_enumeration_order() {
+        let bases = vec!["h100i".to_string(), "h100i".to_string()];
+        assert_eq!(assign_family_slugs(&bases), vec!["h100i", "h100i-1"]);
     }
 
     #[test]
-    fn enumerate_skips_device_whose_channels_fail_and_keeps_the_rest() {
-        let mut backend = CorsairBackend::with_devices(vec![
+    fn a_failing_device_backend_errors_without_affecting_a_sibling_backend() {
+        let mut failing = CorsairBackend::with_device(
+            "h100i".into(),
             Box::new(FakeDevice::failing_channels("h100i")),
-            Box::new(FakeDevice::new("h150i")),
-        ]);
-        let inventory = backend.enumerate().unwrap();
+        );
+        let mut healthy =
+            CorsairBackend::with_device("h150i".into(), Box::new(FakeDevice::new("h150i")));
+
+        assert!(failing.enumerate().is_err());
+
+        let inventory = healthy.enumerate().unwrap();
         let sensor_ids: Vec<_> = inventory.sensors.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(
             sensor_ids,
             vec!["corsair/h150i/fan1", "corsair/h150i/temp1"]
         );
-        let control_ids: Vec<_> = inventory.controls.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(control_ids, vec!["corsair/h150i/pwm1"]);
-
-        backend.set_duty("corsair/h150i/pwm1", 75.0).unwrap();
-        let values = backend.read_all();
+        healthy.set_duty("corsair/h150i/pwm1", 75.0).unwrap();
+        let values = healthy.read_all();
         assert_eq!(values["corsair/h150i/pwm1"], Some(75.0));
     }
 
     #[test]
-    fn scan_matching_zero_devices_yields_empty_inventory() {
-        let mut backend = CorsairBackend::with_devices(vec![]);
-        let inventory = backend.enumerate().unwrap();
-        assert!(inventory.sensors.is_empty());
-        assert!(inventory.controls.is_empty());
-    }
-
-    #[test]
-    fn read_all_merges_values_from_every_device() {
-        let mut backend = CorsairBackend::with_devices(vec![Box::new(FakeDevice::new("h100i"))]);
+    fn read_all_merges_values_from_the_device() {
+        let mut backend =
+            CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
         backend.enumerate().unwrap();
         let values = backend.read_all();
         assert_eq!(values["corsair/h100i/temp1"], Some(30.0));
@@ -478,7 +458,7 @@ mod tests {
     fn unreadable_channel_reads_none_not_zero() {
         let mut device = FakeDevice::new("h100i");
         device.temp = None;
-        let mut backend = CorsairBackend::with_devices(vec![Box::new(device)]);
+        let mut backend = CorsairBackend::with_device("h100i".into(), Box::new(device));
         backend.enumerate().unwrap();
         let values = backend.read_all();
         assert_eq!(values["corsair/h100i/temp1"], None);
@@ -486,21 +466,19 @@ mod tests {
     }
 
     #[test]
-    fn set_duty_routes_to_owning_device() {
-        let mut backend = CorsairBackend::with_devices(vec![
-            Box::new(FakeDevice::new("h100i")),
-            Box::new(FakeDevice::new("h150i")),
-        ]);
+    fn set_duty_routes_to_the_device() {
+        let mut backend =
+            CorsairBackend::with_device("h150i".into(), Box::new(FakeDevice::new("h150i")));
         backend.enumerate().unwrap();
         backend.set_duty("corsair/h150i/pwm1", 75.0).unwrap();
         let values = backend.read_all();
         assert_eq!(values["corsair/h150i/pwm1"], Some(75.0));
-        assert_eq!(values["corsair/h100i/pwm1"], Some(50.0));
     }
 
     #[test]
     fn set_duty_rejects_non_finite_percentages() {
-        let mut backend = CorsairBackend::with_devices(vec![Box::new(FakeDevice::new("h100i"))]);
+        let mut backend =
+            CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
         backend.enumerate().unwrap();
         let result = backend.set_duty("corsair/h100i/pwm1", f64::NAN);
         assert!(matches!(result, Err(HwError::Io { .. })));
@@ -508,7 +486,8 @@ mod tests {
 
     #[test]
     fn set_duty_and_release_reject_unknown_ids() {
-        let mut backend = CorsairBackend::with_devices(vec![Box::new(FakeDevice::new("h100i"))]);
+        let mut backend =
+            CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
         backend.enumerate().unwrap();
         assert!(matches!(
             backend.set_duty("corsair/ghost/pwm9", 10.0),
@@ -521,8 +500,9 @@ mod tests {
     }
 
     #[test]
-    fn release_routes_to_owning_device() {
-        let mut backend = CorsairBackend::with_devices(vec![Box::new(FakeDevice::new("h100i"))]);
+    fn release_routes_to_the_device() {
+        let mut backend =
+            CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
         backend.enumerate().unwrap();
         backend.release("corsair/h100i/pwm1").unwrap();
     }
