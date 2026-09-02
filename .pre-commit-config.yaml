@@ -12,6 +12,11 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
       - id: check-toml
+  - repo: https://github.com/Garulf/readwright
+    rev: v0.3.0
+    hooks:
+      - id: readwright-check
+        stages: [pre-push]
   - repo: local
     hooks:
       - id: cargo-test
