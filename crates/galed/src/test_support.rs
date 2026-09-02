@@ -1,8 +1,43 @@
 use gale_hw::{Backend, HwError, Id, Inventory};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::ffi::OsStr;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+pub fn lock_env() -> MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[derive(Default)]
+pub struct EnvVarGuard {
+    keys: Vec<&'static str>,
+}
+
+impl EnvVarGuard {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&mut self, key: &'static str, value: impl AsRef<OsStr>) {
+        unsafe {
+            std::env::set_var(key, value);
+        }
+        self.keys.push(key);
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        for key in &self.keys {
+            unsafe {
+                std::env::remove_var(key);
+            }
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct Recorded {

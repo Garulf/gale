@@ -40,11 +40,9 @@ pub fn ensure_dirs() -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    pub(crate) use crate::test_support::ENV_LOCK;
-
     #[test]
     fn runtime_dir_uses_env_override() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::lock_env();
         unsafe {
             std::env::set_var("GALE_RUNTIME_DIR", "/tmp/gale-test-runtime");
         }
@@ -56,7 +54,7 @@ mod tests {
 
     #[test]
     fn config_path_uses_env_override() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::lock_env();
         unsafe {
             std::env::set_var("GALE_CONFIG", "/tmp/gale-test-config.toml");
         }
@@ -69,7 +67,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn runtime_dir_default_is_run_gale_on_linux() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::lock_env();
         unsafe {
             std::env::remove_var("GALE_RUNTIME_DIR");
         }
@@ -79,7 +77,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn config_path_default_is_etc_gale_on_linux() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::lock_env();
         unsafe {
             std::env::remove_var("GALE_CONFIG");
         }
@@ -89,7 +87,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn runtime_dir_default_ends_with_programdata_gale_run() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::lock_env();
         unsafe {
             std::env::remove_var("GALE_RUNTIME_DIR");
         }
@@ -99,7 +97,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn config_path_default_ends_with_programdata_gale_config() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::test_support::lock_env();
         unsafe {
             std::env::remove_var("GALE_CONFIG");
         }

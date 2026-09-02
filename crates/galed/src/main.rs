@@ -31,13 +31,17 @@ fn main() {
         }
     }
 
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
+    let outcome = tokio::runtime::Runtime::new().unwrap().block_on(async {
         galed::daemon::run(DaemonOptions {
             shutdown: ShutdownSignal::from_os(),
             on_ready: None,
         })
-        .await;
+        .await
     });
+    if let Err(error) = outcome {
+        eprintln!("daemon failed: {error}");
+        std::process::exit(1);
+    }
 }
 
 fn journal_path_from_args(args: &[String]) -> std::path::PathBuf {

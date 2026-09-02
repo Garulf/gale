@@ -1,8 +1,10 @@
+use gale_core::config::ConfigError;
 use gale_hw_corsair::CorsairBackend;
 #[cfg(target_os = "linux")]
 use gale_hw_hwmon::HwmonBackend;
 use gale_hw_nvidia::NvidiaBackend;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
@@ -19,7 +21,28 @@ pub struct DaemonOptions {
     pub on_ready: Option<Box<dyn FnOnce(SocketAddr) + Send>>,
 }
 
-pub async fn run(options: DaemonOptions) {
+#[derive(Debug)]
+pub enum DaemonError {
+    ConfigLoad(PathBuf, ConfigError),
+    ConfigInvalid(ConfigError),
+    Bind(String, std::io::Error),
+}
+
+impl std::fmt::Display for DaemonError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DaemonError::ConfigLoad(path, error) => {
+                write!(f, "failed to load config {}: {error}", path.display())
+            }
+            DaemonError::ConfigInvalid(error) => write!(f, "invalid config: {error}"),
+            DaemonError::Bind(bind, error) => write!(f, "cannot bind {bind}: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for DaemonError {}
+
+pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     let mut shutdown = options.shutdown;
 
     if let Err(error) = crate::paths::ensure_dirs() {
@@ -33,13 +56,9 @@ pub async fn run(options: DaemonOptions) {
     }
 
     let store = Arc::new(ConfigStore::new(ConfigStore::default_path()));
-    let config = match store.load() {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("failed to load config {}: {error}", store.path().display());
-            std::process::exit(1);
-        }
-    };
+    let config = store
+        .load()
+        .map_err(|error| DaemonError::ConfigLoad(store.path().to_path_buf(), error))?;
     let mut handles: Vec<BackendHandle> = Vec::new();
     #[cfg(target_os = "linux")]
     handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
@@ -54,13 +73,7 @@ pub async fn run(options: DaemonOptions) {
         controls = inventory.controls.len(),
         "hardware enumerated"
     );
-    let host = match EngineHost::new(config.clone(), pool) {
-        Ok(host) => host,
-        Err(error) => {
-            eprintln!("invalid config: {error}");
-            std::process::exit(1);
-        }
-    };
+    let host = EngineHost::new(config.clone(), pool).map_err(DaemonError::ConfigInvalid)?;
     host.set_known_sensors(
         inventory
             .sensors
@@ -71,12 +84,12 @@ pub async fn run(options: DaemonOptions) {
     host.log_config_warnings(&config);
     install_panic_release_hook(host.clone());
     let heartbeat = Arc::new(Mutex::new(Instant::now()));
-    tokio::spawn(runtime::tick_loop(
+    let tick_handle = tokio::spawn(runtime::tick_loop(
         host.clone(),
         config.tick_interval_ms,
         heartbeat.clone(),
     ));
-    tokio::spawn(runtime::watchdog(
+    let watchdog_handle = tokio::spawn(runtime::watchdog(
         host.clone(),
         config.tick_interval_ms,
         heartbeat,
@@ -97,16 +110,18 @@ pub async fn run(options: DaemonOptions) {
     let listener = match tokio::net::TcpListener::bind(&config.api.bind).await {
         Ok(listener) => listener,
         Err(error) => {
-            eprintln!("cannot bind {}: {error}", config.api.bind);
-            std::process::exit(1);
+            tick_handle.abort();
+            watchdog_handle.abort();
+            host.release_all().await;
+            return Err(DaemonError::Bind(config.api.bind.clone(), error));
         }
     };
-    let bound_addr = listener.local_addr().ok();
+    let bound_addr = listener
+        .local_addr()
+        .expect("bound tcp listener has a local address");
     tracing::info!(bind = %config.api.bind, "gale daemon listening");
     if let Some(on_ready) = options.on_ready {
-        if let Some(addr) = bound_addr {
-            on_ready(addr);
-        }
+        on_ready(bound_addr);
     }
     let server = axum::serve(listener, api::router(ctx));
     tokio::select! {
@@ -117,8 +132,11 @@ pub async fn run(options: DaemonOptions) {
         }
         _ = shutdown.wait() => {}
     }
+    tick_handle.abort();
+    watchdog_handle.abort();
     tracing::info!("shutting down, releasing all controls");
     host.release_all().await;
+    Ok(())
 }
 
 fn install_panic_release_hook(host: Arc<EngineHost>) {
@@ -151,7 +169,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn run_binds_ephemeral_port_and_stops_on_pre_fired_signal() {
-        let _guard = crate::test_support::ENV_LOCK.lock().unwrap();
+        let _lock = crate::test_support::lock_env();
 
         let workdir = tempfile::tempdir().unwrap();
 
@@ -179,11 +197,10 @@ bind = "127.0.0.1:0"
 "#,
         );
 
-        unsafe {
-            std::env::set_var("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
-            std::env::set_var("GALE_CONFIG", &config_path);
-            std::env::set_var("GALE_RUNTIME_DIR", &runtime_dir);
-        }
+        let mut env = crate::test_support::EnvVarGuard::new();
+        env.set("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
+        env.set("GALE_CONFIG", &config_path);
+        env.set("GALE_RUNTIME_DIR", &runtime_dir);
 
         let (trigger, signal) = shutdown::channel();
         trigger.fire();
@@ -196,15 +213,75 @@ bind = "127.0.0.1:0"
             })),
         };
 
-        run(options).await;
+        run(options).await.unwrap();
 
         let addr = ready_rx.try_recv().expect("on_ready was not called");
         assert_ne!(addr.port(), 0);
+    }
 
-        unsafe {
-            std::env::remove_var("GALE_HWMON_ROOT");
-            std::env::remove_var("GALE_CONFIG");
-            std::env::remove_var("GALE_RUNTIME_DIR");
-        }
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn run_stops_ticking_after_shutdown_so_released_controls_stay_released() {
+        let _lock = crate::test_support::lock_env();
+
+        let workdir = tempfile::tempdir().unwrap();
+
+        let chip0 = workdir.path().join("hwmon/hwmon0");
+        fs::create_dir_all(&chip0).unwrap();
+        write_file(&chip0.join("name"), "nct6798\n");
+        write_file(&chip0.join("temp1_input"), "45000\n");
+        write_file(&chip0.join("temp1_label"), "CPUTIN\n");
+        write_file(&chip0.join("fan1_input"), "1200\n");
+        write_file(&chip0.join("pwm1"), "128\n");
+        write_file(&chip0.join("pwm1_mode"), "1\n");
+        write_file(&chip0.join("pwm1_enable"), "5\n");
+
+        let runtime_dir = workdir.path().join("run");
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let config_path = workdir.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"
+tick_interval_ms = 10
+active_profile = "default"
+
+[api]
+bind = "127.0.0.1:0"
+
+[profiles.default.curves.cpu]
+type = "point"
+sensor = "hwmon/nct6798/temp1"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.default.assignments]
+"hwmon/nct6798/pwm1" = "cpu"
+"#,
+        );
+
+        let mut env = crate::test_support::EnvVarGuard::new();
+        env.set("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
+        env.set("GALE_CONFIG", &config_path);
+        env.set("GALE_RUNTIME_DIR", &runtime_dir);
+
+        let (trigger, signal) = shutdown::channel();
+        let on_ready: Box<dyn FnOnce(SocketAddr) + Send> = Box::new(move |_addr| {
+            trigger.fire();
+        });
+        let options = DaemonOptions {
+            shutdown: signal,
+            on_ready: Some(on_ready),
+        };
+
+        run(options).await.unwrap();
+
+        let enable_path = chip0.join("pwm1_enable");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let enable_after_wait = fs::read_to_string(&enable_path).unwrap();
+        assert_eq!(
+            enable_after_wait.trim(),
+            "5",
+            "tick loop kept running after shutdown and reclaimed a released control"
+        );
     }
 }
