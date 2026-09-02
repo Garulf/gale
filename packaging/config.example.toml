@@ -1,0 +1,12 @@
+tick_interval_ms = 1000
+active_profile = "default"
+
+[api]
+bind = "127.0.0.1:5250"
+
+[profiles.default.curves.cpu]
+type = "point"
+sensor = "hwmon/nct6798/temp1"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.default.assignments]

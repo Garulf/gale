@@ -13,6 +13,25 @@ sudo systemctl enable --now galed.service
 This installs `galed` and `gale` to `/usr/local/bin`, the systemd unit, and the
 udev rules that grant hidraw access to supported Corsair devices. Uninstall
 with `sudo packaging/install.sh --uninstall`.
+
+### Windows
+
+Download `gale-windows-x86_64.zip` from the
+[latest release](https://github.com/Garulf/gale/releases/latest), extract it,
+then from an elevated PowerShell in that folder:
+
+```powershell
+.\install.ps1
+```
+
+This registers `galed` as a Windows service and starts it. Uninstall with:
+
+```powershell
+.\install.ps1 -Uninstall
+```
+
+Windows motherboard (Super I/O) fan control is not yet supported; it lands in
+the next release. Corsair and NVIDIA GPU control work today.
 {% endblock %}
 
 {% block usage %}

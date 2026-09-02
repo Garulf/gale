@@ -11,8 +11,54 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  assets-linux:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: install libudev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p galed -p gale-cli
+      - name: assemble dist
+        run: |
+          mkdir -p dist/packaging
+          cp target/release/galed target/release/gale dist/
+          cp -r packaging/systemd packaging/udev packaging/install.sh packaging/config.example.toml dist/packaging/
+          cp LICENSE NOTICE dist/
+          tar czf gale-linux-x86_64.tar.gz -C dist .
+      - run: gh release upload ${{ needs.release-please.outputs.tag_name }} gale-linux-x86_64.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  assets-windows:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p galed -p gale-cli
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/galed.exe, target/release/gale.exe, packaging/windows/install.ps1, packaging/windows/README.md, packaging/config.example.toml, LICENSE, NOTICE dist/
+          Compress-Archive dist/* gale-windows-x86_64.zip
+      - run: gh release upload ${{ needs.release-please.outputs.tag_name }} gale-windows-x86_64.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
