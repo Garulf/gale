@@ -1,18 +1,11 @@
 import { writable } from 'svelte/store';
 import { getStatus } from './api.js';
+import { apiKey } from './auth.js';
 
 export const snapshot = writable(null);
 export const connected = writable(false);
 
 const MAX_BACKOFF_MS = 10000;
-
-function apiKey() {
-  try {
-    return localStorage.getItem('gale_api_key') || '';
-  } catch (error) {
-    return '';
-  }
-}
 
 function wsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

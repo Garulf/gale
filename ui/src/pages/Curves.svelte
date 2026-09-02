@@ -1,8 +1,9 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { snapshot } from '../lib/store.js';
   import { getConfig, putConfig, getInventory, activateProfile } from '../lib/api.js';
   import { refreshWarnings } from '../lib/warnings.js';
+  import { page } from '../lib/page.js';
   import PointCurveEditor from '../lib/components/PointCurveEditor.svelte';
 
   let config = null;
@@ -16,6 +17,19 @@
   let saveWarnings = [];
   let saving = false;
   let deleteBlocked = '';
+  let dirty = false;
+
+  let previousPage = 'curves';
+  const unsubscribePage = page.subscribe((value) => {
+    if (previousPage === 'curves' && value !== 'curves' && dirty) {
+      if (!confirm('You have unsaved curve changes. Leave without saving?')) {
+        page.set('curves');
+        return;
+      }
+    }
+    previousPage = value;
+  });
+  onDestroy(unsubscribePage);
 
   const CURVE_TYPES = ['point', 'flat', 'mix', 'sync', 'trigger', 'target'];
   const MIX_MODES = ['max', 'min', 'avg'];
@@ -66,6 +80,7 @@
       inventory = inv;
       editingProfile = cfg.active_profile;
       selectedCurveId = firstCurveId(cfg);
+      dirty = false;
     } catch (err) {
       error = err.message;
     }
@@ -147,6 +162,7 @@
     if (!name || config.profiles[name]) return;
     config.profiles[name] = { curves: {}, assignments: {} };
     config = config;
+    dirty = true;
     editingProfile = name;
     newProfileName = '';
   }
@@ -161,6 +177,7 @@
     }
     config.profiles[candidate] = JSON.parse(JSON.stringify(config.profiles[name]));
     config = config;
+    dirty = true;
     editingProfile = candidate;
   }
 
@@ -169,6 +186,7 @@
     if (name === config.active_profile) return;
     delete config.profiles[name];
     config = config;
+    dirty = true;
     if (editingProfile === name) {
       editingProfile = config.active_profile;
       selectedCurveId = firstCurveId(config);
@@ -193,6 +211,7 @@
     if (!id || profile.curves[id]) return;
     profile.curves[id] = defaultCurve(newCurveType);
     config = config;
+    dirty = true;
     selectedCurveId = id;
     newCurveId = '';
   }
@@ -206,6 +225,7 @@
     deleteBlocked = '';
     delete profile.curves[id];
     config = config;
+    dirty = true;
     if (selectedCurveId === id) {
       selectedCurveId = firstCurveId(config);
     }
@@ -214,16 +234,19 @@
   function setCurveField(field, value) {
     selectedCurve[field] = value;
     config = config;
+    dirty = true;
   }
 
   function toggleHysteresis(enabled) {
     selectedCurve.hysteresis = enabled ? { up: 2, down: 5 } : null;
     config = config;
+    dirty = true;
   }
 
   function toggleResponse(enabled) {
     selectedCurve.response = enabled ? { rise_pct_per_sec: 10, fall_pct_per_sec: 10 } : null;
     config = config;
+    dirty = true;
   }
 
   function toggleMixSource(sourceId, checked) {
@@ -235,6 +258,7 @@
       selectedCurve.sources = selectedCurve.sources.filter((s) => s !== sourceId);
     }
     config = config;
+    dirty = true;
   }
 
   function setAssignment(controlId, curveId) {
@@ -244,6 +268,7 @@
       delete profile.assignments[controlId];
     }
     config = config;
+    dirty = true;
   }
 
   $: liveTemp = liveTempFor(selectedCurve && selectedCurve.sensor, $snapshot);
@@ -313,6 +338,7 @@
     try {
       const result = await putConfig(wireConfig);
       saveWarnings = (result && result.warnings) || [];
+      dirty = false;
       await refreshWarnings();
     } catch (err) {
       error = err.message;
@@ -429,11 +455,19 @@
                 {#if selectedCurve.hysteresis}
                   <label class="inline">
                     up
-                    <input type="number" bind:value={selectedCurve.hysteresis.up} />
+                    <input
+                      type="number"
+                      bind:value={selectedCurve.hysteresis.up}
+                      on:input={() => (dirty = true)}
+                    />
                   </label>
                   <label class="inline">
                     down
-                    <input type="number" bind:value={selectedCurve.hysteresis.down} />
+                    <input
+                      type="number"
+                      bind:value={selectedCurve.hysteresis.down}
+                      on:input={() => (dirty = true)}
+                    />
                   </label>
                 {/if}
               </fieldset>
@@ -455,6 +489,7 @@
                     <input
                       type="number"
                       bind:value={selectedCurve.response.rise_pct_per_sec}
+                      on:input={() => (dirty = true)}
                     />
                   </label>
                   <label class="inline">
@@ -462,6 +497,7 @@
                     <input
                       type="number"
                       bind:value={selectedCurve.response.fall_pct_per_sec}
+                      on:input={() => (dirty = true)}
                     />
                   </label>
                 {/if}
@@ -469,12 +505,18 @@
             {:else if selectedCurve.type === 'flat'}
               <label class="inline">
                 Duty %
-                <input type="number" min="0" max="100" bind:value={selectedCurve.duty} />
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  bind:value={selectedCurve.duty}
+                  on:input={() => (dirty = true)}
+                />
               </label>
             {:else if selectedCurve.type === 'mix'}
               <label>
                 Mode
-                <select bind:value={selectedCurve.mode}>
+                <select bind:value={selectedCurve.mode} on:change={() => (dirty = true)}>
                   {#each MIX_MODES as mode}
                     <option value={mode}>{mode}</option>
                   {/each}
@@ -520,16 +562,36 @@
                 </select>
               </label>
               <label class="inline">
-                On temp <input type="number" bind:value={selectedCurve.on_temp} />
+                On temp
+                <input
+                  type="number"
+                  bind:value={selectedCurve.on_temp}
+                  on:input={() => (dirty = true)}
+                />
               </label>
               <label class="inline">
-                Off temp <input type="number" bind:value={selectedCurve.off_temp} />
+                Off temp
+                <input
+                  type="number"
+                  bind:value={selectedCurve.off_temp}
+                  on:input={() => (dirty = true)}
+                />
               </label>
               <label class="inline">
-                On duty % <input type="number" bind:value={selectedCurve.on_duty} />
+                On duty %
+                <input
+                  type="number"
+                  bind:value={selectedCurve.on_duty}
+                  on:input={() => (dirty = true)}
+                />
               </label>
               <label class="inline">
-                Off duty % <input type="number" bind:value={selectedCurve.off_duty} />
+                Off duty %
+                <input
+                  type="number"
+                  bind:value={selectedCurve.off_duty}
+                  on:input={() => (dirty = true)}
+                />
               </label>
             {:else if selectedCurve.type === 'target'}
               <label>
@@ -545,16 +607,36 @@
                 </select>
               </label>
               <label class="inline">
-                Target temp <input type="number" bind:value={selectedCurve.target_temp} />
+                Target temp
+                <input
+                  type="number"
+                  bind:value={selectedCurve.target_temp}
+                  on:input={() => (dirty = true)}
+                />
               </label>
               <label class="inline">
-                Step %/s <input type="number" bind:value={selectedCurve.step_pct_per_sec} />
+                Step %/s
+                <input
+                  type="number"
+                  bind:value={selectedCurve.step_pct_per_sec}
+                  on:input={() => (dirty = true)}
+                />
               </label>
               <label class="inline">
-                Min duty % <input type="number" bind:value={selectedCurve.min_duty} />
+                Min duty %
+                <input
+                  type="number"
+                  bind:value={selectedCurve.min_duty}
+                  on:input={() => (dirty = true)}
+                />
               </label>
               <label class="inline">
-                Max duty % <input type="number" bind:value={selectedCurve.max_duty} />
+                Max duty %
+                <input
+                  type="number"
+                  bind:value={selectedCurve.max_duty}
+                  on:input={() => (dirty = true)}
+                />
               </label>
             {/if}
           {:else}

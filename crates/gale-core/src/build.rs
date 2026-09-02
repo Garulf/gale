@@ -37,7 +37,10 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
     for (id, curve) in &profile.curves {
         set.insert(id.clone(), instantiate(curve));
     }
-    Ok(FanEngine::new(set, profile.assignments.clone()))
+    Ok(FanEngine::new(
+        set,
+        profile.assignments.clone().into_iter().collect(),
+    ))
 }
 
 fn curve_references(curve: &CurveConfig) -> Vec<&str> {

@@ -1,7 +1,7 @@
 use crate::curve::mix::MixMode;
 use crate::Id;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -28,7 +28,7 @@ pub struct GaleConfig {
     #[serde(default)]
     pub api: ApiConfig,
     pub active_profile: String,
-    pub profiles: HashMap<String, ProfileConfig>,
+    pub profiles: BTreeMap<String, ProfileConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,9 +51,9 @@ impl Default for ApiConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProfileConfig {
     #[serde(default)]
-    pub curves: HashMap<Id, CurveConfig>,
+    pub curves: BTreeMap<Id, CurveConfig>,
     #[serde(default)]
-    pub assignments: HashMap<Id, Id>,
+    pub assignments: BTreeMap<Id, Id>,
 }
 
 impl ProfileConfig {
@@ -140,8 +140,8 @@ impl GaleConfig {
             profiles: [(
                 "default".to_string(),
                 ProfileConfig {
-                    curves: HashMap::new(),
-                    assignments: HashMap::new(),
+                    curves: BTreeMap::new(),
+                    assignments: BTreeMap::new(),
                 },
             )]
             .into(),
@@ -208,6 +208,31 @@ mode = "max"
     }
 
     #[test]
+    fn profiles_serialize_in_sorted_key_order_regardless_of_insertion_order() {
+        let mut cfg = GaleConfig::default_config();
+        cfg.profiles.insert(
+            "zzz".to_string(),
+            ProfileConfig {
+                curves: BTreeMap::new(),
+                assignments: BTreeMap::new(),
+            },
+        );
+        cfg.profiles.insert(
+            "aaa".to_string(),
+            ProfileConfig {
+                curves: BTreeMap::new(),
+                assignments: BTreeMap::new(),
+            },
+        );
+        let rendered = cfg.to_toml().unwrap();
+        let aaa_pos = rendered.find("[profiles.aaa.curves]").unwrap();
+        let default_pos = rendered.find("[profiles.default.curves]").unwrap();
+        let zzz_pos = rendered.find("[profiles.zzz.curves]").unwrap();
+        assert!(aaa_pos < default_pos);
+        assert!(default_pos < zzz_pos);
+    }
+
+    #[test]
     fn bad_toml_is_a_parse_error() {
         assert!(matches!(
             GaleConfig::from_toml("not toml ["),
@@ -264,7 +289,7 @@ mode = "max"
                 ),
             ]
             .into(),
-            assignments: HashMap::new(),
+            assignments: BTreeMap::new(),
         };
         let referenced = profile.referenced_sensors();
         assert_eq!(

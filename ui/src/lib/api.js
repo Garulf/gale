@@ -1,12 +1,4 @@
-import { markUnauthorized } from './auth.js';
-
-function apiKey() {
-  try {
-    return localStorage.getItem('gale_api_key') || '';
-  } catch (error) {
-    return '';
-  }
-}
+import { markUnauthorized, apiKey } from './auth.js';
 
 function headers(extra) {
   const base = { ...extra };
@@ -71,8 +63,12 @@ export function activateProfile(name) {
   });
 }
 
+function encodeIdPath(id) {
+  return id.split('/').map(encodeURIComponent).join('/');
+}
+
 export function setControl(id, duty) {
-  return requestJson(`/api/controls/${id}`, {
+  return requestJson(`/api/controls/${encodeIdPath(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ duty }),
@@ -80,7 +76,7 @@ export function setControl(id, duty) {
 }
 
 export function releaseControl(id) {
-  return requestJson(`/api/controls/${id}`, {
+  return requestJson(`/api/controls/${encodeIdPath(id)}`, {
     method: 'DELETE',
   });
 }

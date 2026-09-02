@@ -13,3 +13,11 @@ export function saveApiKey(key) {
     return;
   }
 }
+
+export function apiKey() {
+  try {
+    return localStorage.getItem('gale_api_key') || '';
+  } catch (error) {
+    return '';
+  }
+}

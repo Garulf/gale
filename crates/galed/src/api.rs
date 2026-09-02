@@ -118,7 +118,9 @@ async fn inventory(State(ctx): State<ApiContext>) -> Response {
 }
 
 async fn get_config(State(ctx): State<ApiContext>) -> Response {
-    Json(ctx.host.config()).into_response()
+    let mut config = ctx.host.config();
+    config.api.api_key = None;
+    Json(config).into_response()
 }
 
 #[derive(Serialize)]
@@ -151,7 +153,17 @@ async fn apply_and_persist(ctx: &ApiContext, config: GaleConfig) -> Result<(), R
     Ok(())
 }
 
-async fn put_config(State(ctx): State<ApiContext>, Json(config): Json<GaleConfig>) -> Response {
+fn merge_api_key(existing: Option<String>, incoming: Option<String>) -> Option<String> {
+    match incoming {
+        None => existing,
+        Some(key) if key.is_empty() => None,
+        Some(key) => Some(key),
+    }
+}
+
+async fn put_config(State(ctx): State<ApiContext>, Json(mut config): Json<GaleConfig>) -> Response {
+    let existing_key = ctx.host.config().api.api_key;
+    config.api.api_key = merge_api_key(existing_key, config.api.api_key.clone());
     match apply_and_persist(&ctx, config.clone()).await {
         Ok(()) => {
             let warnings = ctx.host.config_warnings(&config);
@@ -632,6 +644,118 @@ duty = 10.0
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert_eq!(json["warnings"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_config_always_redacts_api_key() {
+        let (router, host) = make_router(None);
+        let mut config = host.config();
+        config.api.api_key = Some("realkey".to_string());
+        host.replace_config(config).await.unwrap();
+        let response = router
+            .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert!(json["api"]["api_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn put_config_with_null_api_key_preserves_existing_key() {
+        let (router, host) = make_router(None);
+        let mut config = host.config();
+        config.api.api_key = Some("realkey".to_string());
+        host.replace_config(config).await.unwrap();
+
+        let mut incoming = GaleConfig::from_toml(CONFIG).unwrap();
+        incoming.api.api_key = None;
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&incoming).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.config().api.api_key, Some("realkey".to_string()));
+    }
+
+    #[tokio::test]
+    async fn put_config_with_empty_string_api_key_clears_it() {
+        let (router, host) = make_router(None);
+        let mut config = host.config();
+        config.api.api_key = Some("realkey".to_string());
+        host.replace_config(config).await.unwrap();
+
+        let mut incoming = GaleConfig::from_toml(CONFIG).unwrap();
+        incoming.api.api_key = Some(String::new());
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&incoming).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.config().api.api_key, None);
+    }
+
+    #[tokio::test]
+    async fn put_config_with_string_api_key_sets_it_and_persists_real_value() {
+        let handle = BackendHandle::spawn(Box::new(NullBackend));
+        let pool = BackendPool::new(vec![handle]);
+        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(ConfigStore::new(dir.path().join("config.toml")));
+        let ctx = ApiContext {
+            host: host.clone(),
+            store: store.clone(),
+            inventory: Arc::new(RwLock::new(Inventory::default())),
+            api_key: None,
+        };
+        let router = router(ctx);
+
+        let mut incoming = GaleConfig::from_toml(CONFIG).unwrap();
+        incoming.api.api_key = Some("newkey".to_string());
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&incoming).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.config().api.api_key, Some("newkey".to_string()));
+
+        let persisted = store.load().unwrap();
+        assert_eq!(persisted.api.api_key, Some("newkey".to_string()));
+    }
+
+    #[tokio::test]
+    async fn unknown_path_with_api_key_configured_is_unauthorized_before_404() {
+        let (router, _host) = make_router(Some("secret".into()));
+        let response = router
+            .oneshot(
+                Request::get("/api/nonexistent-with-key-configured")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[test]

@@ -43,7 +43,7 @@
           </tr>
           <tr>
             <td class="label">API key</td>
-            <td>{config.api.api_key ? 'set' : 'not set'}</td>
+            <td>managed via config file</td>
           </tr>
           <tr>
             <td class="label">Active profile</td>

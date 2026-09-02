@@ -52,13 +52,21 @@ fn run(cli: &Cli) -> Result<(), String> {
         Command::Set { id, pct } => send(
             cli,
             "PUT",
-            &format!("/api/controls/{id}"),
+            &format!("/api/controls/{}", encode_id_path(id)),
             Some(serde_json::json!({ "duty": pct })),
         ),
-        Command::Release { id } => send(cli, "DELETE", &format!("/api/controls/{id}"), None),
-        Command::Profile { name } => {
-            send(cli, "POST", &format!("/api/profiles/{name}/activate"), None)
-        }
+        Command::Release { id } => send(
+            cli,
+            "DELETE",
+            &format!("/api/controls/{}", encode_id_path(id)),
+            None,
+        ),
+        Command::Profile { name } => send(
+            cli,
+            "POST",
+            &format!("/api/profiles/{}/activate", encode_segment(name)),
+            None,
+        ),
         Command::Config => {
             let config: GaleConfig =
                 serde_json::from_value(get_json(cli, "/api/config")?).map_err(|e| e.to_string())?;
@@ -66,6 +74,26 @@ fn run(cli: &Cli) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+fn encode_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for byte in segment.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+fn encode_id_path(id: &str) -> String {
+    id.split('/')
+        .map(encode_segment)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn request(cli: &Cli, method: &str, path: &str) -> ureq::Request {
@@ -175,6 +203,21 @@ mod tests {
             text,
             "sensors:\n  a/t  n/a\n  b/t  45.5\ncontrols:\n  p1  42.0%\n  p2  70.0% (manual)\n"
         );
+    }
+
+    #[test]
+    fn encode_id_path_percent_encodes_each_segment_and_keeps_slashes() {
+        assert_eq!(
+            encode_id_path("hwmon/nct6798/pwm 1"),
+            "hwmon/nct6798/pwm%201"
+        );
+        assert_eq!(encode_id_path("a/b#c"), "a/b%23c");
+    }
+
+    #[test]
+    fn encode_segment_percent_encodes_reserved_characters() {
+        assert_eq!(encode_segment("quiet profile"), "quiet%20profile");
+        assert_eq!(encode_segment("plain-name_1.2~3"), "plain-name_1.2~3");
     }
 
     #[test]
