@@ -47,15 +47,29 @@ async fn require_api_key(
     next: Next,
 ) -> Response {
     if let Some(expected) = &ctx.api_key {
-        let provided = request
+        let header_key = request
             .headers()
             .get("X-Api-Key")
             .and_then(|v| v.to_str().ok());
-        if provided != Some(expected.as_str()) {
+        let authorized = if let Some(provided) = header_key {
+            provided == expected.as_str()
+        } else if request.uri().path() == "/ws" {
+            query_param(request.uri().query(), "api_key").as_deref() == Some(expected.as_str())
+        } else {
+            false
+        };
+        if !authorized {
             return StatusCode::UNAUTHORIZED.into_response();
         }
     }
     next.run(request).await
+}
+
+fn query_param(query: Option<&str>, name: &str) -> Option<String> {
+    query?.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        (key == name).then(|| value.to_string())
+    })
 }
 
 async fn status(State(ctx): State<ApiContext>) -> Response {
@@ -412,6 +426,48 @@ duty = 10.0
             .await
             .unwrap();
         assert_eq!(ok.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn ws_query_param_api_key_passes_auth_gate() {
+        let (router, _host) = make_router(Some("secret".into()));
+        let response = router
+            .oneshot(
+                Request::get("/api/ws?api_key=secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn ws_wrong_query_param_api_key_is_unauthorized() {
+        let (router, _host) = make_router(Some("secret".into()));
+        let response = router
+            .oneshot(
+                Request::get("/api/ws?api_key=wrong")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn status_query_param_api_key_is_still_unauthorized() {
+        let (router, _host) = make_router(Some("secret".into()));
+        let response = router
+            .oneshot(
+                Request::get("/api/status?api_key=secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
