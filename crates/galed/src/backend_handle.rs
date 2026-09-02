@@ -78,9 +78,15 @@ impl BackendHandle {
 
     pub fn blocking_release(&self, id: &str) {
         let (reply, _rx) = oneshot::channel();
-        let _ = self
+        if self
             .tx
-            .blocking_send(Command::Release(id.to_string(), reply));
+            .try_send(Command::Release(id.to_string(), reply))
+            .is_err()
+        {
+            eprintln!(
+                "gale: blocking_release could not queue release for {id}, backend busy or gone"
+            );
+        }
     }
 }
 
@@ -142,6 +148,68 @@ mod tests {
             Err(HwError::UnknownId(_))
         ));
         handle.release("fake/p1").await.unwrap();
+    }
+
+    struct WedgedBackend {
+        started: Arc<AtomicU32>,
+    }
+
+    impl Backend for WedgedBackend {
+        fn name(&self) -> &str {
+            "wedged"
+        }
+
+        fn enumerate(&mut self) -> Result<Inventory, HwError> {
+            Ok(Inventory::default())
+        }
+
+        fn read_all(&mut self) -> HashMap<Id, Option<f64>> {
+            self.started.fetch_add(1, Ordering::SeqCst);
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
+        }
+
+        fn set_duty(&mut self, _id: &str, _pct: f64) -> Result<(), HwError> {
+            Ok(())
+        }
+
+        fn release(&mut self, _id: &str) -> Result<(), HwError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn blocking_release_returns_promptly_when_queue_is_full() {
+        let started = Arc::new(AtomicU32::new(0));
+        let handle = BackendHandle::spawn(Box::new(WedgedBackend {
+            started: started.clone(),
+        }));
+
+        let wedging = handle.clone();
+        tokio::spawn(async move {
+            let _ = wedging.read_all().await;
+        });
+        while started.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+
+        for _ in 0..40 {
+            let filler = handle.clone();
+            tokio::spawn(async move {
+                let _ = filler.read_all().await;
+            });
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            handle.blocking_release("fake/p1");
+        })
+        .await;
+        assert!(
+            outcome.is_ok(),
+            "blocking_release must not hang when the command channel is full"
+        );
     }
 
     #[tokio::test]

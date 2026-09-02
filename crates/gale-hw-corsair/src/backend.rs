@@ -204,9 +204,17 @@ impl Backend for CorsairBackend {
         self.controls_index.clear();
         let mut inventory = Inventory::default();
         for (index, (slug, device)) in slugs.iter().zip(self.devices.iter_mut()).enumerate() {
-            let channels = device
-                .channels()
-                .map_err(|message| device_error(slug, message))?;
+            let channels = match device.channels() {
+                Ok(channels) => channels,
+                Err(message) => {
+                    tracing::warn!(
+                        slug,
+                        message,
+                        "corsair device failed to enumerate channels, skipping"
+                    );
+                    continue;
+                }
+            };
             for (channel, kind, label) in channels.sensors {
                 let id = format!("corsair/{slug}/{channel}");
                 inventory.sensors.push(SensorInfo { id, label, kind });
@@ -269,6 +277,7 @@ mod tests {
         fan: Option<f64>,
         duty: f64,
         released: bool,
+        fail_channels: bool,
     }
 
     impl FakeDevice {
@@ -279,6 +288,14 @@ mod tests {
                 fan: Some(1000.0),
                 duty: 50.0,
                 released: false,
+                fail_channels: false,
+            }
+        }
+
+        fn failing_channels(slug: &str) -> Self {
+            Self {
+                fail_channels: true,
+                ..Self::new(slug)
             }
         }
     }
@@ -289,6 +306,9 @@ mod tests {
         }
 
         fn channels(&mut self) -> Result<DeviceChannels, String> {
+            if self.fail_channels {
+                return Err("boom".to_string());
+            }
             Ok(DeviceChannels {
                 sensors: vec![
                     ("temp1".into(), SensorKind::Temp, "Coolant".into()),
@@ -414,6 +434,26 @@ mod tests {
             control_ids,
             vec!["corsair/h100i-1/pwm1", "corsair/h100i/pwm1"]
         );
+    }
+
+    #[test]
+    fn enumerate_skips_device_whose_channels_fail_and_keeps_the_rest() {
+        let mut backend = CorsairBackend::with_devices(vec![
+            Box::new(FakeDevice::failing_channels("h100i")),
+            Box::new(FakeDevice::new("h150i")),
+        ]);
+        let inventory = backend.enumerate().unwrap();
+        let sensor_ids: Vec<_> = inventory.sensors.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(
+            sensor_ids,
+            vec!["corsair/h150i/fan1", "corsair/h150i/temp1"]
+        );
+        let control_ids: Vec<_> = inventory.controls.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(control_ids, vec!["corsair/h150i/pwm1"]);
+
+        backend.set_duty("corsair/h150i/pwm1", 75.0).unwrap();
+        let values = backend.read_all();
+        assert_eq!(values["corsair/h150i/pwm1"], Some(75.0));
     }
 
     #[test]

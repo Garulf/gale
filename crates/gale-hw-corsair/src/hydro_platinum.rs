@@ -50,7 +50,7 @@ fn crc8(data: &[u8]) -> u8 {
 }
 
 fn fraction_of_byte(percentage: u8) -> u8 {
-    ((percentage as f64 / 100.0) * 255.0).round() as u8
+    ((percentage as f64 / 100.0) * 255.0).round_ties_even() as u8
 }
 
 fn u16le_from(data: &[u8], offset: usize) -> Option<u16> {
@@ -227,6 +227,12 @@ mod tests {
         let last = REPORT_LENGTH - 1;
         frame[last] = crc8(&frame[1..last]);
         frame
+    }
+
+    #[test]
+    fn fraction_of_byte_uses_banker_rounding_like_liquidctl() {
+        assert_eq!(fraction_of_byte(30), 76);
+        assert_eq!(fraction_of_byte(70), 178);
     }
 
     fn ack(command: u8) -> Option<Vec<u8>> {

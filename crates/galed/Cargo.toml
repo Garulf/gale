@@ -10,6 +10,7 @@ gale-hw = { path = "../gale-hw" }
 gale-hw-hwmon = { path = "../gale-hw-hwmon" }
 gale-hw-corsair = { path = "../gale-hw-corsair" }
 axum = { version = "0.7", features = ["ws"] }
+futures = "0.3"
 notify = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

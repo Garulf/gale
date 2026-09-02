@@ -64,9 +64,20 @@ impl BackendPool {
     }
 
     pub async fn read_all(&self) -> HashMap<Id, Option<f64>> {
+        let reads = self
+            .handles
+            .iter()
+            .enumerate()
+            .map(|(index, handle)| async move {
+                (
+                    index,
+                    tokio::time::timeout(READ_ALL_TIMEOUT, handle.read_all()).await,
+                )
+            });
+        let results = futures::future::join_all(reads).await;
         let mut merged = HashMap::new();
-        for (index, handle) in self.handles.iter().enumerate() {
-            match tokio::time::timeout(READ_ALL_TIMEOUT, handle.read_all()).await {
+        for (index, result) in results {
+            match result {
                 Ok(values) => merged.extend(values),
                 Err(_) => {
                     tracing::warn!(
@@ -263,5 +274,38 @@ mod tests {
             .expect("pool.read_all() should honor its own per-handle timeout");
         assert_eq!(values.get("fast/t1"), Some(&Some(1.0)));
         assert!(!values.contains_key("slow/t1"));
+    }
+
+    #[tokio::test]
+    async fn multiple_wedged_handles_time_out_concurrently_not_serially() {
+        let pool = pool_of(vec![
+            FakeBackend::blocking("slow-a"),
+            FakeBackend::blocking("slow-b"),
+            FakeBackend::new("fast"),
+        ]);
+        let started = std::time::Instant::now();
+        let values = pool.read_all().await;
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(3500),
+            "read_all took {elapsed:?}, expected roughly one 2s timeout, not one per wedged handle"
+        );
+        assert_eq!(values.get("fast/t1"), Some(&Some(1.0)));
+        assert!(!values.contains_key("slow-a/t1"));
+        assert!(!values.contains_key("slow-b/t1"));
+    }
+
+    #[tokio::test]
+    async fn single_handle_with_populated_ownership_rejects_unknown_id() {
+        let pool = pool_of(vec![FakeBackend::new("a")]);
+        pool.enumerate().await;
+        assert!(matches!(
+            pool.set_duty("ghost/p1", 1.0).await,
+            Err(HwError::UnknownId(_))
+        ));
+        assert!(matches!(
+            pool.release("ghost/p1").await,
+            Err(HwError::UnknownId(_))
+        ));
     }
 }
