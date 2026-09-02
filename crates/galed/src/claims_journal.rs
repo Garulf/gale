@@ -50,8 +50,12 @@ pub fn load(path: &Path) -> Vec<JournalEntry> {
 fn restore_via_backends(mut backends: Vec<Box<dyn Backend>>, ids: &[Id]) -> usize {
     let mut restored = 0;
     for backend in backends.iter_mut() {
-        let Ok(inventory) = backend.enumerate() else {
-            continue;
+        let inventory = match backend.enumerate() {
+            Ok(inventory) => inventory,
+            Err(error) => {
+                tracing::warn!(%error, "failed to enumerate backend during restore");
+                continue;
+            }
         };
         let owned: std::collections::HashSet<Id> =
             inventory.controls.into_iter().map(|c| c.id).collect();
@@ -88,6 +92,13 @@ fn backends_for_kind(kind: &str) -> Vec<Box<dyn Backend>> {
 }
 
 pub fn run_restore(path: &Path) -> usize {
+    run_restore_with_factory(path, backends_for_kind)
+}
+
+fn run_restore_with_factory(
+    path: &Path,
+    backend_factory: impl Fn(&str) -> Vec<Box<dyn Backend>>,
+) -> usize {
     let entries = load(path);
     if entries.is_empty() {
         return 0;
@@ -112,7 +123,7 @@ pub fn run_restore(path: &Path) -> usize {
     }
 
     for (kind, ids) in &hintless {
-        restored += restore_via_backends(backends_for_kind(kind), ids);
+        restored += restore_via_backends(backend_factory(kind), ids);
     }
 
     if restored == entries.len() {
@@ -127,6 +138,161 @@ pub fn run_restore(path: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gale_hw::{ControlInfo, HwError, Inventory};
+    use std::sync::{Arc, Mutex};
+
+    struct FakeRestoreBackend {
+        controls: Vec<Id>,
+        fail_enumerate: bool,
+        fail_release_for: Option<Id>,
+        released: Arc<Mutex<Vec<Id>>>,
+    }
+
+    impl Backend for FakeRestoreBackend {
+        fn name(&self) -> &str {
+            "fake-restore"
+        }
+
+        fn enumerate(&mut self) -> Result<Inventory, HwError> {
+            if self.fail_enumerate {
+                return Err(HwError::Io {
+                    path: "fake".to_string(),
+                    message: "boom".to_string(),
+                });
+            }
+            Ok(Inventory {
+                sensors: Vec::new(),
+                controls: self
+                    .controls
+                    .iter()
+                    .map(|id| ControlInfo {
+                        id: id.clone(),
+                        label: id.clone(),
+                    })
+                    .collect(),
+            })
+        }
+
+        fn read_all(&mut self) -> HashMap<Id, Option<f64>> {
+            HashMap::new()
+        }
+
+        fn set_duty(&mut self, _id: &str, _pct: f64) -> Result<(), HwError> {
+            Ok(())
+        }
+
+        fn release(&mut self, id: &str) -> Result<(), HwError> {
+            if self.fail_release_for.as_deref() == Some(id) {
+                return Err(HwError::UnknownId(id.to_string()));
+            }
+            self.released.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn run_restore_releases_matching_hintless_entry_and_clears_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claims.json");
+        let entries = vec![JournalEntry {
+            id: "corsair/abc/fan1".to_string(),
+            backend_kind: "corsair".to_string(),
+            hint: None,
+        }];
+        write(&path, &entries).unwrap();
+
+        let released = Arc::new(Mutex::new(Vec::new()));
+        let released_for_factory = released.clone();
+        let restored = run_restore_with_factory(&path, move |kind| {
+            assert_eq!(kind, "corsair");
+            vec![Box::new(FakeRestoreBackend {
+                controls: vec!["corsair/abc/fan1".to_string()],
+                fail_enumerate: false,
+                fail_release_for: None,
+                released: released_for_factory.clone(),
+            }) as Box<dyn Backend>]
+        });
+
+        assert_eq!(restored, 1);
+        assert_eq!(
+            released.lock().unwrap().as_slice(),
+            ["corsair/abc/fan1".to_string()]
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn run_restore_leaves_journal_when_hintless_release_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claims.json");
+        let entries = vec![JournalEntry {
+            id: "corsair/abc/fan1".to_string(),
+            backend_kind: "corsair".to_string(),
+            hint: None,
+        }];
+        write(&path, &entries).unwrap();
+
+        let released = Arc::new(Mutex::new(Vec::new()));
+        let restored = run_restore_with_factory(&path, move |_kind| {
+            vec![Box::new(FakeRestoreBackend {
+                controls: vec!["corsair/abc/fan1".to_string()],
+                fail_enumerate: false,
+                fail_release_for: Some("corsair/abc/fan1".to_string()),
+                released: released.clone(),
+            }) as Box<dyn Backend>]
+        });
+
+        assert_eq!(restored, 0);
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn run_restore_leaves_journal_when_hintless_id_not_enumerated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claims.json");
+        let entries = vec![JournalEntry {
+            id: "corsair/abc/fan1".to_string(),
+            backend_kind: "corsair".to_string(),
+            hint: None,
+        }];
+        write(&path, &entries).unwrap();
+
+        let restored = run_restore_with_factory(&path, |_kind| {
+            vec![Box::new(FakeRestoreBackend {
+                controls: vec!["corsair/other/fan9".to_string()],
+                fail_enumerate: false,
+                fail_release_for: None,
+                released: Arc::new(Mutex::new(Vec::new())),
+            }) as Box<dyn Backend>]
+        });
+
+        assert_eq!(restored, 0);
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn run_restore_leaves_journal_and_warns_when_enumerate_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claims.json");
+        let entries = vec![JournalEntry {
+            id: "corsair/abc/fan1".to_string(),
+            backend_kind: "corsair".to_string(),
+            hint: None,
+        }];
+        write(&path, &entries).unwrap();
+
+        let restored = run_restore_with_factory(&path, |_kind| {
+            vec![Box::new(FakeRestoreBackend {
+                controls: vec!["corsair/abc/fan1".to_string()],
+                fail_enumerate: true,
+                fail_release_for: None,
+                released: Arc::new(Mutex::new(Vec::new())),
+            }) as Box<dyn Backend>]
+        });
+
+        assert_eq!(restored, 0);
+        assert!(path.exists());
+    }
 
     #[test]
     fn write_then_load_round_trips_entries() {
