@@ -146,6 +146,34 @@ fn assign_slug(family: &str, serial: Option<&str>, taken: &HashSet<String>) -> S
     }
 }
 
+pub(crate) struct Candidate {
+    pub vid: u16,
+    pub pid: u16,
+    pub interface: i32,
+    pub serial: Option<String>,
+    pub path: std::ffi::CString,
+}
+
+pub(crate) fn group_candidates(candidates: Vec<Candidate>) -> Vec<Vec<Candidate>> {
+    let mut groups: Vec<Vec<Candidate>> = Vec::new();
+    let mut group_index: HashMap<(u16, u16, String), usize> = HashMap::new();
+    for candidate in candidates {
+        let Some(serial) = candidate.serial.clone() else {
+            groups.push(vec![candidate]);
+            continue;
+        };
+        let key = (candidate.vid, candidate.pid, serial);
+        match group_index.get(&key) {
+            Some(&index) => groups[index].push(candidate),
+            None => {
+                group_index.insert(key, groups.len());
+                groups.push(vec![candidate]);
+            }
+        }
+    }
+    groups
+}
+
 pub struct CorsairBackend {
     slug: String,
     device: Box<dyn CorsairDevice>,
@@ -164,10 +192,11 @@ impl CorsairBackend {
     pub fn open_all() -> Vec<CorsairBackend> {
         let mut opened: Vec<(String, Option<String>, Box<dyn CorsairDevice>)> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
+            let mut candidates: Vec<Candidate> = Vec::new();
             for info in api.device_list() {
                 let vid = info.vendor_id();
                 let pid = info.product_id();
-                let Some((kind, slug)) = driver_for(vid, pid) else {
+                let Some((kind, _)) = driver_for(vid, pid) else {
                     continue;
                 };
                 if matches!(kind, DriverKind::CommanderCore { .. })
@@ -175,19 +204,41 @@ impl CorsairBackend {
                 {
                     continue;
                 }
-                let serial = info.serial_number().map(str::to_string);
-                match api.open_path(info.path()) {
-                    Ok(device) => {
+                candidates.push(Candidate {
+                    vid,
+                    pid,
+                    interface: info.interface_number(),
+                    serial: info.serial_number().map(str::to_string),
+                    path: info.path().to_owned(),
+                });
+            }
+            for group in group_candidates(candidates) {
+                let Some(first) = group.first() else {
+                    continue;
+                };
+                let Some((kind, slug)) = driver_for(first.vid, first.pid) else {
+                    continue;
+                };
+                let vid = first.vid;
+                let pid = first.pid;
+                let interfaces: Vec<i32> =
+                    group.iter().map(|candidate| candidate.interface).collect();
+                let serial = first.serial.clone();
+                let device = group
+                    .iter()
+                    .find_map(|candidate| api.open_path(&candidate.path).ok());
+                match device {
+                    Some(device) => {
                         let transport = Box::new(HidapiTransport::new(device));
                         let driver = build_driver(kind, slug, transport);
                         opened.push((slug.to_string(), serial, driver));
                     }
-                    Err(error) => {
+                    None => {
                         tracing::warn!(
                             vid,
                             pid,
-                            %error,
-                            "matched known corsair device but failed to open it"
+                            ?interfaces,
+                            "matched known corsair device but failed to open any of its hid collections"
                         );
                     }
                 }
@@ -560,5 +611,72 @@ mod tests {
             CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
         backend.enumerate().unwrap();
         backend.release("corsair/h100i/pwm1").unwrap();
+    }
+
+    fn candidate(
+        vid: u16,
+        pid: u16,
+        interface: i32,
+        serial: Option<&str>,
+        path: &str,
+    ) -> Candidate {
+        Candidate {
+            vid,
+            pid,
+            interface,
+            serial: serial.map(str::to_string),
+            path: std::ffi::CString::new(path).unwrap(),
+        }
+    }
+
+    #[test]
+    fn group_candidates_collapses_same_vid_pid_serial_into_one_group_in_order() {
+        let candidates = vec![
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 0, Some("SN1"), "path0"),
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 1, Some("SN1"), "path1"),
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 2, Some("SN1"), "path2"),
+        ];
+        let groups = group_candidates(candidates);
+        assert_eq!(groups.len(), 1);
+        let paths: Vec<_> = groups[0].iter().map(|c| c.path.to_str().unwrap()).collect();
+        assert_eq!(paths, vec!["path0", "path1", "path2"]);
+    }
+
+    #[test]
+    fn group_candidates_keeps_different_serials_in_separate_groups() {
+        let candidates = vec![
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 0, Some("SN1"), "path0"),
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 0, Some("SN2"), "path1"),
+        ];
+        let groups = group_candidates(candidates);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0][0].path.to_str().unwrap(), "path0");
+        assert_eq!(groups[1][0].path.to_str().unwrap(), "path1");
+    }
+
+    #[test]
+    fn group_candidates_gives_each_none_serial_its_own_group() {
+        let candidates = vec![
+            candidate(VID_CORSAIR, PID_COMMANDER_PRO, 0, None, "path0"),
+            candidate(VID_CORSAIR, PID_COMMANDER_PRO, 0, None, "path1"),
+        ];
+        let groups = group_candidates(candidates);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].len(), 1);
+        assert_eq!(groups[1].len(), 1);
+    }
+
+    #[test]
+    fn group_candidates_preserves_first_seen_group_order_with_interleaving() {
+        let candidates = vec![
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 0, Some("SN1"), "path0"),
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 0, Some("SN2"), "path1"),
+            candidate(VID_CORSAIR, PID_COMMANDER_CORE, 1, Some("SN1"), "path2"),
+        ];
+        let groups = group_candidates(candidates);
+        assert_eq!(groups.len(), 2);
+        let group0_paths: Vec<_> = groups[0].iter().map(|c| c.path.to_str().unwrap()).collect();
+        assert_eq!(group0_paths, vec!["path0", "path2"]);
+        assert_eq!(groups[1][0].path.to_str().unwrap(), "path1");
     }
 }
