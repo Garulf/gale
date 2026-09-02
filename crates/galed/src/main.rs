@@ -1,5 +1,6 @@
 use gale_hw_corsair::CorsairBackend;
 use gale_hw_hwmon::HwmonBackend;
+use gale_hw_nvidia::NvidiaBackend;
 use galed::api::{self, ApiContext};
 use galed::backend_handle::BackendHandle;
 use galed::backend_pool::BackendPool;
@@ -27,6 +28,7 @@ async fn main() {
     for backend in CorsairBackend::open_all() {
         handles.push(BackendHandle::spawn(Box::new(backend)));
     }
+    handles.push(BackendHandle::spawn(Box::new(NvidiaBackend::new())));
     let pool = BackendPool::new(handles);
     let inventory = pool.enumerate().await;
     tracing::info!(

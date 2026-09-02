@@ -9,6 +9,7 @@ gale-core = { path = "../gale-core" }
 gale-hw = { path = "../gale-hw" }
 gale-hw-hwmon = { path = "../gale-hw-hwmon" }
 gale-hw-corsair = { path = "../gale-hw-corsair" }
+gale-hw-nvidia = { path = "../gale-hw-nvidia" }
 axum = { version = "0.7", features = ["ws"] }
 futures = "0.3"
 notify = "6"

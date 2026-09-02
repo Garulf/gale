@@ -573,6 +573,7 @@ dependencies = [
  "gale-hw",
  "gale-hw-corsair",
  "gale-hw-hwmon",
+ "gale-hw-nvidia",
  "http-body-util",
  "notify",
  "serde",
