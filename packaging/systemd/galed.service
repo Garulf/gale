@@ -1,0 +1,13 @@
+[Unit]
+Description=Gale fan control daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/galed
+ExecStopPost=/usr/local/bin/galed restore
+Restart=on-failure
+RuntimeDirectory=gale
+
+[Install]
+WantedBy=multi-user.target
