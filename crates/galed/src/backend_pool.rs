@@ -36,7 +36,16 @@ impl BackendPool {
             match tokio::time::timeout(ENUMERATE_TIMEOUT, handle.enumerate()).await {
                 Ok(Ok(inventory)) => {
                     for control in &inventory.controls {
-                        owners.insert(control.id.clone(), index);
+                        if let Some(previous_index) = owners.insert(control.id.clone(), index) {
+                            if previous_index != index {
+                                tracing::warn!(
+                                    id = %control.id,
+                                    previous_index,
+                                    new_index = index,
+                                    "duplicate control id owned by multiple backends, last one wins"
+                                );
+                            }
+                        }
                     }
                     merged.sensors.extend(inventory.sensors);
                     merged.controls.extend(inventory.controls);
@@ -141,6 +150,8 @@ mod tests {
         name: &'static str,
         fail_enumerate: Arc<AtomicBool>,
         block_read_all: bool,
+        control_id: Option<&'static str>,
+        set_duty_calls: Arc<AtomicBool>,
     }
 
     impl FakeBackend {
@@ -149,6 +160,8 @@ mod tests {
                 name,
                 fail_enumerate: Arc::new(AtomicBool::new(false)),
                 block_read_all: false,
+                control_id: None,
+                set_duty_calls: Arc::new(AtomicBool::new(false)),
             }
         }
 
@@ -157,6 +170,8 @@ mod tests {
                 name,
                 fail_enumerate,
                 block_read_all: false,
+                control_id: None,
+                set_duty_calls: Arc::new(AtomicBool::new(false)),
             }
         }
 
@@ -165,6 +180,22 @@ mod tests {
                 name,
                 fail_enumerate: Arc::new(AtomicBool::new(false)),
                 block_read_all: true,
+                control_id: None,
+                set_duty_calls: Arc::new(AtomicBool::new(false)),
+            }
+        }
+
+        fn with_control_id(
+            name: &'static str,
+            control_id: &'static str,
+            set_duty_calls: Arc<AtomicBool>,
+        ) -> Self {
+            Self {
+                name,
+                fail_enumerate: Arc::new(AtomicBool::new(false)),
+                block_read_all: false,
+                control_id: Some(control_id),
+                set_duty_calls,
             }
         }
     }
@@ -181,6 +212,10 @@ mod tests {
                     message: "boom".into(),
                 });
             }
+            let control_id = self
+                .control_id
+                .map(String::from)
+                .unwrap_or_else(|| format!("{}/p1", self.name));
             Ok(Inventory {
                 sensors: vec![SensorInfo {
                     id: format!("{}/t1", self.name),
@@ -188,7 +223,7 @@ mod tests {
                     kind: SensorKind::Temp,
                 }],
                 controls: vec![ControlInfo {
-                    id: format!("{}/p1", self.name),
+                    id: control_id,
                     label: "p1".into(),
                 }],
             })
@@ -202,6 +237,7 @@ mod tests {
         }
 
         fn set_duty(&mut self, _id: &str, _pct: f64) -> Result<(), HwError> {
+            self.set_duty_calls.store(true, Ordering::SeqCst);
             Ok(())
         }
 
@@ -261,6 +297,32 @@ mod tests {
 
         assert!(inventory.controls.iter().any(|c| c.id == "a/p1"));
         pool.release("b/p1").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn colliding_control_ids_keep_both_backends_enumerated_and_route_to_the_later_one() {
+        let first_calls = Arc::new(AtomicBool::new(false));
+        let second_calls = Arc::new(AtomicBool::new(false));
+        let pool = pool_of(vec![
+            FakeBackend::with_control_id("a", "shared/p1", first_calls.clone()),
+            FakeBackend::with_control_id("b", "shared/p1", second_calls.clone()),
+        ]);
+        let inventory = pool.enumerate().await;
+
+        let sensor_ids: Vec<_> = inventory.sensors.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(sensor_ids, vec!["a/t1", "b/t1"]);
+        assert_eq!(
+            inventory
+                .controls
+                .iter()
+                .filter(|c| c.id == "shared/p1")
+                .count(),
+            2
+        );
+
+        pool.set_duty("shared/p1", 40.0).await.unwrap();
+        assert!(!first_calls.load(Ordering::SeqCst));
+        assert!(second_calls.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

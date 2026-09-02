@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 struct FanControl {
     gpu: u32,
     fan: u32,
+    min_duty: f64,
+    max_duty: f64,
 }
 
 enum SensorTarget {
@@ -106,8 +108,16 @@ impl Backend for NvidiaBackend {
                     kind: SensorKind::Duty,
                 });
                 if device.fan_controllable(fan) {
-                    self.controls
-                        .insert(fan_id.clone(), FanControl { gpu, fan });
+                    let (min_duty, max_duty) = device.min_max_fan_duty(fan).unwrap_or((0.0, 100.0));
+                    self.controls.insert(
+                        fan_id.clone(),
+                        FanControl {
+                            gpu,
+                            fan,
+                            min_duty,
+                            max_duty,
+                        },
+                    );
                     inventory.controls.push(ControlInfo {
                         id: fan_id,
                         label: format!("GPU {gpu} Fan {fan}"),
@@ -145,7 +155,10 @@ impl Backend for NvidiaBackend {
         if !pct.is_finite() {
             return Err(non_finite_error(id));
         }
-        let clamped = pct.clamp(0.0, 100.0).round();
+        let clamped = pct
+            .clamp(0.0, 100.0)
+            .clamp(control.min_duty, control.max_duty)
+            .round();
         let facade = self
             .facade
             .as_ref()
@@ -193,6 +206,7 @@ mod tests {
         duty: HashMap<u32, Option<f64>>,
         rpm: HashMap<u32, Option<f64>>,
         controllable: HashMap<u32, bool>,
+        fan_range: HashMap<u32, (f64, f64)>,
         restored: Vec<u32>,
         fan_count: u32,
         fail_device_count: bool,
@@ -264,7 +278,11 @@ mod tests {
                 .controllable
                 .get(&fan)
                 .copied()
-                .unwrap_or(true)
+                .unwrap_or(false)
+        }
+
+        fn min_max_fan_duty(&self, fan: u32) -> Option<(f64, f64)> {
+            self.state.lock().unwrap().fan_range.get(&fan).copied()
         }
     }
 
@@ -353,6 +371,22 @@ mod tests {
     }
 
     #[test]
+    fn set_duty_clamps_into_the_device_reported_min_max_fan_duty() {
+        let (mut backend, state) = single_gpu(1);
+        state.lock().unwrap().fan_range.insert(0, (30.0, 90.0));
+        backend.enumerate().unwrap();
+
+        backend.set_duty("nvidia/0/fan0", 15.0).unwrap();
+        assert_eq!(state.lock().unwrap().duty[&0], Some(30.0));
+
+        backend.set_duty("nvidia/0/fan0", 50.0).unwrap();
+        assert_eq!(state.lock().unwrap().duty[&0], Some(50.0));
+
+        backend.set_duty("nvidia/0/fan0", 95.0).unwrap();
+        assert_eq!(state.lock().unwrap().duty[&0], Some(90.0));
+    }
+
+    #[test]
     fn set_duty_rejects_non_finite_before_calling_the_device() {
         let (mut backend, state) = single_gpu(1);
         backend.enumerate().unwrap();
@@ -399,6 +433,15 @@ mod tests {
             backend.set_duty("nvidia/0/fan0", 50.0),
             Err(HwError::UnknownId(_))
         ));
+    }
+
+    #[test]
+    fn a_fan_with_no_explicit_controllability_probe_result_is_conservatively_uncontrollable() {
+        let (mut backend, state) = single_gpu(1);
+        state.lock().unwrap().controllable.remove(&0);
+        let inventory = backend.enumerate().unwrap();
+        assert!(inventory.sensors.iter().any(|s| s.id == "nvidia/0/fan0"));
+        assert!(inventory.controls.is_empty());
     }
 
     #[test]

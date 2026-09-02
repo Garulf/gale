@@ -16,6 +16,7 @@ pub trait NvmlDevice: Send {
     fn set_fan_duty(&mut self, fan: u32, pct: f64) -> Result<(), String>;
     fn restore_fan_default(&mut self, fan: u32) -> Result<(), String>;
     fn fan_controllable(&self, fan: u32) -> bool;
+    fn min_max_fan_duty(&self, fan: u32) -> Option<(f64, f64)>;
 }
 
 pub struct RealNvml {
@@ -108,6 +109,13 @@ impl NvmlDevice for RealNvmlDevice {
     fn fan_controllable(&self, fan: u32) -> bool {
         self.device()
             .map(|device| device.fan_control_policy(fan).is_ok())
-            .unwrap_or(true)
+            .unwrap_or(false)
+    }
+
+    fn min_max_fan_duty(&self, _fan: u32) -> Option<(f64, f64)> {
+        self.device()?
+            .min_max_fan_speed()
+            .ok()
+            .map(|(min, max)| (f64::from(min), f64::from(max)))
     }
 }
