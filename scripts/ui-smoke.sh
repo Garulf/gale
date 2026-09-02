@@ -3,8 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BIND="127.0.0.1:5250"
-BASE_URL="http://$BIND"
 
 WORKDIR="$(mktemp -d)"
 DAEMON_PID=""
@@ -26,6 +24,21 @@ trap cleanup EXIT INT TERM
 
 find_chrome_binary() {
   find "$1" -maxdepth 4 -type f -name chrome 2>/dev/null | head -n1
+}
+
+pick_port() {
+  if [[ -n "${GALE_UI_SMOKE_PORT:-}" ]]; then
+    echo "$GALE_UI_SMOKE_PORT"
+    return
+  fi
+  node -e "
+const net = require('node:net');
+const srv = net.createServer();
+srv.listen(0, '127.0.0.1', () => {
+  console.log(srv.address().port);
+  srv.close();
+});
+"
 }
 
 detect_chrome() {
@@ -86,10 +99,22 @@ echo "128" >"$CHIP_DIR/pwm1"
 echo "5" >"$CHIP_DIR/pwm1_enable"
 echo "1" >"$CHIP_DIR/pwm1_mode"
 
+PORT="$(pick_port)"
+BIND="127.0.0.1:$PORT"
+BASE_URL="http://$BIND"
+
+if curl -sf "$BASE_URL/api/status" >/dev/null 2>&1; then
+  echo "something is already answering on $BASE_URL before the scratch daemon has even started; refusing to reuse this port" >&2
+  exit 1
+fi
+
 CONFIG_PATH="$WORKDIR/config.toml"
 cat >"$CONFIG_PATH" <<EOF
 tick_interval_ms = 200
 active_profile = "default"
+
+[api]
+bind = "$BIND"
 
 [profiles.default.curves.cpu]
 type = "point"
@@ -100,7 +125,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 "hwmon/nct6798/pwm1" = "cpu"
 EOF
 
-echo "starting galed against scratch hwmon tree" >&2
+echo "starting galed against scratch hwmon tree on $BASE_URL" >&2
 GALE_HWMON_ROOT="$HWMON_ROOT" \
   GALE_CONFIG="$CONFIG_PATH" \
   RUST_LOG=warn \
@@ -108,16 +133,30 @@ GALE_HWMON_ROOT="$HWMON_ROOT" \
 DAEMON_PID=$!
 
 ready=""
+collision=""
 for _ in $(seq 1 40); do
+  pid_alive=""
+  if kill -0 "$DAEMON_PID" 2>/dev/null; then
+    pid_alive=1
+  fi
   if curl -sf "$BASE_URL/api/status" >/dev/null 2>&1; then
-    ready=1
+    if [[ -n "$pid_alive" ]]; then
+      ready=1
+    else
+      collision=1
+    fi
     break
   fi
-  if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+  if [[ -z "$pid_alive" ]]; then
     break
   fi
   sleep 0.25
 done
+
+if [[ -n "$collision" ]]; then
+  echo "our spawned galed (pid $DAEMON_PID) is no longer running, but something else is answering on $BASE_URL; refusing to run the smoke against a foreign daemon" >&2
+  exit 1
+fi
 if [[ -z "$ready" ]]; then
   echo "galed never became ready on $BASE_URL" >&2
   exit 1
