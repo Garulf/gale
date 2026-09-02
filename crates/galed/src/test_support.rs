@@ -7,6 +7,7 @@ pub struct Recorded {
     pub duties: HashMap<Id, f64>,
     pub released: Vec<Id>,
     pub fail_ids: Vec<Id>,
+    pub fail_release_ids: Vec<Id>,
     pub sensors: HashMap<Id, Option<f64>>,
 }
 
@@ -37,7 +38,11 @@ impl Backend for RecordingBackend {
     }
 
     fn release(&mut self, id: &str) -> Result<(), HwError> {
-        self.state.lock().unwrap().released.push(id.to_string());
+        let mut state = self.state.lock().unwrap();
+        if state.fail_release_ids.iter().any(|f| f == id) {
+            return Err(HwError::UnknownId(id.to_string()));
+        }
+        state.released.push(id.to_string());
         Ok(())
     }
 }

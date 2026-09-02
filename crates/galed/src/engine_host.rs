@@ -217,13 +217,18 @@ impl EngineHost {
     }
 
     pub async fn release_all(&self) {
-        let ids: Vec<Id> = self.claimed.lock().unwrap().drain().collect();
+        let ids = self.claimed_ids();
         for id in ids {
-            if let Err(error) = self.backend.release(&id).await {
-                tracing::warn!(%id, %error, "release failed");
+            match self.backend.release(&id).await {
+                Ok(()) => {
+                    self.claimed.lock().unwrap().remove(&id);
+                }
+                Err(error) => {
+                    tracing::warn!(%id, %error, "release failed");
+                }
             }
-            self.write_journal().await;
         }
+        self.write_journal().await;
     }
 }
 
@@ -451,5 +456,32 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(released, vec!["pwm1".to_string(), "pwm2".to_string()]);
         host.release_all().await;
         assert_eq!(state.lock().unwrap().released.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn release_failure_during_release_all_keeps_journal_entry_for_that_id() {
+        let runtime_dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("GALE_RUNTIME_DIR", runtime_dir.path());
+        }
+
+        let (host, state) = setup(&[("t1", Some(50.0))]);
+        host.tick(1.0).await;
+        state
+            .lock()
+            .unwrap()
+            .fail_release_ids
+            .push("pwm2".to_string());
+
+        host.release_all().await;
+
+        let journal_path = runtime_dir.path().join("claims.json");
+        let entries = claims_journal::load(&journal_path);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "pwm2");
+
+        unsafe {
+            std::env::remove_var("GALE_RUNTIME_DIR");
+        }
     }
 }
