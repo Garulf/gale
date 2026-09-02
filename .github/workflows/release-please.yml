@@ -56,7 +56,7 @@ jobs:
       - run: cargo build --release -p galed -p gale-cli
       - shell: pwsh
         run: |
-          New-Item -ItemType Directory dist | Out-Null
+          New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/galed.exe, target/release/gale.exe, packaging/windows/install.ps1, packaging/windows/README.md, packaging/config.example.toml, LICENSE, NOTICE dist/
           Compress-Archive dist/* gale-windows-x86_64.zip
       - run: gh release upload ${{ needs.release-please.outputs.tag_name }} gale-windows-x86_64.zip

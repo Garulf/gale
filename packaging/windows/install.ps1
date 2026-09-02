@@ -15,14 +15,28 @@ function Assert-Admin {
 }
 
 function Stop-GaleService {
-    if (Get-Service galed -ErrorAction SilentlyContinue) {
-        sc.exe stop galed | Out-Null
-        Start-Sleep 2
+    $service = Get-Service galed -ErrorAction SilentlyContinue
+    if (-not $service) {
+        return
+    }
+    sc.exe stop galed | Out-Null
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Service galed).Status -ne "Stopped") {
+        if ((Get-Date) -gt $deadline) {
+            throw "Timed out waiting for the galed service to stop"
+        }
+        Start-Sleep -Milliseconds 500
     }
 }
 
 function Install-Gale {
     New-Item -ItemType Directory -Force $BinDir, (Join-Path $DataDir "run") | Out-Null
+
+    $binPath = "`"$BinDir\galed.exe`" --service"
+    $serviceExists = [bool](Get-Service galed -ErrorAction SilentlyContinue)
+    if ($serviceExists) {
+        Stop-GaleService
+    }
 
     Copy-Item (Join-Path $PSScriptRoot "galed.exe"), (Join-Path $PSScriptRoot "gale.exe") $BinDir -Force
 
@@ -31,11 +45,11 @@ function Install-Gale {
         Copy-Item (Join-Path $PSScriptRoot "config.example.toml") $configPath
     }
 
-    if (Get-Service galed -ErrorAction SilentlyContinue) {
-        Stop-GaleService
+    if ($serviceExists) {
+        sc.exe config galed start= auto binPath= $binPath | Out-Null
     }
     else {
-        New-Service -Name galed -DisplayName "Gale fan control" -BinaryPathName "`"$BinDir\galed.exe`" --service" -StartupType Automatic | Out-Null
+        New-Service -Name galed -DisplayName "Gale fan control" -BinaryPathName $binPath -StartupType Automatic | Out-Null
     }
 
     sc.exe failure galed reset= 60 actions= restart/5000 | Out-Null

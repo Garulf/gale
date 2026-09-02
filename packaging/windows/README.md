@@ -28,13 +28,27 @@ and starts it. Open `http://127.0.0.1:5250` for the dashboard.
 
 This stops the service, runs `galed restore` to release any fan overrides
 back to hardware control, deletes the service, and removes
-`%ProgramFiles%\Gale`. Config and logs under `%ProgramData%\Gale` are kept.
+`%ProgramFiles%\Gale`. Config under `%ProgramData%\Gale` is kept.
 
 ## Where things live
 
 - Binaries: `%ProgramFiles%\Gale`
 - Config: `%ProgramData%\Gale\config.toml`
 - Runtime state: `%ProgramData%\Gale\run`
+
+## Logs
+
+`galed` writes its log to stderr through `tracing`. Running under the
+service control manager gives it no console, so the `galed` service writes
+no log file today; a log file is a planned follow-up. To see the log, stop
+the service and run the binary directly from an elevated terminal:
+
+```powershell
+& "$env:ProgramFiles\Gale\galed.exe"
+```
+
+Set `RUST_LOG` for more detail, for example `$env:RUST_LOG = "debug"` before
+running it.
 
 ## Restoring fan control manually
 
