@@ -2,9 +2,11 @@
   import { onDestroy } from 'svelte';
   import { connect, connected, snapshot } from './lib/store.js';
   import { page } from './lib/page.js';
-  import Dashboard from './lib/Dashboard.svelte';
-  import Curves from './lib/Curves.svelte';
-  import Config from './lib/Config.svelte';
+  import { refreshWarnings } from './lib/warnings.js';
+  import WarningsBanner from './lib/components/WarningsBanner.svelte';
+  import Dashboard from './pages/Dashboard.svelte';
+  import Curves from './pages/Curves.svelte';
+  import Config from './pages/Config.svelte';
 
   const disconnect = connect();
   onDestroy(disconnect);
@@ -12,6 +14,16 @@
   const pages = { dashboard: Dashboard, curves: Curves, config: Config };
 
   $: activeProfile = $snapshot ? $snapshot.active_profile : null;
+
+  refreshWarnings();
+
+  let wasConnected = false;
+  $: {
+    if ($connected && !wasConnected) {
+      refreshWarnings();
+    }
+    wasConnected = $connected;
+  }
 </script>
 
 <div class="shell">
@@ -35,6 +47,7 @@
         <span class="profile">profile: {activeProfile}</span>
       {/if}
     </header>
+    <WarningsBanner />
     <main>
       <svelte:component this={pages[$page]} />
     </main>
@@ -86,6 +99,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   header {
@@ -117,5 +131,7 @@
 
   main {
     padding: 1rem;
+    flex: 1;
+    min-width: 0;
   }
 </style>
