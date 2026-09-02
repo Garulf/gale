@@ -25,6 +25,12 @@ async fn main() {
         return;
     }
 
+    let restore_path = galed::claims_journal::default_path();
+    let restored = galed::claims_journal::run_restore(&restore_path);
+    if restored > 0 {
+        tracing::info!(restored, path = %restore_path.display(), "restored claims left by a previous run");
+    }
+
     let store = Arc::new(ConfigStore::new(ConfigStore::default_path()));
     let config = match store.load() {
         Ok(config) => config,
