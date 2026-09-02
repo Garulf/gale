@@ -39,9 +39,8 @@ pub fn ensure_dirs() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    pub(crate) use crate::test_support::ENV_LOCK;
 
     #[test]
     fn runtime_dir_uses_env_override() {

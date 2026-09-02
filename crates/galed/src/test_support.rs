@@ -2,6 +2,8 @@ use gale_hw::{Backend, HwError, Id, Inventory};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+
 #[derive(Default)]
 pub struct Recorded {
     pub duties: HashMap<Id, f64>,
