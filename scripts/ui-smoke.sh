@@ -125,9 +125,13 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 "hwmon/nct6798/pwm1" = "cpu"
 EOF
 
+RUNTIME_DIR="$WORKDIR/run"
+mkdir -p "$RUNTIME_DIR"
+
 echo "starting galed against scratch hwmon tree on $BASE_URL" >&2
 GALE_HWMON_ROOT="$HWMON_ROOT" \
   GALE_CONFIG="$CONFIG_PATH" \
+  GALE_RUNTIME_DIR="$RUNTIME_DIR" \
   RUST_LOG=warn \
   "$REPO_ROOT/target/release/galed" >"$WORKDIR/daemon.log" 2>&1 &
 DAEMON_PID=$!

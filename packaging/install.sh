@@ -14,6 +14,36 @@ require_root() {
     fi
 }
 
+build_user() {
+    if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+        echo "$SUDO_USER"
+    fi
+}
+
+run_as_build_user() {
+    local user
+    user="$(build_user)"
+    if [[ -n "$user" ]]; then
+        sudo -u "$user" -H bash -lc "$1"
+    else
+        bash -lc "$1"
+    fi
+}
+
+build_release() {
+    if ! run_as_build_user "command -v cargo" >/dev/null 2>&1; then
+        local user
+        user="$(build_user)"
+        if [[ -n "$user" ]]; then
+            echo "cargo not found for user $user; install rustup for that user first" >&2
+        else
+            echo "cargo not found; install rustup first" >&2
+        fi
+        exit 1
+    fi
+    run_as_build_user "cd '$REPO_DIR' && cargo build --release"
+}
+
 uninstall() {
     systemctl disable --now galed.service 2>/dev/null || true
     rm -f "$UNIT_DIR/galed.service"
@@ -26,7 +56,7 @@ uninstall() {
 }
 
 do_install() {
-    (cd "$REPO_DIR" && cargo build --release)
+    build_release
 
     install -m 0755 "$REPO_DIR/target/release/galed" "$BIN_DIR/galed"
     install -m 0755 "$REPO_DIR/target/release/gale" "$BIN_DIR/gale"

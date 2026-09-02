@@ -8,6 +8,7 @@ ExecStart=/usr/local/bin/galed
 ExecStopPost=/usr/local/bin/galed restore
 Restart=on-failure
 RuntimeDirectory=gale
+RuntimeDirectoryPreserve=restart
 
 [Install]
 WantedBy=multi-user.target
