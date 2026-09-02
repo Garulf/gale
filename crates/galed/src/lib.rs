@@ -6,3 +6,4 @@ pub mod engine_host;
 pub mod runtime;
 #[cfg(test)]
 pub mod test_support;
+pub mod ui_assets;

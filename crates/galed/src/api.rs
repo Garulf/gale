@@ -34,11 +34,12 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
         .route("/ws", get(ws_upgrade))
+        .fallback(api_not_found)
         .layer(middleware::from_fn_with_state(ctx.clone(), require_api_key))
         .with_state(ctx.clone());
     Router::new()
         .nest("/api", api)
-        .route("/", get(|| async { "gale" }))
+        .fallback(get(crate::ui_assets::serve))
 }
 
 async fn require_api_key(
@@ -70,6 +71,10 @@ fn query_param(query: Option<&str>, name: &str) -> Option<String> {
         let (key, value) = pair.split_once('=')?;
         (key == name).then(|| value.to_string())
     })
+}
+
+async fn api_not_found() -> Response {
+    StatusCode::NOT_FOUND.into_response()
 }
 
 async fn status(State(ctx): State<ApiContext>) -> Response {
@@ -468,6 +473,99 @@ duty = 10.0
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn root_serves_ui_index_html() {
+        let (router, _host) = make_router(None);
+        let response = router
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(content_type.contains("text/html"));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.to_lowercase().contains("gale"));
+    }
+
+    #[tokio::test]
+    async fn real_asset_served_with_correct_content_type() {
+        let (router, _host) = make_router(None);
+        let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/dist/assets");
+        let js_file = std::fs::read_dir(dist)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .find(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "js")
+                    .unwrap_or(false)
+            })
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .to_string();
+        let uri = format!("/assets/{js_file}");
+        let response = router
+            .oneshot(Request::get(&uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(content_type.contains("javascript"));
+    }
+
+    #[tokio::test]
+    async fn spa_route_falls_back_to_index_html() {
+        let (router, _host) = make_router(None);
+        let response = router
+            .oneshot(Request::get("/some/spa/route").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(content_type.contains("text/html"));
+    }
+
+    #[tokio::test]
+    async fn unknown_api_path_returns_404_not_html() {
+        let (router, _host) = make_router(None);
+        let response = router
+            .oneshot(
+                Request::get("/api/nonexistent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .map(|v| v.to_str().unwrap().to_string())
+            .unwrap_or_default();
+        assert!(!content_type.contains("text/html"));
     }
 
     #[tokio::test]

@@ -1,0 +1,83 @@
+function apiKey() {
+  try {
+    return localStorage.getItem('gale_api_key') || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function headers(extra) {
+  const base = { ...extra };
+  const key = apiKey();
+  if (key) {
+    base['X-Api-Key'] = key;
+  }
+  return base;
+}
+
+async function request(path, options) {
+  const response = await fetch(path, {
+    ...options,
+    headers: headers(options && options.headers),
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  return response;
+}
+
+async function requestJson(path, options) {
+  const response = await request(path, options);
+  if (response.status === 204) {
+    return null;
+  }
+  return response.json();
+}
+
+export function getStatus() {
+  return requestJson('/api/status');
+}
+
+export function getInventory() {
+  return requestJson('/api/inventory');
+}
+
+export function getConfig() {
+  return requestJson('/api/config');
+}
+
+export async function putConfig(config) {
+  const response = await request('/api/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (response.status === 204) {
+    return null;
+  }
+  return response.json();
+}
+
+export function activateProfile(name) {
+  return requestJson(`/api/profiles/${encodeURIComponent(name)}/activate`, {
+    method: 'POST',
+  });
+}
+
+export function setControl(id, duty) {
+  return requestJson(`/api/controls/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duty }),
+  });
+}
+
+export function releaseControl(id) {
+  return requestJson(`/api/controls/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export function getWarnings() {
+  return requestJson('/api/warnings');
+}
