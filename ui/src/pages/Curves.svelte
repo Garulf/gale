@@ -20,6 +20,44 @@
   const CURVE_TYPES = ['point', 'flat', 'mix', 'sync', 'trigger', 'target'];
   const MIX_MODES = ['max', 'min', 'avg'];
 
+  let pointIdSeq = 0;
+
+  function newPointId() {
+    pointIdSeq += 1;
+    return `pt-${pointIdSeq}`;
+  }
+
+  function tagPoints(pairs) {
+    return pairs.map(([temp, duty]) => ({ id: newPointId(), temp, duty }));
+  }
+
+  function untagPoints(taggedPoints) {
+    return taggedPoints.map((point) => [point.temp, point.duty]);
+  }
+
+  function tagConfigPoints(cfg) {
+    for (const profileConfig of Object.values(cfg.profiles)) {
+      for (const curve of Object.values(profileConfig.curves)) {
+        if (curve.type === 'point') {
+          curve.points = tagPoints(curve.points);
+        }
+      }
+    }
+    return cfg;
+  }
+
+  function toWireConfig(cfg) {
+    const clone = JSON.parse(JSON.stringify(cfg));
+    for (const profileConfig of Object.values(clone.profiles)) {
+      for (const curve of Object.values(profileConfig.curves)) {
+        if (curve.type === 'point') {
+          curve.points = untagPoints(curve.points);
+        }
+      }
+    }
+    return clone;
+  }
+
   onMount(load);
 
   async function load() {
@@ -27,7 +65,7 @@
     saveWarnings = [];
     try {
       const [cfg, inv] = await Promise.all([getConfig(), getInventory()]);
-      config = cfg;
+      config = tagConfigPoints(cfg);
       inventory = inv;
       editingProfile = cfg.active_profile;
       selectedCurveId = firstCurveId(cfg);
@@ -48,10 +86,10 @@
         return {
           type: 'point',
           sensor: '',
-          points: [
+          points: tagPoints([
             [30, 20],
             [70, 100],
-          ],
+          ]),
           hysteresis: null,
           response: null,
         };
@@ -228,7 +266,7 @@
     error = '';
     saveWarnings = [];
     try {
-      const result = await putConfig(config);
+      const result = await putConfig(toWireConfig(config));
       saveWarnings = (result && result.warnings) || [];
       await refreshWarnings();
     } catch (err) {

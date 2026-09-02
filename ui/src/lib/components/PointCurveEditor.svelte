@@ -13,7 +13,13 @@
   const PLOT_H = HEIGHT - PAD_TOP - PAD_BOTTOM;
 
   let svgEl;
-  let dragIndex = -1;
+  let dragId = null;
+  let addedIdSeq = 0;
+
+  function newAddedId() {
+    addedIdSeq += 1;
+    return `added-${addedIdSeq}`;
+  }
 
   function xToPx(temp) {
     return PAD_LEFT + (temp / 100) * PLOT_W;
@@ -39,8 +45,8 @@
     return Math.round(value * 10) / 10;
   }
 
-  function sorted(list) {
-    return [...list].sort((a, b) => a[0] - b[0]);
+  function sortedByTemp(list) {
+    return [...list].sort((a, b) => a.temp - b.temp);
   }
 
   function clientToPlot(event) {
@@ -53,53 +59,55 @@
     };
   }
 
-  function pointerDown(index, event) {
+  function withPoint(id, updater) {
+    onChange(points.map((point) => (point.id === id ? updater(point) : point)));
+  }
+
+  function pointerDown(id, event) {
     event.stopPropagation();
-    dragIndex = index;
+    dragId = id;
     svgEl.setPointerCapture(event.pointerId);
   }
 
   function pointerMove(event) {
-    if (dragIndex === -1) return;
+    if (dragId === null) return;
     const { x, y } = clientToPlot(event);
-    const next = points.map((point) => [...point]);
-    next[dragIndex] = [round1(pxToTemp(x)), round1(pxToDuty(y))];
-    onChange(sorted(next));
+    const temp = round1(pxToTemp(x));
+    const duty = round1(pxToDuty(y));
+    withPoint(dragId, (point) => ({ ...point, temp, duty }));
+  }
+
+  function releasePointerCapture(event) {
+    if (!svgEl.hasPointerCapture(event.pointerId)) return;
+    svgEl.releasePointerCapture(event.pointerId);
   }
 
   function pointerUp(event) {
-    if (dragIndex === -1) return;
-    dragIndex = -1;
-    try {
-      svgEl.releasePointerCapture(event.pointerId);
-    } catch (error) {
-      // capture may already be released
-    }
+    if (dragId === null) return;
+    dragId = null;
+    releasePointerCapture(event);
   }
 
   function addPoint(event) {
     if (event.target !== svgEl && !event.target.classList.contains('plot-bg')) return;
     const { x, y } = clientToPlot(event);
-    const next = [...points, [round1(pxToTemp(x)), round1(pxToDuty(y))]];
-    onChange(sorted(next));
+    const point = { id: newAddedId(), temp: round1(pxToTemp(x)), duty: round1(pxToDuty(y)) };
+    onChange([...points, point]);
   }
 
-  function removePoint(index) {
+  function removePoint(id) {
     if (points.length <= 2) return;
-    const next = points.filter((_, i) => i !== index);
-    onChange(next);
+    onChange(points.filter((point) => point.id !== id));
   }
 
-  function updateField(index, field, value) {
-    const next = points.map((point) => [...point]);
+  function updateField(id, field, value) {
     const numeric = clamp(Number(value), 0, 100);
-    next[index][field === 'temp' ? 0 : 1] = numeric;
-    onChange(sorted(next));
+    withPoint(id, (point) => ({ ...point, [field]: numeric }));
   }
 
   $: pathD = points.length
-    ? sorted(points)
-        .map((point, i) => `${i === 0 ? 'M' : 'L'} ${xToPx(point[0])} ${yToPx(point[1])}`)
+    ? sortedByTemp(points)
+        .map((point, i) => `${i === 0 ? 'M' : 'L'} ${xToPx(point.temp)} ${yToPx(point.duty)}`)
         .join(' ')
     : '';
 
@@ -175,24 +183,24 @@
 
   <path d={pathD} class="curve-line" />
 
-  {#each sorted(points) as point, index}
+  {#each sortedByTemp(points) as point (point.id)}
     <circle
-      cx={xToPx(point[0])}
-      cy={yToPx(point[1])}
+      cx={xToPx(point.temp)}
+      cy={yToPx(point.duty)}
       r="6"
       class="curve-point"
       role="button"
       tabindex="0"
-      aria-label="Curve point at {point[0]} degrees, {point[1]} percent"
-      on:pointerdown={(event) => pointerDown(index, event)}
+      aria-label="Curve point at {point.temp} degrees, {point.duty} percent"
+      on:pointerdown={(event) => pointerDown(point.id, event)}
       on:dblclick={(event) => {
         event.stopPropagation();
-        removePoint(index);
+        removePoint(point.id);
       }}
       on:keydown={(event) => {
         if (event.key === 'Delete' || event.key === 'Backspace') {
           event.stopPropagation();
-          removePoint(index);
+          removePoint(point.id);
         }
       }}
     />
@@ -208,15 +216,15 @@
     </tr>
   </thead>
   <tbody>
-    {#each sorted(points) as point, index}
+    {#each sortedByTemp(points) as point (point.id)}
       <tr>
         <td>
           <input
             type="number"
             min="0"
             max="100"
-            value={point[0]}
-            on:input={(event) => updateField(index, 'temp', event.target.value)}
+            value={point.temp}
+            on:input={(event) => updateField(point.id, 'temp', event.target.value)}
           />
         </td>
         <td>
@@ -224,15 +232,15 @@
             type="number"
             min="0"
             max="100"
-            value={point[1]}
-            on:input={(event) => updateField(index, 'duty', event.target.value)}
+            value={point.duty}
+            on:input={(event) => updateField(point.id, 'duty', event.target.value)}
           />
         </td>
         <td>
           <button
             class="remove"
             disabled={points.length <= 2}
-            on:click={() => removePoint(index)}
+            on:click={() => removePoint(point.id)}
           >
             Remove
           </button>
