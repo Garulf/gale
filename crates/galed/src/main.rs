@@ -16,6 +16,15 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("restore") {
+        let path = journal_path_from_args(&args);
+        let restored = galed::claims_journal::run_restore(&path);
+        tracing::info!(restored, path = %path.display(), "restore complete");
+        return;
+    }
+
     let store = Arc::new(ConfigStore::new(ConfigStore::default_path()));
     let config = match store.load() {
         Ok(config) => config,
@@ -95,6 +104,18 @@ async fn main() {
     }
     tracing::info!("shutting down, releasing all controls");
     host.release_all().await;
+}
+
+fn journal_path_from_args(args: &[String]) -> std::path::PathBuf {
+    let mut rest = args.iter().skip(1);
+    while let Some(arg) = rest.next() {
+        if arg == "--journal" {
+            if let Some(value) = rest.next() {
+                return std::path::PathBuf::from(value);
+            }
+        }
+    }
+    galed::claims_journal::default_path()
 }
 
 fn install_panic_release_hook(host: Arc<EngineHost>) {

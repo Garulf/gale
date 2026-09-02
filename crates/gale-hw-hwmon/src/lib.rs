@@ -228,6 +228,13 @@ impl Backend for HwmonBackend {
         }
         Ok(())
     }
+
+    fn restore_hint(&self, id: &str) -> Option<(String, String)> {
+        let control = self.controls.get(id)?;
+        let enable_path = control.enable_path.as_ref()?;
+        let saved = control.saved_enable.as_ref()?;
+        Some((enable_path.display().to_string(), saved.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -427,6 +434,30 @@ mod tests {
         assert!(matches!(result, Err(HwError::Io { .. })));
         assert_eq!(read_file(&chip0, "pwm1"), "128");
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
+    }
+
+    #[test]
+    fn restore_hint_returns_enable_path_and_saved_value_after_claim() {
+        let tree = mock_tree();
+        let chip0 = tree.path().join("hwmon0");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        assert_eq!(backend.restore_hint("hwmon/nct6798/pwm1"), None);
+        backend.set_duty("hwmon/nct6798/pwm1", 60.0).unwrap();
+        let (path, value) = backend.restore_hint("hwmon/nct6798/pwm1").unwrap();
+        assert_eq!(path, chip0.join("pwm1_enable").display().to_string());
+        assert_eq!(value, "5");
+    }
+
+    #[test]
+    fn restore_hint_is_none_for_control_without_enable_file() {
+        let tree = mock_tree();
+        let chip1 = tree.path().join("hwmon1");
+        write(&chip1, "pwm1", "0\n");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        backend.set_duty("hwmon/amdgpu/pwm1", 100.0).unwrap();
+        assert_eq!(backend.restore_hint("hwmon/amdgpu/pwm1"), None);
     }
 
     #[test]

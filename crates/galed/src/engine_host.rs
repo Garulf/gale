@@ -1,4 +1,5 @@
 use crate::backend_pool::BackendPool;
+use crate::claims_journal::{self, JournalEntry};
 use gale_core::build::build_engine;
 use gale_core::config::{ConfigError, GaleConfig};
 use gale_core::engine::FanEngine;
@@ -102,6 +103,7 @@ impl EngineHost {
             match self.backend.set_duty(id, *duty).await {
                 Ok(()) => {
                     self.claimed.lock().unwrap().insert(id.clone());
+                    self.write_journal().await;
                 }
                 Err(error) => {
                     tracing::warn!(%id, %error, "duty write failed, skipping control this tick");
@@ -122,6 +124,7 @@ impl EngineHost {
         for id in stale {
             if self.backend.release(&id).await.is_ok() {
                 self.claimed.lock().unwrap().remove(&id);
+                self.write_journal().await;
             }
         }
 
@@ -150,6 +153,7 @@ impl EngineHost {
         for id in stale {
             if self.backend.release(&id).await.is_ok() {
                 self.claimed.lock().unwrap().remove(&id);
+                self.write_journal().await;
             }
         }
         Ok(())
@@ -158,6 +162,7 @@ impl EngineHost {
     pub async fn set_manual(&self, id: &str, duty: f64) -> Result<(), HwError> {
         self.backend.set_duty(id, duty).await?;
         self.claimed.lock().unwrap().insert(id.to_string());
+        self.write_journal().await;
         self.state
             .lock()
             .unwrap()
@@ -175,12 +180,34 @@ impl EngineHost {
         if !assigned {
             self.backend.release(id).await?;
             self.claimed.lock().unwrap().remove(id);
+            self.write_journal().await;
         }
         Ok(())
     }
 
     pub fn claimed_ids(&self) -> Vec<Id> {
         self.claimed.lock().unwrap().iter().cloned().collect()
+    }
+
+    async fn write_journal(&self) {
+        let mut entries = Vec::new();
+        for id in self.claimed_ids() {
+            let backend_kind = claims_journal::backend_kind_of(&id);
+            let hint = if backend_kind == "hwmon" {
+                self.backend.restore_hint(&id).await
+            } else {
+                None
+            };
+            entries.push(JournalEntry {
+                id,
+                backend_kind,
+                hint,
+            });
+        }
+        let path = claims_journal::default_path();
+        if let Err(error) = claims_journal::write(&path, &entries) {
+            tracing::warn!(%error, path = %path.display(), "failed to write claim journal");
+        }
     }
 
     pub fn blocking_release_claimed(&self) {
@@ -195,6 +222,7 @@ impl EngineHost {
             if let Err(error) = self.backend.release(&id).await {
                 tracing::warn!(%id, %error, "release failed");
             }
+            self.write_journal().await;
         }
     }
 }
@@ -363,6 +391,54 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         host.set_known_sensors(["t1".to_string()].into());
         let config = GaleConfig::from_toml(CONFIG).unwrap();
         assert!(host.config_warnings(&config).is_empty());
+    }
+
+    #[tokio::test]
+    async fn claiming_a_hwmon_control_journals_its_restore_hint_and_survives_unclean_death() {
+        use crate::backend_handle::BackendHandle;
+        use gale_hw_hwmon::HwmonBackend;
+        use std::fs;
+
+        let runtime_dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("GALE_RUNTIME_DIR", runtime_dir.path());
+        }
+
+        let hwmon_root = tempfile::tempdir().unwrap();
+        let chip0 = hwmon_root.path().join("hwmon0");
+        fs::create_dir(&chip0).unwrap();
+        fs::write(chip0.join("name"), "nct6798\n").unwrap();
+        fs::write(chip0.join("pwm1"), "128\n").unwrap();
+        fs::write(chip0.join("pwm1_enable"), "5\n").unwrap();
+
+        let handle = BackendHandle::spawn(Box::new(HwmonBackend::with_root(
+            hwmon_root.path().to_path_buf(),
+        )));
+        let pool = BackendPool::new(vec![handle]);
+        pool.enumerate().await;
+
+        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
+        host.set_manual("hwmon/nct6798/pwm1", 60.0).await.unwrap();
+
+        let journal_path = runtime_dir.path().join("claims.json");
+        let entries = claims_journal::load(&journal_path);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "hwmon/nct6798/pwm1");
+        assert_eq!(entries[0].backend_kind, "hwmon");
+        let (hint_path, hint_value) = entries[0].hint.clone().unwrap();
+        assert_eq!(hint_path, chip0.join("pwm1_enable").display().to_string());
+        assert_eq!(hint_value, "5");
+
+        drop(host);
+
+        let restored = claims_journal::run_restore(&journal_path);
+        assert_eq!(restored, 1);
+        assert_eq!(fs::read_to_string(chip0.join("pwm1_enable")).unwrap(), "5");
+        assert!(!journal_path.exists());
+
+        unsafe {
+            std::env::remove_var("GALE_RUNTIME_DIR");
+        }
     }
 
     #[tokio::test]

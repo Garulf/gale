@@ -132,6 +132,17 @@ impl BackendPool {
         }
     }
 
+    pub async fn restore_hint(&self, id: &str) -> Option<(String, String)> {
+        let index = self.owner_of(id).ok()?;
+        match tokio::time::timeout(WRITE_TIMEOUT, self.handles[index].restore_hint(id)).await {
+            Ok(hint) => hint,
+            Err(_) => {
+                tracing::warn!(backend = index, %id, "restore_hint timed out");
+                None
+            }
+        }
+    }
+
     pub fn blocking_release(&self, id: &str) {
         if let Ok(index) = self.owner_of(id) {
             self.handles[index].blocking_release(id);
@@ -244,6 +255,10 @@ mod tests {
         fn release(&mut self, _id: &str) -> Result<(), HwError> {
             Ok(())
         }
+
+        fn restore_hint(&self, id: &str) -> Option<(String, String)> {
+            Some((format!("{id}_enable"), self.name.to_string()))
+        }
     }
 
     fn pool_of(backends: Vec<FakeBackend>) -> BackendPool {
@@ -355,6 +370,17 @@ mod tests {
         assert_eq!(values.get("fast/t1"), Some(&Some(1.0)));
         assert!(!values.contains_key("slow-a/t1"));
         assert!(!values.contains_key("slow-b/t1"));
+    }
+
+    #[tokio::test]
+    async fn restore_hint_routes_to_owning_handle_and_is_none_for_unknown() {
+        let pool = pool_of(vec![FakeBackend::new("a"), FakeBackend::new("b")]);
+        pool.enumerate().await;
+        assert_eq!(
+            pool.restore_hint("b/p1").await,
+            Some(("b/p1_enable".to_string(), "b".to_string()))
+        );
+        assert_eq!(pool.restore_hint("ghost/p1").await, None);
     }
 
     #[tokio::test]

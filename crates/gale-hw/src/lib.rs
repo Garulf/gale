@@ -46,6 +46,9 @@ pub trait Backend: Send {
     fn read_all(&mut self) -> HashMap<Id, Option<f64>>;
     fn set_duty(&mut self, id: &str, pct: f64) -> Result<(), HwError>;
     fn release(&mut self, id: &str) -> Result<(), HwError>;
+    fn restore_hint(&self, _id: &str) -> Option<(String, String)> {
+        None
+    }
 }
 
 #[cfg(test)]

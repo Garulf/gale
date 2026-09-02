@@ -7,6 +7,7 @@ enum Command {
     ReadAll(oneshot::Sender<HashMap<Id, Option<f64>>>),
     SetDuty(Id, f64, oneshot::Sender<Result<(), HwError>>),
     Release(Id, oneshot::Sender<Result<(), HwError>>),
+    RestoreHint(Id, oneshot::Sender<Option<(String, String)>>),
 }
 
 #[derive(Clone)]
@@ -38,6 +39,9 @@ impl BackendHandle {
                     }
                     Command::Release(id, reply) => {
                         let _ = reply.send(backend.release(&id));
+                    }
+                    Command::RestoreHint(id, reply) => {
+                        let _ = reply.send(backend.restore_hint(&id));
                     }
                 }
             }
@@ -74,6 +78,18 @@ impl BackendHandle {
         let (reply, rx) = oneshot::channel();
         self.send(Command::Release(id.to_string(), reply)).await?;
         rx.await.map_err(|_| thread_gone())?
+    }
+
+    pub async fn restore_hint(&self, id: &str) -> Option<(String, String)> {
+        let (reply, rx) = oneshot::channel();
+        if self
+            .send(Command::RestoreHint(id.to_string(), reply))
+            .await
+            .is_err()
+        {
+            return None;
+        }
+        rx.await.ok().flatten()
     }
 
     pub fn blocking_release(&self, id: &str) {
@@ -132,6 +148,10 @@ mod tests {
         fn release(&mut self, _id: &str) -> Result<(), HwError> {
             Ok(())
         }
+
+        fn restore_hint(&self, id: &str) -> Option<(String, String)> {
+            (id == "fake/p1").then(|| ("fake/p1_enable".to_string(), "1".to_string()))
+        }
     }
 
     #[tokio::test]
@@ -147,6 +167,11 @@ mod tests {
             handle.set_duty("fake/nope", 1.0).await,
             Err(HwError::UnknownId(_))
         ));
+        assert_eq!(
+            handle.restore_hint("fake/p1").await,
+            Some(("fake/p1_enable".to_string(), "1".to_string()))
+        );
+        assert_eq!(handle.restore_hint("fake/nope").await, None);
         handle.release("fake/p1").await.unwrap();
     }
 
