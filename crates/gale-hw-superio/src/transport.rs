@@ -156,6 +156,10 @@ impl FakePortIo {
             .unwrap_or(0)
     }
 
+    pub fn cr28(&self, slot: u8) -> u8 {
+        self.chips.get(&slot).map(|chip| chip.cr28).unwrap_or(0)
+    }
+
     pub fn set_hm(&mut self, slot: u8, address: u16, value: u8) {
         if let Some(chip) = self.chips.get_mut(&slot) {
             chip.hm.insert(address, value);

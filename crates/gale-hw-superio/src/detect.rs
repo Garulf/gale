@@ -349,7 +349,8 @@ mod tests {
     fn cr28_lock_bit_is_cleared_when_set() {
         let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
         detect_all(&mut io).unwrap();
-        assert_eq!(io.hm(0, 0x804F), 0x5C);
+        assert_eq!(io.cr28(0), 0x00);
+        assert!(io.calls.contains(&Call::SioOut(0x28, 0x00)));
     }
 
     #[test]
@@ -491,6 +492,39 @@ mod tests {
                 Call::PioOut(0x2E, 0xAA),
             ]
         );
+    }
+
+    #[test]
+    fn unlock_io_space_clears_lock_bit_when_set() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        io.select_slot(0).unwrap();
+        io.take_calls();
+        unlock_io_space(&mut io, 0).unwrap();
+        assert_eq!(
+            io.take_calls(),
+            vec![
+                Call::PioOut(0x2E, 0x87),
+                Call::PioOut(0x2E, 0x87),
+                Call::SioIn(0x28),
+                Call::SioOut(0x28, 0x00),
+                Call::PioOut(0x2E, 0xAA),
+            ]
+        );
+    }
+
+    #[test]
+    fn unlock_io_space_writes_nothing_when_already_clear() {
+        let mut chip = FakeChip::nct6798d(0x0290);
+        chip.cr28 = 0x00;
+        let mut io = FakePortIo::with_chip(0, chip);
+        io.select_slot(0).unwrap();
+        io.take_calls();
+        unlock_io_space(&mut io, 0).unwrap();
+        let calls = io.take_calls();
+        assert!(calls.contains(&Call::SioIn(0x28)));
+        assert!(!calls
+            .iter()
+            .any(|call| matches!(call, Call::SioOut(0x28, _))));
     }
 
     #[test]
