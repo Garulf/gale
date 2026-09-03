@@ -157,9 +157,13 @@ fn handle_menu_events(items: &MenuItems) {
         if event.id == items.open_ui {
             open_ui();
         } else if event.id == *items.start.id() {
-            let _ = service::start();
+            std::thread::spawn(|| {
+                let _ = service::start();
+            });
         } else if event.id == *items.stop.id() {
-            let _ = service::stop();
+            std::thread::spawn(|| {
+                let _ = service::stop();
+            });
         } else if event.id == items.quit {
             unsafe {
                 PostQuitMessage(0);

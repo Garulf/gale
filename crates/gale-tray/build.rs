@@ -4,10 +4,11 @@ use std::path::Path;
 
 const SIZE: i32 = 32;
 const RADIUS: f64 = 14.0;
-const CENTER: f64 = 15.5;
+const CENTER: f64 = 16.0;
 const ACCENT: [u8; 3] = [0x1f, 0x8a, 0xff];
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
     let out_dir = env::var("OUT_DIR").expect("cargo always sets OUT_DIR");
     let dest = Path::new(&out_dir).join("icon_rgba.rs");
     fs::write(&dest, render_source()).expect("write icon_rgba.rs");

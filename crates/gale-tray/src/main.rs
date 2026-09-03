@@ -32,8 +32,8 @@ fn main() {
 
     let result = match command {
         args::Command::Tray => tray::run(),
-        args::Command::Start => service::start(),
-        args::Command::Stop => service::stop(),
+        args::Command::Start => service::start_direct(),
+        args::Command::Stop => service::stop_direct(),
     };
 
     if let Err(message) = result {

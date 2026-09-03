@@ -9,6 +9,7 @@ pub fn api_state() -> ApiState {
     let request = ureq::get(WARNINGS_URL)
         .config()
         .timeout_global(Some(TIMEOUT))
+        .proxy(None)
         .build();
 
     let mut response = match request.call() {

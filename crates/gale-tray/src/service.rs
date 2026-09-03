@@ -46,35 +46,44 @@ pub fn query() -> ServiceState {
             WinServiceState::StartPending
             | WinServiceState::StopPending
             | WinServiceState::ContinuePending
-            | WinServiceState::PausePending => ServiceState::Pending,
-            WinServiceState::Paused => ServiceState::Unknown,
+            | WinServiceState::PausePending
+            | WinServiceState::Paused => ServiceState::Pending,
         },
         Err(_) => ServiceState::Unknown,
     }
 }
 
-pub fn start() -> Result<(), String> {
-    let manager = ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CONNECT)
-        .map_err(|error| error.to_string())?;
+fn start_service() -> Result<(), WinError> {
+    let manager = ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CONNECT)?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
+    service.start(&[] as &[&OsStr])
+}
 
-    match manager.open_service(SERVICE_NAME, ServiceAccess::START) {
-        Ok(service) => service
-            .start(&[] as &[&OsStr])
-            .map_err(|error| error.to_string()),
+fn stop_service() -> Result<(), WinError> {
+    let manager = ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CONNECT)?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::STOP)?;
+    service.stop().map(|_| ())
+}
+
+pub fn start_direct() -> Result<(), String> {
+    start_service().map_err(|error| error.to_string())
+}
+
+pub fn stop_direct() -> Result<(), String> {
+    stop_service().map_err(|error| error.to_string())
+}
+
+pub fn start() -> Result<(), String> {
+    match start_service() {
+        Ok(()) => Ok(()),
         Err(error) if is_access_denied(&error) => relaunch_elevated("--start"),
         Err(error) => Err(error.to_string()),
     }
 }
 
 pub fn stop() -> Result<(), String> {
-    let manager = ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CONNECT)
-        .map_err(|error| error.to_string())?;
-
-    match manager.open_service(SERVICE_NAME, ServiceAccess::STOP) {
-        Ok(service) => service
-            .stop()
-            .map(|_| ())
-            .map_err(|error| error.to_string()),
+    match stop_service() {
+        Ok(()) => Ok(()),
         Err(error) if is_access_denied(&error) => relaunch_elevated("--stop"),
         Err(error) => Err(error.to_string()),
     }
