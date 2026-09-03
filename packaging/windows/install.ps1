@@ -15,7 +15,7 @@ function Assert-Admin {
 }
 
 function Stop-GaleTray {
-    Get-Process gale-tray -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process gale-tray -ErrorAction SilentlyContinue | Stop-Process -Force -PassThru -ErrorAction SilentlyContinue | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
 }
 
 function Stop-GaleService {
@@ -57,8 +57,8 @@ function Install-Gale {
     sc.exe failure galed reset= 60 actions= restart/5000 | Out-Null
     Start-Service galed
 
-    New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GaleTray" -Value "$BinDir\gale-tray.exe" -PropertyType String -Force | Out-Null
-    Start-Process -FilePath "$BinDir\gale-tray.exe" -WindowStyle Hidden
+    New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GaleTray" -Value "`"$BinDir\gale-tray.exe`"" -PropertyType String -Force | Out-Null
+    Start-Process -FilePath explorer.exe -ArgumentList "`"$BinDir\gale-tray.exe`""
 
     Write-Host "galed installed. UI: http://127.0.0.1:5250"
 }

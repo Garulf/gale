@@ -131,7 +131,7 @@ fn run_message_loop(hwnd: HWND, items: &MenuItems) -> Result<(), String> {
             break;
         }
 
-        if msg.message == WM_TRAY_STATE {
+        if msg.message == WM_TRAY_STATE && msg.hwnd == hwnd {
             let state = unsafe { *Box::from_raw(msg.lParam as *mut TrayState) };
             apply_state(items, state);
         } else {

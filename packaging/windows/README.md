@@ -57,8 +57,10 @@ running it.
 
 `install.ps1` also registers `gale-tray.exe` to start with your Windows
 session (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\GaleTray`) and
-starts it immediately after installing. The tray icon shows the `galed`
-service status and offers:
+starts it immediately after installing. Because `install.ps1` runs elevated,
+this Run entry lives in the HKCU hive of the account that ran the elevated
+installer, not necessarily the account signed in afterward. The tray icon
+shows the `galed` service status and offers:
 
 - Open UI, which launches `http://127.0.0.1:5250` in your browser
 - Start and Stop, which control the `galed` service
@@ -66,9 +68,13 @@ service status and offers:
 
 Start and Stop run without elevation when they can, and fall back to a UAC
 prompt when the current session cannot control the service directly. The
-tray assumes the default bind address `127.0.0.1:5250`; a custom `api.bind`
-in `config.toml` is not yet reflected in the Open UI menu item, that is a
+tray assumes the default bind address `127.0.0.1:5250`. A custom `api.bind`
+in `config.toml` is not yet reflected in the Open UI menu item; that is a
 planned follow-up.
+
+`install.ps1` launches `gale-tray.exe` through `explorer.exe` rather than
+directly, because a process started by explorer inherits the interactive
+user's unelevated token instead of the elevated installer's.
 
 To stop the tray from starting automatically, delete the `GaleTray` value
 under `HKCU:\Software\Microsoft\Windows\CurrentVersion\Run`, or run
