@@ -28,7 +28,9 @@ then from an elevated PowerShell in that folder:
 .\install.ps1
 ```
 
-This registers `galed` as a Windows service and starts it. Uninstall with:
+This registers `galed` as a Windows service and starts it, and registers a
+tray icon that starts with your session and shows the service status.
+Uninstall with:
 
 ```powershell
 .\install.ps1 -Uninstall

@@ -53,11 +53,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p galed -p gale-cli
+      - run: cargo build --release -p galed -p gale-cli -p gale-tray
       - shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target/release/galed.exe, target/release/gale.exe, packaging/windows/install.ps1, packaging/windows/README.md, packaging/config.example.toml, LICENSE, NOTICE dist/
+          Copy-Item target/release/galed.exe, target/release/gale.exe, target/release/gale-tray.exe, packaging/windows/install.ps1, packaging/windows/README.md, packaging/config.example.toml, LICENSE, NOTICE dist/
           Compress-Archive dist/* gale-windows-x86_64.zip
       - run: gh release upload ${{ needs.release-please.outputs.tag_name }} gale-windows-x86_64.zip
         env:

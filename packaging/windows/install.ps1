@@ -14,6 +14,10 @@ function Assert-Admin {
     }
 }
 
+function Stop-GaleTray {
+    Get-Process gale-tray -ErrorAction SilentlyContinue | Stop-Process -Force
+}
+
 function Stop-GaleService {
     $service = Get-Service galed -ErrorAction SilentlyContinue
     if (-not $service) {
@@ -37,8 +41,9 @@ function Install-Gale {
     if ($serviceExists) {
         Stop-GaleService
     }
+    Stop-GaleTray
 
-    Copy-Item (Join-Path $PSScriptRoot "galed.exe"), (Join-Path $PSScriptRoot "gale.exe") $BinDir -Force
+    Copy-Item (Join-Path $PSScriptRoot "galed.exe"), (Join-Path $PSScriptRoot "gale.exe"), (Join-Path $PSScriptRoot "gale-tray.exe") $BinDir -Force
 
     $configPath = Join-Path $DataDir "config.toml"
     if (-not (Test-Path $configPath)) {
@@ -52,10 +57,16 @@ function Install-Gale {
     sc.exe failure galed reset= 60 actions= restart/5000 | Out-Null
     Start-Service galed
 
+    New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GaleTray" -Value "$BinDir\gale-tray.exe" -PropertyType String -Force | Out-Null
+    Start-Process -FilePath "$BinDir\gale-tray.exe" -WindowStyle Hidden
+
     Write-Host "galed installed. UI: http://127.0.0.1:5250"
 }
 
 function Uninstall-Gale {
+    Stop-GaleTray
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GaleTray" -ErrorAction SilentlyContinue
+
     Stop-GaleService
 
     $galedExe = Join-Path $BinDir "galed.exe"

@@ -15,10 +15,12 @@ Extract the release zip, then from an elevated PowerShell in that folder:
 .\install.ps1
 ```
 
-This copies `galed.exe` and `gale.exe` to `%ProgramFiles%\Gale`, seeds
-`%ProgramData%\Gale\config.toml` from `config.example.toml` if no config
-exists yet, registers the `galed` service with automatic restart on failure,
-and starts it. Open `http://127.0.0.1:5250` for the dashboard.
+This copies `galed.exe`, `gale.exe` and `gale-tray.exe` to
+`%ProgramFiles%\Gale`, seeds `%ProgramData%\Gale\config.toml` from
+`config.example.toml` if no config exists yet, registers the `galed` service
+with automatic restart on failure, starts it, and registers and starts the
+tray icon for the current user. Open `http://127.0.0.1:5250` for the
+dashboard.
 
 ## Uninstall
 
@@ -26,9 +28,10 @@ and starts it. Open `http://127.0.0.1:5250` for the dashboard.
 .\install.ps1 -Uninstall
 ```
 
-This stops the service, runs `galed restore` to release any fan overrides
-back to hardware control, deletes the service, and removes
-`%ProgramFiles%\Gale`. Config under `%ProgramData%\Gale` is kept.
+This stops the tray icon and removes its autostart entry, stops the
+service, runs `galed restore` to release any fan overrides back to hardware
+control, deletes the service, and removes `%ProgramFiles%\Gale`. Config
+under `%ProgramData%\Gale` is kept.
 
 ## Where things live
 
@@ -49,6 +52,27 @@ the service and run the binary directly from an elevated terminal:
 
 Set `RUST_LOG` for more detail, for example `$env:RUST_LOG = "debug"` before
 running it.
+
+## Tray
+
+`install.ps1` also registers `gale-tray.exe` to start with your Windows
+session (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\GaleTray`) and
+starts it immediately after installing. The tray icon shows the `galed`
+service status and offers:
+
+- Open UI, which launches `http://127.0.0.1:5250` in your browser
+- Start and Stop, which control the `galed` service
+- Quit, which removes the icon without touching the service
+
+Start and Stop run without elevation when they can, and fall back to a UAC
+prompt when the current session cannot control the service directly. The
+tray assumes the default bind address `127.0.0.1:5250`; a custom `api.bind`
+in `config.toml` is not yet reflected in the Open UI menu item, that is a
+planned follow-up.
+
+To stop the tray from starting automatically, delete the `GaleTray` value
+under `HKCU:\Software\Microsoft\Windows\CurrentVersion\Run`, or run
+`.\install.ps1 -Uninstall` and reinstall.
 
 ## Motherboard fans
 
