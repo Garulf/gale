@@ -130,6 +130,45 @@ impl ProfileConfig {
             })
             .collect()
     }
+
+    pub fn assigned_sensors(&self) -> BTreeSet<Id> {
+        let mut sensors = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        for curve_name in self.assignments.values() {
+            self.collect_curve_sensors(curve_name, &mut visited, &mut sensors);
+        }
+        sensors
+    }
+
+    fn collect_curve_sensors(
+        &self,
+        curve_name: &Id,
+        visited: &mut BTreeSet<Id>,
+        sensors: &mut BTreeSet<Id>,
+    ) {
+        if !visited.insert(curve_name.clone()) {
+            return;
+        }
+        let Some(curve) = self.curves.get(curve_name) else {
+            return;
+        };
+        match curve {
+            CurveConfig::Point { sensor, .. }
+            | CurveConfig::Trigger { sensor, .. }
+            | CurveConfig::Target { sensor, .. } => {
+                sensors.insert(sensor.clone());
+            }
+            CurveConfig::Flat { .. } => {}
+            CurveConfig::Mix { sources, .. } => {
+                for source in sources {
+                    self.collect_curve_sensors(source, visited, sensors);
+                }
+            }
+            CurveConfig::Sync { source } => {
+                self.collect_curve_sensors(source, visited, sensors);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -421,5 +460,128 @@ mode = "max"
                 "s_target".to_string(),
             ])
         );
+    }
+
+    #[test]
+    fn assigned_sensors_empty_when_no_assignments() {
+        let profile = ProfileConfig {
+            curves: [(
+                "cpu".to_string(),
+                CurveConfig::Point {
+                    sensor: "s_point".to_string(),
+                    points: vec![[0.0, 0.0]],
+                    hysteresis: None,
+                    response: None,
+                },
+            )]
+            .into(),
+            assignments: BTreeMap::new(),
+        };
+        assert!(profile.assigned_sensors().is_empty());
+    }
+
+    #[test]
+    fn assigned_sensors_returns_sensor_of_assigned_point_curve() {
+        let profile = ProfileConfig {
+            curves: [(
+                "cpu".to_string(),
+                CurveConfig::Point {
+                    sensor: "s_point".to_string(),
+                    points: vec![[0.0, 0.0]],
+                    hysteresis: None,
+                    response: None,
+                },
+            )]
+            .into(),
+            assignments: [("pwm1".to_string(), "cpu".to_string())].into(),
+        };
+        assert_eq!(
+            profile.assigned_sensors(),
+            BTreeSet::from(["s_point".to_string()])
+        );
+    }
+
+    #[test]
+    fn assigned_sensors_follows_mix_children() {
+        let profile = ProfileConfig {
+            curves: [
+                (
+                    "cpu".to_string(),
+                    CurveConfig::Point {
+                        sensor: "s_cpu".to_string(),
+                        points: vec![[0.0, 0.0]],
+                        hysteresis: None,
+                        response: None,
+                    },
+                ),
+                (
+                    "gpu".to_string(),
+                    CurveConfig::Point {
+                        sensor: "s_gpu".to_string(),
+                        points: vec![[0.0, 0.0]],
+                        hysteresis: None,
+                        response: None,
+                    },
+                ),
+                (
+                    "case".to_string(),
+                    CurveConfig::Mix {
+                        sources: vec!["cpu".to_string(), "gpu".to_string()],
+                        mode: MixMode::Max,
+                    },
+                ),
+            ]
+            .into(),
+            assignments: [("pwm1".to_string(), "case".to_string())].into(),
+        };
+        assert_eq!(
+            profile.assigned_sensors(),
+            BTreeSet::from(["s_cpu".to_string(), "s_gpu".to_string()])
+        );
+    }
+
+    #[test]
+    fn assigned_sensors_follows_sync_source() {
+        let profile = ProfileConfig {
+            curves: [
+                (
+                    "cpu".to_string(),
+                    CurveConfig::Point {
+                        sensor: "s_cpu".to_string(),
+                        points: vec![[0.0, 0.0]],
+                        hysteresis: None,
+                        response: None,
+                    },
+                ),
+                (
+                    "case".to_string(),
+                    CurveConfig::Sync {
+                        source: "cpu".to_string(),
+                    },
+                ),
+            ]
+            .into(),
+            assignments: [("pwm1".to_string(), "case".to_string())].into(),
+        };
+        assert_eq!(
+            profile.assigned_sensors(),
+            BTreeSet::from(["s_cpu".to_string()])
+        );
+    }
+
+    #[test]
+    fn assigned_sensors_tolerates_self_referencing_and_missing_mix_children() {
+        let profile = ProfileConfig {
+            curves: [(
+                "loopy".to_string(),
+                CurveConfig::Mix {
+                    sources: vec!["loopy".to_string(), "ghost".to_string()],
+                    mode: MixMode::Max,
+                },
+            )]
+            .into(),
+            assignments: [("pwm1".to_string(), "loopy".to_string())].into(),
+        };
+        assert!(profile.assigned_sensors().is_empty());
     }
 }

@@ -433,7 +433,8 @@ duty = 10.0
         host.set_known_sensors(["t1".to_string()].into());
 
         let mut with_ghost = GaleConfig::from_toml(CONFIG).unwrap();
-        with_ghost.profiles.get_mut("p").unwrap().curves.insert(
+        let profile = with_ghost.profiles.get_mut("p").unwrap();
+        profile.curves.insert(
             "cpu".to_string(),
             gale_core::config::CurveConfig::Point {
                 sensor: "ghost".to_string(),
@@ -442,6 +443,9 @@ duty = 10.0
                 response: None,
             },
         );
+        profile
+            .assignments
+            .insert("pwm2".to_string(), "cpu".to_string());
         let warned = router
             .clone()
             .oneshot(
@@ -624,7 +628,8 @@ duty = 10.0
 
         host.set_known_sensors(["other".to_string()].into());
         let mut config = host.config();
-        config.profiles.get_mut("p").unwrap().curves.insert(
+        let profile = config.profiles.get_mut("p").unwrap();
+        profile.curves.insert(
             "cpu".to_string(),
             gale_core::config::CurveConfig::Point {
                 sensor: "ghost".to_string(),
@@ -633,6 +638,9 @@ duty = 10.0
                 response: None,
             },
         );
+        profile
+            .assignments
+            .insert("pwm2".to_string(), "cpu".to_string());
         host.replace_config(config).await.unwrap();
         let response = router
             .oneshot(Request::get("/api/warnings").body(Body::empty()).unwrap())

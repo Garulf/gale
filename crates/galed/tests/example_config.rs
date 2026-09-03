@@ -9,4 +9,5 @@ fn packaged_example_config_parses() {
     let profile = &config.profiles["default"];
     assert!(profile.assignments.is_empty());
     assert!(!profile.curves.is_empty());
+    assert!(profile.assigned_sensors().is_empty());
 }

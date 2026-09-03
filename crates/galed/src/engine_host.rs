@@ -87,7 +87,7 @@ impl EngineHost {
             return Vec::new();
         };
         profile
-            .referenced_sensors()
+            .assigned_sensors()
             .into_iter()
             .filter(|sensor| !known.contains(sensor))
             .map(|sensor| format!("referenced sensor not found on hardware: {sensor}"))
@@ -432,6 +432,31 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let warnings = host.config_warnings(&config);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("t1"));
+    }
+
+    #[test]
+    fn config_warnings_ignores_unknown_sensor_on_unassigned_curve() {
+        const CONFIG_WITH_DRAFT: &str = r#"
+active_profile = "p"
+
+[profiles.p.curves.cpu]
+type = "point"
+sensor = "t1"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.curves.draft]
+type = "point"
+sensor = "hwmon/nct6798/temp1"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.assignments]
+"pwm1" = "cpu"
+"pwm2" = "cpu"
+"#;
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.set_known_sensors(["t1".to_string()].into());
+        let config = GaleConfig::from_toml(CONFIG_WITH_DRAFT).unwrap();
+        assert!(host.config_warnings(&config).is_empty());
     }
 
     #[test]
