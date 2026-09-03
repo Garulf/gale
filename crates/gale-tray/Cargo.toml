@@ -3,6 +3,7 @@ name = "gale-tray"
 version.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
+build = "build.rs"
 
 [[bin]]
 name = "gale-tray"
