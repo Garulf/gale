@@ -78,10 +78,10 @@ fn candidate_libraries() -> Vec<String> {
     if let Ok(path) = std::env::var(LIBRARY_ENV_OVERRIDE) {
         candidates.push(path);
     }
-    candidates.push(LIBRARY_NAME.to_string());
     if let Ok(program_files) = std::env::var("ProgramFiles") {
         candidates.push(format!("{program_files}\\PawnIO\\PawnIOLib.dll"));
     }
+    candidates.push(LIBRARY_NAME.to_string());
     candidates
 }
 
@@ -137,10 +137,13 @@ pub fn open() -> Result<PawnIoTransport, SuperIoStatus> {
     let mutex_name = wide(ISA_MUTEX_NAME);
     let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, mutex_name.as_ptr()) };
     if mutex.is_null() {
+        let code = unsafe { GetLastError() };
         unsafe {
             close_fn(handle);
         }
-        return Err(SuperIoStatus::Io("CreateMutexW failed".to_string()));
+        return Err(SuperIoStatus::Io(format!(
+            "CreateMutexW failed (error {code})"
+        )));
     }
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         tracing::debug!("isa bus mutex already existed, sharing with another driver client");
