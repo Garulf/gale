@@ -131,6 +131,16 @@ same way:
   profile after Gale has been driving it needs a power cycle or iCUE itself;
   none of the `on_release` modes hand control back to firmware curves.
 
+### Sharing devices with other software
+
+Super I/O access is coordinated through the ISA bus mutex, so `galed`
+coexists with FanControl and HWiNFO polling the same motherboard chip.
+Corsair USB devices cannot be shared that way: HID replies carry no request
+id, so running FanControl's Corsair plugin, iCUE, or liquidctl against a
+device Gale is also probing can make Gale read their traffic as its own.
+Stop the other program's access to a Corsair device before pointing Gale at
+it, or leave that device out of Gale's config.
+
 ## Contributing
 
 Issues and pull requests are welcome at [Garulf/gale](https://github.com/Garulf/gale).

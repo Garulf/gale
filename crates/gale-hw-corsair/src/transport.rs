@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 const MAX_REPORT_LENGTH: usize = 96;
 
 const MAX_DRAIN_ITERATIONS: usize = 32;
@@ -7,6 +9,10 @@ pub trait HidTransport: Send {
     fn read_timeout(&mut self, timeout_ms: i32) -> Result<Option<Vec<u8>>, String>;
 
     fn drain(&mut self) {}
+
+    fn sleep(&mut self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
 }
 
 pub struct HidapiTransport {
@@ -60,6 +66,7 @@ pub struct FakeTransport {
     pub cursor: usize,
     pub writes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub drains: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub sleeps: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -70,6 +77,7 @@ impl FakeTransport {
             cursor: 0,
             writes: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             drains: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            sleeps: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -79,6 +87,10 @@ impl FakeTransport {
 
     pub fn drain_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
         self.drains.clone()
+    }
+
+    pub fn sleep_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+        self.sleeps.clone()
     }
 }
 
@@ -123,6 +135,11 @@ impl HidTransport for FakeTransport {
 
     fn drain(&mut self) {
         self.drains
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn sleep(&mut self, _duration: Duration) {
+        self.sleeps
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }

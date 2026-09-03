@@ -93,6 +93,21 @@ Setting `GALE_PAWNIOLIB` to a path overrides where `galed` loads
 `PawnIOLib.dll` from, but PawnIO still has to be installed (its registry
 uninstall key present) for that library to be used at all.
 
+## Sharing devices with other software
+
+Motherboard Super I/O access goes through a system-wide ISA bus mutex, so
+`galed` coexists with FanControl, HWiNFO, and other tools polling the same
+chip; whichever program holds the lock waits its turn.
+
+Corsair USB devices (Commander Pro, Commander Core, Hydro Platinum AIOs,
+HID-based PSUs) do not support that kind of sharing. HID replies carry no
+request id, so if FanControl's Corsair plugin, iCUE, or liquidctl is
+talking to the same device, Gale can read their replies as answers to its
+own commands and end up with a wrong or incomplete channel list. Before
+pointing Gale at a Corsair device, stop the other program's access to it
+(close iCUE, stop liquidctl, or disable that device in FanControl's Corsair
+plugin), or leave the device out of Gale's `config.toml` entirely.
+
 ## Restoring fan control manually
 
 If the service is stopped without going through `install.ps1 -Uninstall`,

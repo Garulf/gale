@@ -2,6 +2,7 @@ use crate::transport::HidTransport;
 use crate::{CorsairDevice, DeviceChannels};
 use gale_hw::SensorKind;
 use std::collections::HashMap;
+use std::time::Duration;
 
 const REPORT_LENGTH: usize = 96;
 const READ_TIMEOUT_MS: i32 = 1000;
@@ -35,6 +36,9 @@ const FAN_MODE_CURVE_PERCENT: u8 = 0x02;
 const FAN_COUNT: usize = 6;
 const SPEED_PORT_CONNECTED: u8 = 0x07;
 const TEMP_PORT_CONNECTED: u8 = 0x00;
+
+const MAX_DISCOVERY_ATTEMPTS: usize = 3;
+const DISCOVERY_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 fn u16le_from(data: &[u8], offset: usize) -> Option<u16> {
     let lo = *data.get(offset)?;
@@ -147,6 +151,30 @@ impl CommanderCore {
         let result = woken.and_then(|_| action(self));
         let slept = self.send_command(&CMD_SLEEP, &[]);
         result.and_then(|value| slept.map(|_| value))
+    }
+
+    fn read_agreeing<T, F>(&mut self, mut read: F, label: &str) -> Result<T, String>
+    where
+        T: PartialEq,
+        F: FnMut(&mut Self) -> Result<T, String>,
+    {
+        let mut last = None;
+        for attempt in 0..MAX_DISCOVERY_ATTEMPTS {
+            let first = read(self)?;
+            let second = read(self)?;
+            if first == second {
+                return Ok(second);
+            }
+            last = Some(second);
+            if attempt + 1 < MAX_DISCOVERY_ATTEMPTS {
+                self.transport.sleep(DISCOVERY_RETRY_DELAY);
+            }
+        }
+        tracing::warn!(
+            "{label} discovery reads did not agree after {MAX_DISCOVERY_ATTEMPTS} attempts on {}; another program may be using this device",
+            self.slug
+        );
+        last.ok_or_else(|| "discovery produced no reading".to_string())
     }
 
     fn get_connected_speeds(&mut self) -> Result<Vec<bool>, String> {
@@ -275,8 +303,9 @@ impl CorsairDevice for CommanderCore {
 
     fn channels(&mut self) -> Result<DeviceChannels, String> {
         let (speed_ports, temps) = self.with_wake(|device| {
-            let speed_ports = device.get_connected_speeds()?;
-            let temps = device.get_temps()?;
+            let speed_ports =
+                device.read_agreeing(Self::get_connected_speeds, "connected fan ports")?;
+            let temps = device.read_agreeing(Self::get_temps, "temperature ports")?;
             Ok((speed_ports, temps))
         })?;
 
@@ -473,6 +502,16 @@ mod tests {
             &connected_payload(speeds),
         ));
         exchanges.extend(read_exchanges(
+            &MODE_CONNECTED_SPEEDS,
+            &DATA_TYPE_CONNECTED_SPEEDS,
+            &connected_payload(speeds),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_GET_TEMPS,
+            &DATA_TYPE_TEMPS,
+            &temps_payload(temps),
+        ));
+        exchanges.extend(read_exchanges(
             &MODE_GET_TEMPS,
             &DATA_TYPE_TEMPS,
             &temps_payload(temps),
@@ -511,6 +550,118 @@ mod tests {
             "commander-core-xt",
             false,
         )
+    }
+
+    #[test]
+    fn channels_retries_connected_speed_discovery_until_two_reads_agree() {
+        let matching = [Some(2357), Some(918)];
+        let temps = [Some(12.3)];
+
+        let mut exchanges = vec![wake()];
+        exchanges.extend(read_exchanges(
+            &MODE_CONNECTED_SPEEDS,
+            &DATA_TYPE_CONNECTED_SPEEDS,
+            &connected_payload(&[Some(2357), None]),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_CONNECTED_SPEEDS,
+            &DATA_TYPE_CONNECTED_SPEEDS,
+            &connected_payload(&[None, Some(918)]),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_CONNECTED_SPEEDS,
+            &DATA_TYPE_CONNECTED_SPEEDS,
+            &connected_payload(&matching),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_CONNECTED_SPEEDS,
+            &DATA_TYPE_CONNECTED_SPEEDS,
+            &connected_payload(&matching),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_GET_TEMPS,
+            &DATA_TYPE_TEMPS,
+            &temps_payload(&temps),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_GET_TEMPS,
+            &DATA_TYPE_TEMPS,
+            &temps_payload(&temps),
+        ));
+        exchanges.push(sleep());
+        let expected_exchanges = exchanges.len();
+
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let sleeps = transport.sleep_counter();
+        let mut device = CommanderCore::new(Box::new(transport), "commander-core", true);
+
+        let channels = device.channels().unwrap();
+
+        let sensor_ids: Vec<_> = channels
+            .sensors
+            .iter()
+            .map(|(id, _, _)| id.as_str())
+            .collect();
+        assert_eq!(sensor_ids, vec!["pump", "fan1", "temp1"]);
+        assert_eq!(
+            writes.load(std::sync::atomic::Ordering::Relaxed),
+            expected_exchanges
+        );
+        assert_eq!(sleeps.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn channels_keeps_last_reading_and_gives_up_when_connected_speed_discovery_never_agrees() {
+        let temps = [Some(12.3)];
+        let readings: [[Option<u16>; 2]; 6] = [
+            [Some(1), None],
+            [None, Some(1)],
+            [Some(2), None],
+            [None, Some(2)],
+            [Some(3), None],
+            [None, Some(3)],
+        ];
+
+        let mut exchanges = vec![wake()];
+        for reading in &readings {
+            exchanges.extend(read_exchanges(
+                &MODE_CONNECTED_SPEEDS,
+                &DATA_TYPE_CONNECTED_SPEEDS,
+                &connected_payload(reading),
+            ));
+        }
+        exchanges.extend(read_exchanges(
+            &MODE_GET_TEMPS,
+            &DATA_TYPE_TEMPS,
+            &temps_payload(&temps),
+        ));
+        exchanges.extend(read_exchanges(
+            &MODE_GET_TEMPS,
+            &DATA_TYPE_TEMPS,
+            &temps_payload(&temps),
+        ));
+        exchanges.push(sleep());
+        let expected_exchanges = exchanges.len();
+
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let sleeps = transport.sleep_counter();
+        let mut device = CommanderCore::new(Box::new(transport), "commander-core", true);
+
+        let channels = device.channels().unwrap();
+
+        let sensor_ids: Vec<_> = channels
+            .sensors
+            .iter()
+            .map(|(id, _, _)| id.as_str())
+            .collect();
+        assert_eq!(sensor_ids, vec!["fan1", "temp1"]);
+        assert_eq!(
+            writes.load(std::sync::atomic::Ordering::Relaxed),
+            expected_exchanges
+        );
+        assert_eq!(sleeps.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 
     #[test]

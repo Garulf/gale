@@ -2,6 +2,7 @@ use crate::transport::HidTransport;
 use crate::{CorsairDevice, DeviceChannels, ReleaseMode};
 use gale_hw::SensorKind;
 use std::collections::HashMap;
+use std::time::Duration;
 
 const CMD_GET_FIRMWARE: u8 = 0x02;
 const CMD_GET_BOOTLOADER: u8 = 0x06;
@@ -21,6 +22,9 @@ const TEMP_PROBE_COUNT: usize = 4;
 const FAN_COUNT: usize = 6;
 
 const RELEASE_DUTY_PCT: u8 = 100;
+
+const MAX_DISCOVERY_ATTEMPTS: usize = 3;
+const DISCOVERY_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 pub struct CommanderPro {
     transport: Box<dyn HidTransport>,
@@ -55,17 +59,43 @@ impl CommanderPro {
         self.transport.read_timeout(READ_TIMEOUT_MS)
     }
 
+    fn read_agreeing_discovery(
+        &mut self,
+        command: u8,
+        label: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let mut last = None;
+        for attempt in 0..MAX_DISCOVERY_ATTEMPTS {
+            let first = self.exchange(command, &[])?;
+            let second = self.exchange(command, &[])?;
+            if first == second {
+                return Ok(second);
+            }
+            last = Some(second);
+            if attempt + 1 < MAX_DISCOVERY_ATTEMPTS {
+                self.transport.sleep(DISCOVERY_RETRY_DELAY);
+            }
+        }
+        tracing::warn!(
+            "{label} discovery reads did not agree after {MAX_DISCOVERY_ATTEMPTS} attempts on {}; another program may be using this device",
+            self.slug
+        );
+        Ok(last.unwrap_or(None))
+    }
+
     fn probe(&mut self) -> Result<(), String> {
         self.exchange(CMD_GET_FIRMWARE, &[])?;
         self.exchange(CMD_GET_BOOTLOADER, &[])?;
 
-        if let Some(response) = self.exchange(CMD_GET_TEMP_CONFIG, &[])? {
+        if let Some(response) =
+            self.read_agreeing_discovery(CMD_GET_TEMP_CONFIG, "temperature probe")?
+        {
             for (i, connected) in self.temp_connected.iter_mut().enumerate() {
                 *connected = response.get(1 + i).copied().unwrap_or(0) != 0;
             }
         }
 
-        if let Some(response) = self.exchange(CMD_GET_FAN_MODES, &[])? {
+        if let Some(response) = self.read_agreeing_discovery(CMD_GET_FAN_MODES, "fan mode")? {
             for (i, present) in self.fan_present.iter_mut().enumerate() {
                 let mode = response.get(1 + i).copied().unwrap_or(0);
                 *present = mode == FAN_MODE_DC || mode == FAN_MODE_PWM;
@@ -223,10 +253,143 @@ mod tests {
                 Some(padded_response(temp_config)),
             ),
             (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(temp_config)),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(fan_modes)),
+            ),
+            (
                 frame(CMD_GET_FAN_MODES, &[]),
                 Some(padded_response(fan_modes)),
             ),
         ]
+    }
+
+    #[test]
+    fn channels_retries_fan_mode_discovery_until_two_reads_agree() {
+        let matching = [0x01, 0x01, 0x01, 0x00, 0x00, 0x00];
+        let exchanges = vec![
+            (
+                frame(CMD_GET_FIRMWARE, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
+            ),
+            (
+                frame(CMD_GET_BOOTLOADER, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
+            ),
+            (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(&[0, 0, 0, 0, 0])),
+            ),
+            (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(&[0, 0, 0, 0, 0])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&matching)),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&matching)),
+            ),
+        ];
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let sleeps = transport.sleep_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+
+        let channels = device.channels().unwrap();
+
+        let control_ids: Vec<_> = channels
+            .controls
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(control_ids, vec!["fan1", "fan2"]);
+        assert_eq!(
+            writes.load(std::sync::atomic::Ordering::Relaxed),
+            expected_exchanges
+        );
+        assert_eq!(sleeps.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn channels_keeps_last_reading_and_gives_up_when_fan_mode_discovery_never_agrees() {
+        let exchanges = vec![
+            (
+                frame(CMD_GET_FIRMWARE, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
+            ),
+            (
+                frame(CMD_GET_BOOTLOADER, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
+            ),
+            (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(&[0, 0, 0, 0, 0])),
+            ),
+            (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(&[0, 0, 0, 0, 0])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x01, 0x00, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x01, 0x00])),
+            ),
+            (
+                frame(CMD_GET_FAN_MODES, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x01])),
+            ),
+        ];
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let sleeps = transport.sleep_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+
+        let channels = device.channels().unwrap();
+
+        let control_ids: Vec<_> = channels
+            .controls
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(control_ids, vec!["fan5"]);
+        assert_eq!(
+            writes.load(std::sync::atomic::Ordering::Relaxed),
+            expected_exchanges
+        );
+        assert_eq!(sleeps.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 
     #[test]
