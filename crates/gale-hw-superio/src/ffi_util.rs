@@ -29,6 +29,16 @@ pub fn duration_to_wait_ms(d: std::time::Duration) -> u32 {
     }
 }
 
+pub const IOCTLS: &[(&str, usize, usize)] = &[
+    ("ioctl_select_slot", 1, 0),
+    ("ioctl_find_bars", 0, 0),
+    ("ioctl_pio_inb", 1, 1),
+    ("ioctl_pio_outb", 2, 0),
+    ("ioctl_superio_inb", 1, 1),
+    ("ioctl_superio_inw", 1, 1),
+    ("ioctl_superio_outb", 2, 0),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +104,13 @@ mod tests {
             duration_to_wait_ms(std::time::Duration::from_millis(500)),
             500
         );
+    }
+
+    #[test]
+    fn ioctl_names_fit_fn_name_length() {
+        assert_eq!(IOCTLS.len(), 7);
+        for (name, _, _) in IOCTLS {
+            assert!(name.len() < 32, "{name} is not under 32 bytes");
+        }
     }
 }
