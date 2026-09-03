@@ -267,7 +267,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn tick_applies_curve_duties_and_publishes_snapshot() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.tick(1.0).await;
         assert_eq!(state.lock().unwrap().duties["pwm1"], 60.0);
@@ -279,7 +281,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn manual_override_beats_curve_and_write_errors_are_skipped() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         state.lock().unwrap().fail_ids.push("pwm2".to_string());
         host.set_manual("pwm1", 33.0).await.unwrap();
@@ -293,7 +297,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn clear_manual_release_is_not_reclaimed_by_next_tick() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.set_manual("extra/pwm", 50.0).await.unwrap();
         host.tick(1.0).await;
@@ -310,7 +316,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn stale_claim_from_replaced_config_is_released_exactly_once() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.tick(1.0).await;
         let mut new = GaleConfig::from_toml(CONFIG).unwrap();
@@ -327,7 +335,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn invalid_replacement_config_keeps_old_engine_running() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         let mut bad = GaleConfig::from_toml(CONFIG).unwrap();
         bad.active_profile = "ghost".into();
@@ -337,7 +347,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn replacement_releases_controls_dropped_from_new_config() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.tick(1.0).await;
         let mut new = GaleConfig::from_toml(CONFIG).unwrap();
@@ -351,7 +363,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn clear_manual_on_unassigned_control_releases_it() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.set_manual("extra/pwm", 80.0).await.unwrap();
         host.clear_manual("extra/pwm").await.unwrap();
@@ -365,7 +379,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn claimed_ids_returns_claimed_set_after_tick() {
+        let _guard = crate::test_support::lock_env();
         let (host, _state) = setup(&[("t1", Some(50.0))]);
         host.tick(1.0).await;
         let mut ids = host.claimed_ids();
@@ -401,11 +417,10 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn claiming_a_superio_control_journals_its_restore_hint() {
-        let _guard = crate::test_support::lock_env();
+        let _lock = crate::test_support::lock_env();
         let runtime_dir = tempfile::tempdir().unwrap();
-        unsafe {
-            std::env::set_var("GALE_RUNTIME_DIR", runtime_dir.path());
-        }
+        let mut env = crate::test_support::EnvVarGuard::new();
+        env.set("GALE_RUNTIME_DIR", runtime_dir.path());
 
         let (host, state) = setup(&[("t1", Some(50.0))]);
         state.lock().unwrap().hint =
@@ -478,7 +493,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn release_all_releases_every_claimed_control_once() {
+        let _guard = crate::test_support::lock_env();
         let (host, state) = setup(&[("t1", Some(50.0))]);
         host.tick(1.0).await;
         host.release_all().await;
@@ -490,7 +507,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn release_failure_during_release_all_keeps_journal_entry_for_that_id() {
+        let _guard = crate::test_support::lock_env();
         let runtime_dir = tempfile::tempdir().unwrap();
         unsafe {
             std::env::set_var("GALE_RUNTIME_DIR", runtime_dir.path());

@@ -563,6 +563,9 @@ impl Nct677x {
         mode: u8,
         pwm: u8,
     ) -> Result<(), String> {
+        if index >= self.control_count {
+            return Err("control index out of range".to_string());
+        }
         self.write_byte(io, FAN_CONTROL_MODE_REG[index], mode)?;
         self.write_byte(io, FAN_PWM_COMMAND_REG[index], pwm)
     }
@@ -1087,5 +1090,22 @@ mod tests {
     #[test]
     fn manual_mode_mask_matches_the_reference_data() {
         assert_eq!(MANUAL_MODE_MASK, 0x0F);
+    }
+
+    #[test]
+    fn write_control_raw_rejects_index_out_of_range_for_five_control_chip() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6779d(0x0A30));
+        detect::reselect(&mut io, 0).unwrap();
+        let detected = DetectedChip {
+            chip: Chip::Nct6779D,
+            slot: 0,
+            revision: 0x62,
+            base: 0x0A30,
+        };
+        let chip = Nct677x::new(&mut io, &detected).unwrap();
+        assert_eq!(
+            chip.write_control_raw(&mut io, 5, 0x00, 0x80),
+            Err("control index out of range".to_string())
+        );
     }
 }

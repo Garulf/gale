@@ -579,10 +579,15 @@ mod tests {
 
     #[test]
     fn set_duty_records_no_calls_at_all_for_non_finite_duty() {
-        let mut backend = single_nct6798d();
+        let fake = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        let (mut backend, shared) = backend_with_shared_io(fake);
         backend.enumerate().unwrap();
+        shared.lock().unwrap().take_calls();
+
         let result = backend.set_duty("superio/nct6798d/pwm1", f64::NAN);
+
         assert!(matches!(result, Err(HwError::Io { .. })));
+        assert_eq!(shared.lock().unwrap().take_calls(), Vec::new());
     }
 
     #[test]
@@ -711,6 +716,8 @@ mod tests {
             ]
         );
         assert!(slot0_start < slot1_start);
+
+        assert!(calls[slot1_start + 5..].contains(&Call::PioOut(0x0A35, 0x4E)));
     }
 
     #[test]
