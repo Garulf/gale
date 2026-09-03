@@ -186,11 +186,11 @@ pub const TEMPS_NCT6771F: &[TempSource] = &[
     temp("CPUTIN", 2, 0x073, 0x074, 7, 0x100, None),
     temp("AUXTIN", 3, 0x075, 0x076, 7, 0x200, None),
     temp("SYSTIN", 1, 0x077, 0x078, 7, 0x300, None),
-    temp("RESERVED", 0, 0x150, 0x151, 7, 0x622, None),
-    temp("RESERVED", 0, 0x250, 0x251, 7, 0x623, None),
-    temp("RESERVED", 0, 0x62B, 0x62E, 0, 0x624, None),
-    temp("RESERVED", 0, 0x62C, 0x62E, 1, 0x625, None),
-    temp("RESERVED", 0, 0x62D, 0x62E, 2, 0x626, None),
+    temp("RESERVED", 0xFF, 0x150, 0x151, 7, 0x622, None),
+    temp("RESERVED", 0xFF, 0x250, 0x251, 7, 0x623, None),
+    temp("RESERVED", 0xFF, 0x62B, 0x62E, 0, 0x624, None),
+    temp("RESERVED", 0xFF, 0x62C, 0x62E, 1, 0x625, None),
+    temp("RESERVED", 0xFF, 0x62D, 0x62E, 2, 0x626, None),
 ];
 
 pub const TEMPS_NCT6776F: &[TempSource] = &[
@@ -198,11 +198,11 @@ pub const TEMPS_NCT6776F: &[TempSource] = &[
     temp("CPUTIN", 2, 0x073, 0x074, 7, 0x100, None),
     temp("AUXTIN", 3, 0x075, 0x076, 7, 0x200, None),
     temp("SYSTIN", 1, 0x077, 0x078, 7, 0x300, None),
-    temp("RESERVED", 0, 0x150, 0x151, 7, 0x622, None),
-    temp("RESERVED", 0, 0x250, 0x251, 7, 0x623, None),
-    temp("RESERVED", 0, 0x62B, 0x62E, 0, 0x624, None),
-    temp("RESERVED", 0, 0x62C, 0x62E, 1, 0x625, None),
-    temp("RESERVED", 0, 0x62D, 0x62E, 2, 0x626, None),
+    temp("RESERVED", 0xFF, 0x150, 0x151, 7, 0x622, None),
+    temp("RESERVED", 0xFF, 0x250, 0x251, 7, 0x623, None),
+    temp("RESERVED", 0xFF, 0x62B, 0x62E, 0, 0x624, None),
+    temp("RESERVED", 0xFF, 0x62C, 0x62E, 1, 0x625, None),
+    temp("RESERVED", 0xFF, 0x62D, 0x62E, 2, 0x626, None),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +274,14 @@ fn pwm_out_for(chip: Chip) -> [u16; 7] {
     match chip {
         Chip::Nct6797D | Chip::Nct6798D | Chip::Nct6799D => FAN_PWM_OUT_REG_NCT6797_98_99,
         _ => FAN_PWM_OUT_REG_DEFAULT,
+    }
+}
+
+fn min_rpm_for(chip: Chip) -> Option<u32> {
+    match chip {
+        Chip::Nct6771F => Some(20),
+        Chip::Nct6776F => Some(164),
+        _ => None,
     }
 }
 
@@ -355,27 +363,56 @@ impl Nct677x {
 
     pub fn read_fans(&self, io: &mut dyn PortIo) -> Vec<Option<f64>> {
         let mut warned = false;
-        FAN_COUNT_REG
-            .iter()
-            .take(self.fan_count)
-            .map(|&reg| {
-                let high = match self.read_byte(io, reg) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        warn_once(&mut warned);
-                        return None;
+        if let Some(min_rpm) = min_rpm_for(self.chip) {
+            FAN_RPM_REG_NCT6771_76
+                .iter()
+                .take(self.fan_count)
+                .map(|&reg| {
+                    let high = match self.read_byte(io, reg) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            warn_once(&mut warned);
+                            return None;
+                        }
+                    };
+                    let low = match self.read_byte(io, reg + 1) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            warn_once(&mut warned);
+                            return None;
+                        }
+                    };
+                    let rpm = ((high as u32) << 8) | low as u32;
+                    if rpm <= min_rpm {
+                        Some(0.0)
+                    } else {
+                        Some(rpm as f64)
                     }
-                };
-                let low = match self.read_byte(io, reg + 1) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        warn_once(&mut warned);
-                        return None;
-                    }
-                };
-                fan_from_count(high, low)
-            })
-            .collect()
+                })
+                .collect()
+        } else {
+            FAN_COUNT_REG
+                .iter()
+                .take(self.fan_count)
+                .map(|&reg| {
+                    let high = match self.read_byte(io, reg) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            warn_once(&mut warned);
+                            return None;
+                        }
+                    };
+                    let low = match self.read_byte(io, reg + 1) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            warn_once(&mut warned);
+                            return None;
+                        }
+                    };
+                    fan_from_count(high, low)
+                })
+                .collect()
+        }
     }
 
     fn compute_all_temperatures(&self, io: &mut dyn PortIo) -> Vec<Option<f64>> {
@@ -639,6 +676,48 @@ mod tests {
     }
 
     #[test]
+    fn read_fans_uses_16_bit_rpm_registers_on_nct6776f() {
+        let mut fake_chip = FakeChip::nct6798d(0x0290);
+        fake_chip.id = 0xC3;
+        fake_chip.revision = 0x33;
+        let mut io = FakePortIo::with_chip(0, fake_chip);
+        detect::reselect(&mut io, 0).unwrap();
+        let detected = DetectedChip {
+            chip: Chip::Nct6776F,
+            slot: 0,
+            revision: 0x33,
+            base: 0x0290,
+        };
+        let chip = Nct677x::new(&mut io, &detected).unwrap();
+        io.set_hm(0, 0x656, 0x04);
+        io.set_hm(0, 0x657, 0xB0);
+        io.set_hm(0, 0x658, 0x00);
+        io.set_hm(0, 0x659, 0x50);
+        io.take_calls();
+
+        assert_eq!(
+            chip.read_fans(&mut io),
+            vec![Some(1200.0), Some(0.0), Some(0.0), Some(0.0), Some(0.0)]
+        );
+
+        let calls = io.take_calls();
+        let addresses: Vec<u16> = calls
+            .chunks(4)
+            .filter_map(|chunk| match chunk {
+                [Call::PioOut(_, 0x4E), Call::PioOut(_, bank), Call::PioOut(_, low), Call::PioIn(_)] => {
+                    Some(((*bank as u16) << 8) | *low as u16)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            addresses,
+            vec![0x656, 0x657, 0x658, 0x659, 0x65A, 0x65B, 0x65C, 0x65D, 0x65E, 0x65F,]
+        );
+        assert!(!addresses.contains(&0x4B0));
+    }
+
+    #[test]
     fn read_controls_reads_pwm_out_registers_in_order() {
         let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
         let chip = nct6798d(&mut io);
@@ -658,16 +737,26 @@ mod tests {
             ]
         );
         let calls = io.take_calls();
-        let read_registers: Vec<u8> = calls
-            .windows(2)
-            .filter_map(|pair| match (&pair[0], &pair[1]) {
-                (Call::PioOut(0x296, _), Call::PioOut(0x295, register)) => Some(*register),
+        let bank_register_pairs: Vec<(u8, u8)> = calls
+            .windows(3)
+            .filter_map(|window| match (&window[0], &window[1], &window[2]) {
+                (Call::PioOut(_, 0x4E), Call::PioOut(_, bank), Call::PioOut(_, register)) => {
+                    Some((*bank, *register))
+                }
                 _ => None,
             })
             .collect();
         assert_eq!(
-            read_registers,
-            vec![0x01, 0x03, 0x11, 0x13, 0x15, 0x09, 0x09]
+            bank_register_pairs,
+            vec![
+                (0x00, 0x01),
+                (0x00, 0x03),
+                (0x00, 0x11),
+                (0x00, 0x13),
+                (0x00, 0x15),
+                (0x0A, 0x09),
+                (0x0B, 0x09),
+            ]
         );
     }
 
