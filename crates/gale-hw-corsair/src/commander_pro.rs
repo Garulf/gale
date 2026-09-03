@@ -59,15 +59,20 @@ impl CommanderPro {
         self.transport.read_timeout(READ_TIMEOUT_MS)
     }
 
-    fn read_agreeing_discovery(
+    fn read_agreeing_discovery<T, F>(
         &mut self,
         command: u8,
+        decode: F,
         label: &str,
-    ) -> Result<Option<Vec<u8>>, String> {
+    ) -> Result<T, String>
+    where
+        T: PartialEq,
+        F: Fn(Option<Vec<u8>>) -> T,
+    {
         let mut last = None;
         for attempt in 0..MAX_DISCOVERY_ATTEMPTS {
-            let first = self.exchange(command, &[])?;
-            let second = self.exchange(command, &[])?;
+            let first = decode(self.exchange(command, &[])?);
+            let second = decode(self.exchange(command, &[])?);
             if first == second {
                 return Ok(second);
             }
@@ -80,27 +85,21 @@ impl CommanderPro {
             "{label} discovery reads did not agree after {MAX_DISCOVERY_ATTEMPTS} attempts on {}; another program may be using this device",
             self.slug
         );
-        Ok(last.unwrap_or(None))
+        last.ok_or_else(|| "discovery produced no reading".to_string())
     }
 
     fn probe(&mut self) -> Result<(), String> {
         self.exchange(CMD_GET_FIRMWARE, &[])?;
         self.exchange(CMD_GET_BOOTLOADER, &[])?;
 
-        if let Some(response) =
-            self.read_agreeing_discovery(CMD_GET_TEMP_CONFIG, "temperature probe")?
-        {
-            for (i, connected) in self.temp_connected.iter_mut().enumerate() {
-                *connected = response.get(1 + i).copied().unwrap_or(0) != 0;
-            }
-        }
+        self.temp_connected = self.read_agreeing_discovery(
+            CMD_GET_TEMP_CONFIG,
+            decode_temp_connected,
+            "temperature probe",
+        )?;
 
-        if let Some(response) = self.read_agreeing_discovery(CMD_GET_FAN_MODES, "fan mode")? {
-            for (i, present) in self.fan_present.iter_mut().enumerate() {
-                let mode = response.get(1 + i).copied().unwrap_or(0);
-                *present = mode == FAN_MODE_DC || mode == FAN_MODE_PWM;
-            }
-        }
+        self.fan_present =
+            self.read_agreeing_discovery(CMD_GET_FAN_MODES, decode_fan_present, "fan mode")?;
 
         Ok(())
     }
@@ -127,6 +126,27 @@ impl CommanderPro {
         self.exchange(CMD_SET_FAN_DUTY, &[index as u8, pct])?;
         Ok(())
     }
+}
+
+fn decode_temp_connected(response: Option<Vec<u8>>) -> [bool; TEMP_PROBE_COUNT] {
+    let mut connected = [false; TEMP_PROBE_COUNT];
+    if let Some(response) = response {
+        for (i, c) in connected.iter_mut().enumerate() {
+            *c = response.get(1 + i).copied().unwrap_or(0) != 0;
+        }
+    }
+    connected
+}
+
+fn decode_fan_present(response: Option<Vec<u8>>) -> [bool; FAN_COUNT] {
+    let mut present = [false; FAN_COUNT];
+    if let Some(response) = response {
+        for (i, p) in present.iter_mut().enumerate() {
+            let mode = response.get(1 + i).copied().unwrap_or(0);
+            *p = mode == FAN_MODE_DC || mode == FAN_MODE_PWM;
+        }
+    }
+    present
 }
 
 fn parse_fan_index(channel: &str) -> Result<usize, String> {
@@ -268,8 +288,58 @@ mod tests {
     }
 
     #[test]
+    fn channels_accepts_discovery_reads_that_only_differ_in_unused_padding_bytes() {
+        let mut first_reply = padded_response(&[0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00]);
+        first_reply[15] = 0xaa;
+        let mut second_reply = padded_response(&[0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00]);
+        second_reply[15] = 0x55;
+        assert_ne!(first_reply, second_reply);
+
+        let exchanges = vec![
+            (
+                frame(CMD_GET_FIRMWARE, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
+            ),
+            (
+                frame(CMD_GET_BOOTLOADER, &[]),
+                Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
+            ),
+            (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(&[0, 0, 0, 0, 0])),
+            ),
+            (
+                frame(CMD_GET_TEMP_CONFIG, &[]),
+                Some(padded_response(&[0, 0, 0, 0, 0])),
+            ),
+            (frame(CMD_GET_FAN_MODES, &[]), Some(first_reply)),
+            (frame(CMD_GET_FAN_MODES, &[]), Some(second_reply)),
+        ];
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let sleeps = transport.sleep_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+
+        let channels = device.channels().unwrap();
+
+        let control_ids: Vec<_> = channels
+            .controls
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(control_ids, vec!["fan1", "fan2"]);
+        assert_eq!(
+            writes.load(std::sync::atomic::Ordering::Relaxed),
+            expected_exchanges
+        );
+        assert_eq!(sleeps.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[test]
     fn channels_retries_fan_mode_discovery_until_two_reads_agree() {
-        let matching = [0x01, 0x01, 0x01, 0x00, 0x00, 0x00];
+        let matching = [0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00];
         let exchanges = vec![
             (
                 frame(CMD_GET_FIRMWARE, &[]),
@@ -289,11 +359,11 @@ mod tests {
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00])),
+                Some(padded_response(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00])),
+                Some(padded_response(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
@@ -347,27 +417,27 @@ mod tests {
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00])),
+                Some(padded_response(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x00])),
+                Some(padded_response(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00])),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x00, 0x01, 0x00, 0x00])),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x01, 0x00])),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00])),
             ),
             (
                 frame(CMD_GET_FAN_MODES, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x01])),
+                Some(padded_response(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01])),
             ),
         ];
         let expected_exchanges = exchanges.len();
@@ -384,7 +454,7 @@ mod tests {
             .iter()
             .map(|(id, _)| id.as_str())
             .collect();
-        assert_eq!(control_ids, vec!["fan5"]);
+        assert_eq!(control_ids, vec!["fan6"]);
         assert_eq!(
             writes.load(std::sync::atomic::Ordering::Relaxed),
             expected_exchanges
