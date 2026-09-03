@@ -4,6 +4,6 @@ fn main() {
         winresource::WindowsResource::new()
             .set_icon("../../assets/gale.ico")
             .compile()
-            .expect("embed gale.ico into the gale-tray executable");
+            .expect("embed gale.ico into the galed executable");
     }
 }

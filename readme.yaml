@@ -9,6 +9,11 @@ project:
   version: "0.1.0"
   license: GPL-3.0-or-later
   tagline: An API-first fan control daemon for Linux.
+banner:
+  image: assets/gale.svg
+  alt: Gale
+  width: 96
+  html: true
 badges:
   - license
   - version

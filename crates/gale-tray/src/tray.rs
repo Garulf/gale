@@ -12,10 +12,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_OVERLAPPED,
 };
 
+use crate::icon::{ICON_HEIGHT, ICON_RGBA, ICON_WIDTH};
 use crate::service;
 use crate::state::{TrayState, UI_URL};
-
-include!(concat!(env!("OUT_DIR"), "/icon_rgba.rs"));
 
 const WM_TRAY_STATE: u32 = WM_APP + 1;
 const MENU_POLL_TIMER_ID: usize = 1;

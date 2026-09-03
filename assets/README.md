@@ -1,0 +1,1 @@
+This directory holds the Gale mark (`gale.svg`) and its generated derivatives: the multi-resolution Windows icon (`gale.ico`), the tray icon raw RGBA buffers, and the favicon copy under `ui/public`. Run `scripts/render-icons.sh` after changing `gale.svg` to regenerate all of them.

@@ -31,3 +31,6 @@ gale-hw-superio = { path = "../gale-hw-superio" }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 tempfile = "3"
+
+[build-dependencies]
+winresource = "0.1"

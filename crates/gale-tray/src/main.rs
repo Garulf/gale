@@ -6,6 +6,9 @@ mod args;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod state;
 
+#[cfg_attr(not(windows), allow(dead_code))]
+mod icon;
+
 #[cfg(windows)]
 mod probe;
 
