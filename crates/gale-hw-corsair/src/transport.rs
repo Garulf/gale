@@ -1,8 +1,12 @@
 const MAX_REPORT_LENGTH: usize = 96;
 
+const MAX_DRAIN_ITERATIONS: usize = 32;
+
 pub trait HidTransport: Send {
     fn write(&mut self, data: &[u8]) -> Result<(), String>;
     fn read_timeout(&mut self, timeout_ms: i32) -> Result<Option<Vec<u8>>, String>;
+
+    fn drain(&mut self) {}
 }
 
 pub struct HidapiTransport {
@@ -38,6 +42,16 @@ impl HidTransport for HidapiTransport {
             Ok(Some(buf[..read].to_vec()))
         }
     }
+
+    fn drain(&mut self) {
+        let mut buf = [0u8; MAX_REPORT_LENGTH];
+        for _ in 0..MAX_DRAIN_ITERATIONS {
+            match self.device.read_timeout(&mut buf, 0) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => continue,
+            }
+        }
+    }
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -45,6 +59,7 @@ pub struct FakeTransport {
     pub exchanges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
     pub cursor: usize,
     pub writes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub drains: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -54,11 +69,16 @@ impl FakeTransport {
             exchanges,
             cursor: 0,
             writes: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            drains: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
     pub fn write_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
         self.writes.clone()
+    }
+
+    pub fn drain_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+        self.drains.clone()
     }
 }
 
@@ -99,6 +119,11 @@ impl HidTransport for FakeTransport {
         };
         self.cursor += 1;
         Ok(response)
+    }
+
+    fn drain(&mut self) {
+        self.drains
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

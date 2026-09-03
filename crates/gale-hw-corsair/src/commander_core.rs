@@ -68,6 +68,7 @@ impl CommanderCore {
         frame[1..data_start].copy_from_slice(command);
         let data_end = (data_start + data.len()).min(REPORT_LENGTH);
         frame[data_start..data_end].copy_from_slice(&data[..data_end - data_start]);
+        self.transport.drain();
         self.transport.write(&frame)?;
 
         for _ in 0..MAX_READ_ATTEMPTS {
@@ -820,6 +821,24 @@ mod tests {
 
         let mut device = core(exchanges);
         device.release("fan2").unwrap();
+    }
+
+    #[test]
+    fn send_command_drains_stale_reports_before_every_write() {
+        let speeds = [Some(2357), Some(918)];
+        let temps = [Some(12.3)];
+        let exchanges = probe_exchanges(&speeds, &temps);
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let drains = transport.drain_counter();
+        let mut device = CommanderCore::new(Box::new(transport), "commander-core", true);
+
+        device.channels().unwrap();
+
+        assert_eq!(
+            drains.load(std::sync::atomic::Ordering::Relaxed),
+            writes.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 
     #[test]

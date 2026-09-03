@@ -44,6 +44,7 @@ impl CommanderPro {
         frame[0] = command;
         let payload_len = data.len().min(REPORT_LENGTH - 1);
         frame[1..1 + payload_len].copy_from_slice(&data[..payload_len]);
+        self.transport.drain();
         self.transport.write(&frame)?;
         self.transport.read_timeout(READ_TIMEOUT_MS)
     }
@@ -339,6 +340,26 @@ mod tests {
         device.channels().unwrap();
 
         device.set_duty("fan2", 50.0).unwrap();
+    }
+
+    #[test]
+    fn exchange_drains_stale_reports_before_every_write() {
+        let mut exchanges = probe_exchanges(&[0, 0, 0, 0], &[0x01, 0x01, 0x01, 0x01, 0x01, 0x01]);
+        exchanges.push((
+            frame(CMD_SET_FAN_DUTY, &[1, 50]),
+            Some(padded_response(&[])),
+        ));
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let drains = transport.drain_counter();
+        let mut device = CommanderPro::new(Box::new(transport), "commander-pro");
+        device.channels().unwrap();
+        device.set_duty("fan2", 50.0).unwrap();
+
+        assert_eq!(
+            drains.load(std::sync::atomic::Ordering::Relaxed),
+            writes.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 
     #[test]

@@ -98,6 +98,7 @@ impl HydroPlatinum {
         frame[start..end].copy_from_slice(&data[..end - start]);
         let last = REPORT_LENGTH - 1;
         frame[last] = crc8(&frame[1..last]);
+        self.transport.drain();
         self.transport.write(&frame)?;
         self.transport
             .read_timeout(READ_TIMEOUT_MS)?
@@ -461,6 +462,22 @@ mod tests {
         dev.release("fan2").unwrap();
 
         assert_eq!(dev.fan_duty, vec![None, Some(100)]);
+    }
+
+    #[test]
+    fn send_command_drains_stale_reports_before_every_write() {
+        let expected_write = expected_frame(1, FEATURE_COOLING, CMD_GET_STATUS, &[]);
+        let transport = FakeTransport::new(vec![(expected_write, ack(CMD_GET_STATUS))]);
+        let writes = transport.write_counter();
+        let drains = transport.drain_counter();
+        let mut dev = HydroPlatinum::new(Box::new(transport), "h115i-platinum", 2);
+
+        dev.read();
+
+        assert_eq!(
+            drains.load(std::sync::atomic::Ordering::Relaxed),
+            writes.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 
     #[test]

@@ -55,6 +55,7 @@ impl CorsairPsu {
         let start = 2;
         let end = (start + data.len()).min(REPORT_LENGTH);
         frame[start..end].copy_from_slice(&data[..end - start]);
+        self.transport.drain();
         self.transport.write(&frame)?;
         let response = self
             .transport
@@ -348,6 +349,31 @@ mod tests {
     fn release_rejects_unknown_channel() {
         let mut device = psu(vec![]);
         assert!(device.release("temp1").is_err());
+    }
+
+    #[test]
+    fn exec_drains_stale_reports_before_every_write() {
+        let exchanges = vec![
+            (
+                frame(WRITE_BIT, CMD_FAN_CONTROL_MODE, &[FAN_MODE_SOFTWARE]),
+                Some(write_ack(CMD_FAN_CONTROL_MODE, &[FAN_MODE_SOFTWARE])),
+            ),
+            (
+                frame(WRITE_BIT, CMD_FAN_COMMAND_1, &[60]),
+                Some(write_ack(CMD_FAN_COMMAND_1, &[60])),
+            ),
+        ];
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let drains = transport.drain_counter();
+        let mut device = CorsairPsu::new(Box::new(transport), "hx1000i");
+
+        device.set_duty("fan1", 60.0).unwrap();
+
+        assert_eq!(
+            drains.load(std::sync::atomic::Ordering::Relaxed),
+            writes.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 
     #[test]
