@@ -241,9 +241,6 @@ impl FakePortIo {
 impl PortIo for FakePortIo {
     fn select_slot(&mut self, slot: u8) -> Result<(), String> {
         self.calls.push(Call::SelectSlot(slot));
-        if let Some(message) = self.take_failure() {
-            return Err(message);
-        }
         if slot != 0 && slot != 1 {
             return Err("STATUS_INVALID_PARAMETER".to_string());
         }
@@ -257,9 +254,6 @@ impl PortIo for FakePortIo {
 
     fn find_bars(&mut self) -> Result<(), String> {
         self.calls.push(Call::FindBars);
-        if let Some(message) = self.take_failure() {
-            return Err(message);
-        }
         let Some(slot) = self.slot else {
             return Err("STATUS_DEVICE_NOT_READY".to_string());
         };
@@ -387,9 +381,6 @@ impl PortIo for FakePortIo {
 
     fn lock(&mut self, _timeout: Duration) -> Result<bool, String> {
         self.calls.push(Call::Lock);
-        if let Some(message) = self.take_failure() {
-            return Err(message);
-        }
         Ok(self.lock_available)
     }
 
@@ -443,6 +434,19 @@ mod tests {
         enter_config_mode(&mut io, 0x2E);
         io.find_bars().unwrap();
         assert!(io.pio_inb(0x0296).is_ok());
+    }
+
+    #[test]
+    fn pci_config_address_ports_are_always_denied() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x290));
+        io.select_slot(0).unwrap();
+        enter_config_mode(&mut io, 0x2E);
+        io.find_bars().unwrap();
+        assert_eq!(io.pio_inb(0x0CF8), Err("STATUS_ACCESS_DENIED".to_string()));
+        assert_eq!(
+            io.pio_outb(0x0CFF, 0),
+            Err("STATUS_ACCESS_DENIED".to_string())
+        );
     }
 
     #[test]
@@ -515,6 +519,15 @@ mod tests {
         io.fail_next = Some("injected".to_string());
         assert_eq!(io.superio_inb(0x20), Err("injected".to_string()));
         assert!(io.superio_inb(0x20).is_ok());
+    }
+
+    #[test]
+    fn fail_next_is_scoped_to_port_and_register_calls() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x290));
+        io.fail_next = Some("injected".to_string());
+        io.select_slot(0).unwrap();
+        let _ = io.find_bars();
+        assert_eq!(io.superio_inb(0x20), Err("injected".to_string()));
     }
 
     #[test]
