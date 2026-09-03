@@ -1,4 +1,4 @@
-use crate::config::{ConfigError, CurveConfig, GaleConfig};
+use crate::config::{ConfigError, CorsairReleaseMode, CurveConfig, GaleConfig};
 use crate::curve::flat::FlatCurve;
 use crate::curve::mix::MixCurve;
 use crate::curve::point::PointCurve;
@@ -9,6 +9,14 @@ use crate::curve::{Curve, CurveSet};
 use crate::engine::FanEngine;
 
 pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
+    if let CorsairReleaseMode::Fixed { percent } = config.hardware.corsair.on_release {
+        if percent > 100 {
+            return Err(ConfigError::Invalid(format!(
+                "hardware.corsair.on_release fixed percent {percent} must be between 0 and 100"
+            )));
+        }
+    }
+
     let profile = config.profiles.get(&config.active_profile).ok_or_else(|| {
         ConfigError::Invalid(format!(
             "active_profile '{}' is not defined",
@@ -180,6 +188,13 @@ max_duty = 100.0
     fn unknown_active_profile_is_invalid() {
         let mut cfg = config(VALID);
         cfg.active_profile = "ghost".into();
+        assert!(matches!(build_engine(&cfg), Err(ConfigError::Invalid(_))));
+    }
+
+    #[test]
+    fn corsair_fixed_release_percent_above_hundred_is_invalid() {
+        let mut cfg = config(VALID);
+        cfg.hardware.corsair.on_release = crate::config::CorsairReleaseMode::Fixed { percent: 101 };
         assert!(matches!(build_engine(&cfg), Err(ConfigError::Invalid(_))));
     }
 

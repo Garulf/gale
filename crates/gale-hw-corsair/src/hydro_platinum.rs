@@ -1,5 +1,5 @@
 use crate::transport::HidTransport;
-use crate::{CorsairDevice, DeviceChannels};
+use crate::{CorsairDevice, DeviceChannels, ReleaseMode};
 use gale_hw::SensorKind;
 use std::collections::HashMap;
 
@@ -63,6 +63,7 @@ pub struct HydroPlatinum {
     transport: Box<dyn HidTransport>,
     slug: String,
     fan_count: usize,
+    release_mode: ReleaseMode,
     sequence: u8,
     fan_duty: Vec<Option<u8>>,
 }
@@ -72,11 +73,13 @@ impl HydroPlatinum {
         transport: Box<dyn HidTransport>,
         slug: impl Into<String>,
         fan_count: usize,
+        release_mode: ReleaseMode,
     ) -> Self {
         Self {
             transport,
             slug: slug.into(),
             fan_count,
+            release_mode,
             sequence: 0,
             fan_duty: vec![None; fan_count],
         }
@@ -207,8 +210,17 @@ impl CorsairDevice for HydroPlatinum {
 
     fn release(&mut self, channel: &str) -> Result<(), String> {
         let index = self.parse_fan_index(channel)?;
-        self.fan_duty[index] = Some(RELEASE_DUTY_PCT);
-        self.send_cooling()
+        match self.release_mode {
+            ReleaseMode::PinFull => {
+                self.fan_duty[index] = Some(RELEASE_DUTY_PCT);
+                self.send_cooling()
+            }
+            ReleaseMode::KeepLast => Ok(()),
+            ReleaseMode::Fixed(percent) => {
+                self.fan_duty[index] = Some(percent);
+                self.send_cooling()
+            }
+        }
     }
 }
 
@@ -257,10 +269,19 @@ mod tests {
     }
 
     fn hydro(fan_count: usize, exchanges: Vec<Exchange>) -> HydroPlatinum {
+        hydro_with_mode(fan_count, exchanges, ReleaseMode::PinFull)
+    }
+
+    fn hydro_with_mode(
+        fan_count: usize,
+        exchanges: Vec<Exchange>,
+        release_mode: ReleaseMode,
+    ) -> HydroPlatinum {
         HydroPlatinum::new(
             Box::new(FakeTransport::new(exchanges)),
             "h115i-platinum",
             fan_count,
+            release_mode,
         )
     }
 
@@ -371,8 +392,13 @@ mod tests {
     #[test]
     fn set_duty_writes_fixed_duty_cooling_frame_for_two_fan_device() {
         let duties = [None, Some(60)];
-        let data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 2)
-            .cooling_data(&duties, PUMP_MODE_BALANCED);
+        let data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&duties, PUMP_MODE_BALANCED);
         let expected_write = expected_frame(1, FEATURE_COOLING, CMD_SET_COOLING, &data);
 
         let mut dev = hydro(2, vec![(expected_write, ack(CMD_SET_COOLING))]);
@@ -383,12 +409,22 @@ mod tests {
 
     #[test]
     fn set_duty_preserves_other_fan_duty_across_calls() {
-        let first_data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 2)
-            .cooling_data(&[Some(42), None], PUMP_MODE_BALANCED);
+        let first_data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[Some(42), None], PUMP_MODE_BALANCED);
         let first_write = expected_frame(1, FEATURE_COOLING, CMD_SET_COOLING, &first_data);
 
-        let second_data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 2)
-            .cooling_data(&[Some(42), Some(84)], PUMP_MODE_BALANCED);
+        let second_data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[Some(42), Some(84)], PUMP_MODE_BALANCED);
         let second_write = expected_frame(2, FEATURE_COOLING, CMD_SET_COOLING, &second_data);
 
         let mut dev = hydro(
@@ -404,12 +440,22 @@ mod tests {
 
     #[test]
     fn set_duty_writes_third_fan_frame_before_the_main_frame_on_h150i_family() {
-        let fan3_data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 3)
-            .cooling_data(&[Some(50)], PUMP_MODE_UNUSED);
+        let fan3_data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            3,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[Some(50)], PUMP_MODE_UNUSED);
         let fan3_write = expected_frame(1, FEATURE_COOLING2, CMD_SET_COOLING, &fan3_data);
 
-        let main_data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 3)
-            .cooling_data(&[None, None], PUMP_MODE_BALANCED);
+        let main_data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            3,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[None, None], PUMP_MODE_BALANCED);
         let main_write = expected_frame(2, FEATURE_COOLING, CMD_SET_COOLING, &main_data);
 
         let mut dev = hydro(
@@ -424,12 +470,22 @@ mod tests {
 
     #[test]
     fn set_duty_clamps_percentages_outside_zero_to_hundred() {
-        let low_data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 2)
-            .cooling_data(&[Some(0), None], PUMP_MODE_BALANCED);
+        let low_data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[Some(0), None], PUMP_MODE_BALANCED);
         let low_write = expected_frame(1, FEATURE_COOLING, CMD_SET_COOLING, &low_data);
 
-        let high_data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 2)
-            .cooling_data(&[Some(100), None], PUMP_MODE_BALANCED);
+        let high_data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[Some(100), None], PUMP_MODE_BALANCED);
         let high_write = expected_frame(2, FEATURE_COOLING, CMD_SET_COOLING, &high_data);
 
         let mut dev = hydro(
@@ -454,8 +510,13 @@ mod tests {
 
     #[test]
     fn release_sets_full_duty_as_documented_fallback() {
-        let data = HydroPlatinum::new(Box::new(FakeTransport::new(vec![])), "x", 2)
-            .cooling_data(&[None, Some(100)], PUMP_MODE_BALANCED);
+        let data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[None, Some(100)], PUMP_MODE_BALANCED);
         let expected_write = expected_frame(1, FEATURE_COOLING, CMD_SET_COOLING, &data);
 
         let mut dev = hydro(2, vec![(expected_write, ack(CMD_SET_COOLING))]);
@@ -465,12 +526,47 @@ mod tests {
     }
 
     #[test]
+    fn release_with_keep_last_writes_nothing() {
+        let mut dev = hydro_with_mode(2, vec![], ReleaseMode::KeepLast);
+
+        dev.release("fan2").unwrap();
+
+        assert_eq!(dev.fan_duty, vec![None, None]);
+    }
+
+    #[test]
+    fn release_with_fixed_writes_the_configured_percent() {
+        let data = HydroPlatinum::new(
+            Box::new(FakeTransport::new(vec![])),
+            "x",
+            2,
+            ReleaseMode::PinFull,
+        )
+        .cooling_data(&[None, Some(50)], PUMP_MODE_BALANCED);
+        let expected_write = expected_frame(1, FEATURE_COOLING, CMD_SET_COOLING, &data);
+
+        let mut dev = hydro_with_mode(
+            2,
+            vec![(expected_write, ack(CMD_SET_COOLING))],
+            ReleaseMode::Fixed(50),
+        );
+        dev.release("fan2").unwrap();
+
+        assert_eq!(dev.fan_duty, vec![None, Some(50)]);
+    }
+
+    #[test]
     fn send_command_drains_stale_reports_before_every_write() {
         let expected_write = expected_frame(1, FEATURE_COOLING, CMD_GET_STATUS, &[]);
         let transport = FakeTransport::new(vec![(expected_write, ack(CMD_GET_STATUS))]);
         let writes = transport.write_counter();
         let drains = transport.drain_counter();
-        let mut dev = HydroPlatinum::new(Box::new(transport), "h115i-platinum", 2);
+        let mut dev = HydroPlatinum::new(
+            Box::new(transport),
+            "h115i-platinum",
+            2,
+            ReleaseMode::PinFull,
+        );
 
         dev.read();
 

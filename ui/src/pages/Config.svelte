@@ -16,6 +16,15 @@
   function pretty(value) {
     return JSON.stringify(value, null, 2);
   }
+
+  function corsairReleaseLabel(onRelease) {
+    if (onRelease === 'pin_full') return 'Pin to 100%';
+    if (onRelease === 'keep_last') return 'Keep last duty';
+    if (onRelease && typeof onRelease === 'object' && 'fixed' in onRelease) {
+      return `Fixed at ${onRelease.fixed}%`;
+    }
+    return JSON.stringify(onRelease);
+  }
 </script>
 
 <section>
@@ -36,6 +45,10 @@
           <tr>
             <td class="label">Tick interval</td>
             <td>{config.tick_interval_ms} ms</td>
+          </tr>
+          <tr>
+            <td class="label">Corsair release</td>
+            <td>{corsairReleaseLabel(config.hardware?.corsair?.on_release)}</td>
           </tr>
           <tr>
             <td class="label">API bind</td>

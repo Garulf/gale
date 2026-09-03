@@ -1,11 +1,38 @@
+use gale_core::config::{CorsairReleaseMode, GaleConfig};
 use gale_hw::{Backend, Id};
-use gale_hw_corsair::CorsairBackend;
+use gale_hw_corsair::{CorsairBackend, ReleaseMode};
 use gale_hw_nvidia::NvidiaBackend;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+pub fn release_mode_from_config(mode: &CorsairReleaseMode) -> ReleaseMode {
+    match mode {
+        CorsairReleaseMode::PinFull => ReleaseMode::PinFull,
+        CorsairReleaseMode::KeepLast => ReleaseMode::KeepLast,
+        CorsairReleaseMode::Fixed { percent } => ReleaseMode::Fixed(*percent),
+    }
+}
+
+fn corsair_release_mode_for_restore() -> ReleaseMode {
+    let path = crate::paths::config_path();
+    let contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "failed to read config during restore, defaulting corsair release mode to keep_last");
+            return ReleaseMode::KeepLast;
+        }
+    };
+    match GaleConfig::from_toml(&contents) {
+        Ok(config) => release_mode_from_config(&config.hardware.corsair.on_release),
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "failed to parse config during restore, defaulting corsair release mode to keep_last");
+            ReleaseMode::KeepLast
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JournalEntry {
@@ -108,7 +135,7 @@ fn superio_backends() -> Vec<Box<dyn Backend>> {
 
 fn backends_for_kind(kind: &str) -> Vec<Box<dyn Backend>> {
     match kind {
-        "corsair" => CorsairBackend::open_all()
+        "corsair" => CorsairBackend::open_all(corsair_release_mode_for_restore())
             .into_iter()
             .map(|backend| Box::new(backend) as Box<dyn Backend>)
             .collect(),
@@ -384,6 +411,22 @@ mod tests {
         let path = dir.path().join("claims.json");
         fs::write(&path, b"not json").unwrap();
         assert_eq!(load(&path), Vec::new());
+    }
+
+    #[test]
+    fn release_mode_from_config_maps_all_three_variants() {
+        assert_eq!(
+            release_mode_from_config(&CorsairReleaseMode::PinFull),
+            ReleaseMode::PinFull
+        );
+        assert_eq!(
+            release_mode_from_config(&CorsairReleaseMode::KeepLast),
+            ReleaseMode::KeepLast
+        );
+        assert_eq!(
+            release_mode_from_config(&CorsairReleaseMode::Fixed { percent: 42 }),
+            ReleaseMode::Fixed(42)
+        );
     }
 
     #[test]

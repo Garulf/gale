@@ -7,6 +7,13 @@ pub mod transport;
 
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseMode {
+    PinFull,
+    KeepLast,
+    Fixed(u8),
+}
+
 pub trait CorsairDevice: Send {
     fn slug(&self) -> &str;
     fn channels(&mut self) -> Result<DeviceChannels, String>;

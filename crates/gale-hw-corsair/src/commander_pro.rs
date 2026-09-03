@@ -1,5 +1,5 @@
 use crate::transport::HidTransport;
-use crate::{CorsairDevice, DeviceChannels};
+use crate::{CorsairDevice, DeviceChannels, ReleaseMode};
 use gale_hw::SensorKind;
 use std::collections::HashMap;
 
@@ -25,15 +25,21 @@ const RELEASE_DUTY_PCT: u8 = 100;
 pub struct CommanderPro {
     transport: Box<dyn HidTransport>,
     slug: String,
+    release_mode: ReleaseMode,
     temp_connected: [bool; TEMP_PROBE_COUNT],
     fan_present: [bool; FAN_COUNT],
 }
 
 impl CommanderPro {
-    pub fn new(transport: Box<dyn HidTransport>, slug: impl Into<String>) -> Self {
+    pub fn new(
+        transport: Box<dyn HidTransport>,
+        slug: impl Into<String>,
+        release_mode: ReleaseMode,
+    ) -> Self {
         Self {
             transport,
             slug: slug.into(),
+            release_mode,
             temp_connected: [false; TEMP_PROBE_COUNT],
             fan_present: [false; FAN_COUNT],
         }
@@ -176,7 +182,11 @@ impl CorsairDevice for CommanderPro {
         if !self.fan_present[index] {
             return Ok(());
         }
-        self.write_duty(index, RELEASE_DUTY_PCT)
+        match self.release_mode {
+            ReleaseMode::PinFull => self.write_duty(index, RELEASE_DUTY_PCT),
+            ReleaseMode::KeepLast => Ok(()),
+            ReleaseMode::Fixed(percent) => self.write_duty(index, percent),
+        }
     }
 }
 
@@ -225,8 +235,11 @@ mod tests {
             &[0x00, 0x01, 0x01, 0x00, 0x01],
             &[0x00, 0x01, 0x01, 0x02, 0x00, 0x00, 0x00],
         );
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
 
         let channels = device.channels().unwrap();
 
@@ -255,8 +268,11 @@ mod tests {
             frame(CMD_GET_TEMP, &[1]),
             Some(padded_response(&[0x00, 0x0a, 0x83])),
         ));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         let values = device.read();
@@ -271,8 +287,11 @@ mod tests {
             frame(CMD_GET_FAN_RPM, &[1]),
             Some(padded_response(&[0x00, 0x03, 0xac])),
         ));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         let values = device.read();
@@ -284,8 +303,11 @@ mod tests {
     fn unreadable_channel_reports_none_not_zero() {
         let mut exchanges = probe_exchanges(&[0x00, 0x00, 0x01, 0x00, 0x00], &[0, 0, 0, 0, 0, 0]);
         exchanges.push((frame(CMD_GET_TEMP, &[1]), None));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         let values = device.read();
@@ -300,8 +322,11 @@ mod tests {
             frame(CMD_SET_FAN_DUTY, &[1, 50]),
             Some(padded_response(&[])),
         ));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         device.set_duty("fan2", 50.0).unwrap();
@@ -311,8 +336,11 @@ mod tests {
     fn set_duty_clamps_below_zero() {
         let mut exchanges = probe_exchanges(&[0, 0, 0, 0], &[0x01, 0x01, 0x01, 0x01, 0x01, 0x01]);
         exchanges.push((frame(CMD_SET_FAN_DUTY, &[3, 0]), Some(padded_response(&[]))));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         device.set_duty("fan4", -10.0).unwrap();
@@ -325,8 +353,11 @@ mod tests {
             frame(CMD_SET_FAN_DUTY, &[2, 100]),
             Some(padded_response(&[])),
         ));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         device.set_duty("fan3", 110.0).unwrap();
@@ -335,8 +366,11 @@ mod tests {
     #[test]
     fn set_duty_on_disconnected_fan_is_noop() {
         let exchanges = probe_exchanges(&[0, 0, 0, 0], &[0, 0, 0, 0, 0, 0]);
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         device.set_duty("fan2", 50.0).unwrap();
@@ -352,7 +386,8 @@ mod tests {
         let transport = FakeTransport::new(exchanges);
         let writes = transport.write_counter();
         let drains = transport.drain_counter();
-        let mut device = CommanderPro::new(Box::new(transport), "commander-pro");
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
         device.channels().unwrap();
         device.set_duty("fan2", 50.0).unwrap();
 
@@ -365,8 +400,11 @@ mod tests {
     #[test]
     fn set_duty_rejects_unknown_channel() {
         let exchanges = probe_exchanges(&[0, 0, 0, 0], &[0, 0, 0, 0, 0, 0]);
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         assert!(device.set_duty("fan9", 50.0).is_err());
@@ -380,8 +418,11 @@ mod tests {
             frame(CMD_SET_FAN_DUTY, &[1, 100]),
             Some(padded_response(&[])),
         ));
-        let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
         device.channels().unwrap();
 
         device.release("fan2").unwrap();
@@ -390,8 +431,46 @@ mod tests {
     #[test]
     fn release_on_disconnected_fan_is_noop() {
         let exchanges = probe_exchanges(&[0, 0, 0, 0], &[0, 0, 0, 0, 0, 0]);
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::PinFull,
+        );
+        device.channels().unwrap();
+
+        device.release("fan2").unwrap();
+    }
+
+    #[test]
+    fn release_with_keep_last_writes_nothing() {
+        let exchanges = probe_exchanges(&[0, 0, 0, 0], &[0x01, 0x01, 0x01, 0x01, 0x01, 0x01]);
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
         let mut device =
-            CommanderPro::new(Box::new(FakeTransport::new(exchanges)), "commander-pro");
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::KeepLast);
+        device.channels().unwrap();
+        let writes_after_probe = writes.load(std::sync::atomic::Ordering::Relaxed);
+
+        device.release("fan2").unwrap();
+
+        assert_eq!(
+            writes.load(std::sync::atomic::Ordering::Relaxed),
+            writes_after_probe
+        );
+    }
+
+    #[test]
+    fn release_with_fixed_writes_the_configured_percent() {
+        let mut exchanges = probe_exchanges(&[0, 0, 0, 0], &[0x01, 0x01, 0x01, 0x01, 0x01, 0x01]);
+        exchanges.push((
+            frame(CMD_SET_FAN_DUTY, &[1, 50]),
+            Some(padded_response(&[])),
+        ));
+        let mut device = CommanderPro::new(
+            Box::new(FakeTransport::new(exchanges)),
+            "commander-pro",
+            ReleaseMode::Fixed(50),
+        );
         device.channels().unwrap();
 
         device.release("fan2").unwrap();

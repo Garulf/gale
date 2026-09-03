@@ -3,7 +3,7 @@ use crate::commander_pro::CommanderPro;
 use crate::corsair_psu::CorsairPsu;
 use crate::hydro_platinum::HydroPlatinum;
 use crate::transport::HidapiTransport;
-use crate::CorsairDevice;
+use crate::{CorsairDevice, ReleaseMode};
 use gale_hw::{Backend, ControlInfo, HwError, Id, Inventory, SensorInfo};
 use std::collections::{HashMap, HashSet};
 
@@ -101,14 +101,15 @@ fn build_driver(
     kind: DriverKind,
     slug: &'static str,
     transport: Box<HidapiTransport>,
+    release_mode: ReleaseMode,
 ) -> Box<dyn CorsairDevice> {
     match kind {
-        DriverKind::CommanderPro => Box::new(CommanderPro::new(transport, slug)),
+        DriverKind::CommanderPro => Box::new(CommanderPro::new(transport, slug, release_mode)),
         DriverKind::CommanderCore { has_pump } => {
             Box::new(CommanderCore::new(transport, slug, has_pump))
         }
         DriverKind::HydroPlatinum { fan_count } => {
-            Box::new(HydroPlatinum::new(transport, slug, fan_count))
+            Box::new(HydroPlatinum::new(transport, slug, fan_count, release_mode))
         }
         DriverKind::CorsairPsu => Box::new(CorsairPsu::new(transport, slug)),
     }
@@ -195,7 +196,7 @@ impl CorsairBackend {
         }
     }
 
-    pub fn open_all() -> Vec<CorsairBackend> {
+    pub fn open_all(release_mode: ReleaseMode) -> Vec<CorsairBackend> {
         let mut opened: Vec<(String, Option<String>, Box<dyn CorsairDevice>)> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
             let mut candidates: Vec<Candidate> = Vec::new();
@@ -237,7 +238,7 @@ impl CorsairBackend {
                 match device {
                     Some(device) => {
                         let transport = Box::new(HidapiTransport::new(device));
-                        let driver = build_driver(kind, slug, transport);
+                        let driver = build_driver(kind, slug, transport, release_mode);
                         opened.push((slug.to_string(), serial, driver));
                     }
                     None => {

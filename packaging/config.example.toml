@@ -4,6 +4,9 @@ active_profile = "default"
 [api]
 bind = "127.0.0.1:5250"
 
+[hardware.corsair]
+on_release = "keep_last"
+
 [profiles.default.curves.cpu]
 type = "point"
 sensor = "hwmon/nct6798/temp1"

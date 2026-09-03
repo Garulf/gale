@@ -101,3 +101,9 @@ release any manual overrides back to hardware control with:
 ```powershell
 & "$env:ProgramFiles\Gale\galed.exe" restore
 ```
+
+For a Commander Pro or Hydro Platinum, what "restore" does depends on
+`[hardware.corsair] on_release` in `config.toml`: `"pin_full"` (100% duty),
+`"keep_last"` (leave the last duty in place, the default), or a fixed
+percent. None of these hand the device back to an iCUE hardware profile;
+that needs a power cycle or iCUE itself.

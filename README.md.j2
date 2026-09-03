@@ -113,11 +113,17 @@ same way:
 
 - Commander Core and Corsair PSU restore hardware auto mode when a control is
   released.
-- Commander Pro and Hydro Platinum have no unset available upstream, so
-  releasing a control there pins it to 100% instead.
+- Commander Pro and Hydro Platinum have no unset available upstream, so what
+  happens on release there is configurable via `[hardware.corsair]
+  on_release` in the config: `"pin_full"` writes 100%, `"keep_last"` leaves
+  the last duty in place, and `{ fixed = <percent> }` writes a fixed duty.
+  The default is `"keep_last"`.
 - On Hydro Platinum, the first `set_duty` call also pins the sibling fans on
   the same device to 100% and the pump to its balanced curve, since the
   protocol addresses the whole device rather than one channel.
+- Getting a Commander Pro or Hydro Platinum back onto an iCUE hardware
+  profile after Gale has been driving it needs a power cycle or iCUE itself;
+  none of the `on_release` modes hand control back to firmware curves.
 {% endblock %}
 
 {% block license %}

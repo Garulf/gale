@@ -1,5 +1,6 @@
 use gale_core::config::ConfigError;
 use gale_hw_corsair::CorsairBackend;
+use gale_hw_corsair::ReleaseMode;
 #[cfg(target_os = "linux")]
 use gale_hw_hwmon::HwmonBackend;
 use gale_hw_nvidia::NvidiaBackend;
@@ -65,7 +66,9 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     let mut platform_warnings: Vec<String> = Vec::new();
     #[cfg(target_os = "linux")]
     handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
-    for backend in CorsairBackend::open_all() {
+    let corsair_release_mode: ReleaseMode =
+        crate::claims_journal::release_mode_from_config(&config.hardware.corsair.on_release);
+    for backend in CorsairBackend::open_all(corsair_release_mode) {
         handles.push(BackendHandle::spawn(Box::new(backend)));
     }
     handles.push(BackendHandle::spawn(Box::new(NvidiaBackend::new())));

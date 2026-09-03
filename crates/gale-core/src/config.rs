@@ -1,6 +1,8 @@
 use crate::curve::mix::MixMode;
 use crate::Id;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, thiserror::Error)]
@@ -27,8 +29,66 @@ pub struct GaleConfig {
     pub tick_interval_ms: u64,
     #[serde(default)]
     pub api: ApiConfig,
+    #[serde(default)]
+    pub hardware: HardwareConfig,
     pub active_profile: String,
     pub profiles: BTreeMap<String, ProfileConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HardwareConfig {
+    #[serde(default)]
+    pub corsair: CorsairConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CorsairConfig {
+    #[serde(default)]
+    pub on_release: CorsairReleaseMode,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum CorsairReleaseMode {
+    PinFull,
+    #[default]
+    KeepLast,
+    Fixed {
+        percent: u8,
+    },
+}
+
+impl Serialize for CorsairReleaseMode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            CorsairReleaseMode::PinFull => serializer.serialize_str("pin_full"),
+            CorsairReleaseMode::KeepLast => serializer.serialize_str("keep_last"),
+            CorsairReleaseMode::Fixed { percent } => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("fixed", percent)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CorsairReleaseMode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Named(String),
+            Fixed { fixed: u8 },
+        }
+
+        match Repr::deserialize(deserializer)? {
+            Repr::Named(value) if value == "pin_full" => Ok(CorsairReleaseMode::PinFull),
+            Repr::Named(value) if value == "keep_last" => Ok(CorsairReleaseMode::KeepLast),
+            Repr::Named(value) => Err(D::Error::custom(format!(
+                "unknown on_release value '{value}'"
+            ))),
+            Repr::Fixed { fixed } => Ok(CorsairReleaseMode::Fixed { percent: fixed }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -136,6 +196,7 @@ impl GaleConfig {
         Self {
             tick_interval_ms: default_tick(),
             api: ApiConfig::default(),
+            hardware: HardwareConfig::default(),
             active_profile: "default".to_string(),
             profiles: [(
                 "default".to_string(),
@@ -230,6 +291,66 @@ mode = "max"
         let zzz_pos = rendered.find("[profiles.zzz.curves]").unwrap();
         assert!(aaa_pos < default_pos);
         assert!(default_pos < zzz_pos);
+    }
+
+    #[test]
+    fn hardware_defaults_to_corsair_keep_last_when_section_is_absent() {
+        let cfg = GaleConfig::from_toml(SAMPLE).unwrap();
+        assert_eq!(
+            cfg.hardware.corsair.on_release,
+            CorsairReleaseMode::KeepLast
+        );
+    }
+
+    #[test]
+    fn on_release_parses_pin_full() {
+        let toml = format!("{SAMPLE}\n[hardware.corsair]\non_release = \"pin_full\"\n");
+        let cfg = GaleConfig::from_toml(&toml).unwrap();
+        assert_eq!(cfg.hardware.corsair.on_release, CorsairReleaseMode::PinFull);
+    }
+
+    #[test]
+    fn on_release_parses_keep_last() {
+        let toml = format!("{SAMPLE}\n[hardware.corsair]\non_release = \"keep_last\"\n");
+        let cfg = GaleConfig::from_toml(&toml).unwrap();
+        assert_eq!(
+            cfg.hardware.corsair.on_release,
+            CorsairReleaseMode::KeepLast
+        );
+    }
+
+    #[test]
+    fn on_release_parses_fixed_percent() {
+        let toml = format!("{SAMPLE}\n[hardware.corsair]\non_release = {{ fixed = 50 }}\n");
+        let cfg = GaleConfig::from_toml(&toml).unwrap();
+        assert_eq!(
+            cfg.hardware.corsair.on_release,
+            CorsairReleaseMode::Fixed { percent: 50 }
+        );
+    }
+
+    #[test]
+    fn on_release_rejects_unknown_string() {
+        let toml = format!("{SAMPLE}\n[hardware.corsair]\non_release = \"bogus\"\n");
+        assert!(matches!(
+            GaleConfig::from_toml(&toml),
+            Err(ConfigError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn on_release_round_trips_through_toml_for_all_variants() {
+        for mode in [
+            CorsairReleaseMode::PinFull,
+            CorsairReleaseMode::KeepLast,
+            CorsairReleaseMode::Fixed { percent: 42 },
+        ] {
+            let mut cfg = GaleConfig::default_config();
+            cfg.hardware.corsair.on_release = mode.clone();
+            let rendered = cfg.to_toml().unwrap();
+            let parsed = GaleConfig::from_toml(&rendered).unwrap();
+            assert_eq!(parsed.hardware.corsair.on_release, mode);
+        }
     }
 
     #[test]
