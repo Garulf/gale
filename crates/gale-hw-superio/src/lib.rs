@@ -24,6 +24,7 @@ pub enum SuperIoStatus {
     ModuleLoadFailed(i32),
     MutexTimeout,
     NoSupportedChip,
+    VendorCheckFailed(String),
     Io(String),
 }
 
@@ -49,6 +50,9 @@ impl SuperIoStatus {
                     .to_string(),
             ),
             SuperIoStatus::NoSupportedChip => None,
+            SuperIoStatus::VendorCheckFailed(name) => Some(format!(
+                "Motherboard fan control is unavailable: a supported Super I/O chip ({name}) was detected but failed the Nuvoton vendor id check. See {PAWNIO_URL}."
+            )),
             SuperIoStatus::Io(m) => {
                 Some(format!("Motherboard fan control is unavailable: {m}"))
             }
@@ -111,5 +115,23 @@ mod tests {
     #[test]
     fn no_supported_chip_has_no_warning() {
         assert_eq!(SuperIoStatus::NoSupportedChip.warning_text(), None);
+    }
+
+    #[test]
+    fn vendor_check_failed_warning_names_the_chip_and_mentions_url() {
+        let text = SuperIoStatus::VendorCheckFailed("NCT6798D".to_string())
+            .warning_text()
+            .unwrap();
+        assert!(text.contains("https://pawnio.eu"));
+        assert!(text.contains("NCT6798D"));
+        assert!(text.contains("Nuvoton vendor id check"));
+    }
+
+    #[test]
+    fn vendor_check_failed_warning_joins_multiple_chip_names() {
+        let text = SuperIoStatus::VendorCheckFailed("NCT6798D, NCT6779D".to_string())
+            .warning_text()
+            .unwrap();
+        assert!(text.contains("NCT6798D, NCT6779D"));
     }
 }

@@ -61,7 +61,10 @@ pub fn assign_slugs(chips: &[Chip]) -> Vec<String> {
 
 fn ensure_slot(current_slot: &mut Option<u8>, io: &mut dyn PortIo, slot: u8) -> Result<(), String> {
     if *current_slot != Some(slot) {
-        detect::reselect(io, slot)?;
+        if let Err(error) = detect::reselect(io, slot) {
+            *current_slot = None;
+            return Err(error);
+        }
         *current_slot = Some(slot);
     }
     Ok(())
@@ -82,6 +85,7 @@ impl SuperIoBackend {
     pub fn new(mut io: Box<dyn PortIo>) -> Result<Self, SuperIoStatus> {
         let mut chips = Vec::new();
         let mut current_slot = None;
+        let mut vendor_check_failures: Vec<&'static str> = Vec::new();
 
         {
             let mut guard = match transport::lock(io.as_mut(), DETECT_LOCK_TIMEOUT) {
@@ -108,12 +112,18 @@ impl SuperIoBackend {
                     }),
                     Err(error) => {
                         tracing::warn!(%error, chip = %slug, "chip failed vendor check, skipping");
+                        vendor_check_failures.push(detected_chip.chip.name());
                     }
                 }
             }
         }
 
         if chips.is_empty() {
+            if !vendor_check_failures.is_empty() {
+                return Err(SuperIoStatus::VendorCheckFailed(
+                    vendor_check_failures.join(", "),
+                ));
+            }
             return Err(SuperIoStatus::NoSupportedChip);
         }
 
@@ -266,7 +276,7 @@ impl Backend for SuperIoBackend {
             }
 
             let mut vendor_ok = entry.driver.vendor_ok(&mut *guard).unwrap_or(false);
-            if !vendor_ok {
+            if !vendor_ok && entry.detected.chip.has_io_space_lock() {
                 let _ = detect::unlock_io_space(&mut *guard, entry.detected.slot);
                 vendor_ok = entry.driver.vendor_ok(&mut *guard).unwrap_or(false);
             }
@@ -797,6 +807,68 @@ mod tests {
             ]
         );
         assert_eq!(backend.restore_hint("superio/nct6798d/pwm1"), None);
+    }
+
+    #[test]
+    fn failed_reselect_forces_a_fresh_reselect_on_a_later_call() {
+        let mut chip0 = FakeChip::nct6798d(0x0290);
+        chip0.hm.insert(0x4B0, 0x23);
+        chip0.hm.insert(0x4B1, 0x05);
+        let mut fake = FakePortIo::new();
+        fake.add_chip(0, chip0);
+        fake.add_chip(1, FakeChip::nct6779d(0x0A30));
+        let (mut backend, shared) = backend_with_shared_io(fake);
+        backend.enumerate().unwrap();
+        shared.lock().unwrap().take_calls();
+
+        backend.read_all();
+        shared.lock().unwrap().take_calls();
+
+        shared.lock().unwrap().fail_next = Some("injected".to_string());
+        backend.read_all();
+        shared.lock().unwrap().take_calls();
+
+        let values = backend.read_all();
+        let calls = shared.lock().unwrap().take_calls();
+        assert_eq!(calls.get(1), Some(&Call::SelectSlot(0)));
+        assert_eq!(values["superio/nct6798d/fan1"], Some(1200.0));
+    }
+
+    #[test]
+    fn read_all_skips_unlock_io_space_for_chips_without_the_lock() {
+        let fake = FakePortIo::with_chip(0, FakeChip::nct6779d(0x0A30));
+        let (mut backend, shared) = backend_with_shared_io(fake);
+        backend.enumerate().unwrap();
+        {
+            let mut guard = shared.lock().unwrap();
+            guard.set_hm(0, 0x804F, 0x00);
+            guard.take_calls();
+        }
+
+        let values = backend.read_all();
+        for value in values.values() {
+            assert_eq!(*value, None);
+        }
+
+        let calls = shared.lock().unwrap().take_calls();
+        assert!(!calls
+            .iter()
+            .any(|call| matches!(call, Call::SioOut(0x28, _))));
+        assert!(!calls
+            .iter()
+            .any(|call| matches!(call, Call::PioOut(port, 0x87) if *port == 0x2E)));
+    }
+
+    #[test]
+    fn new_reports_vendor_check_failed_when_every_detected_chip_fails_it() {
+        let mut chip = FakeChip::nct6798d(0x0290);
+        chip.hm.insert(0x804F, 0x12);
+        let fake = FakePortIo::with_chip(0, chip);
+        let result = SuperIoBackend::new(Box::new(fake));
+        assert_eq!(
+            result.err(),
+            Some(SuperIoStatus::VendorCheckFailed("NCT6798D".to_string()))
+        );
     }
 
     #[test]

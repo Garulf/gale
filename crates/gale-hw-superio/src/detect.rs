@@ -133,6 +133,14 @@ pub fn detect_slot(io: &mut dyn PortIo, slot: u8) -> Result<Option<DetectedChip>
     io.select_slot(slot)?;
     enter_config(io, slot)?;
 
+    let result = detect_slot_in_config(io, slot);
+    if result.is_err() {
+        let _ = exit_config(io, slot);
+    }
+    result
+}
+
+fn detect_slot_in_config(io: &mut dyn PortIo, slot: u8) -> Result<Option<DetectedChip>, String> {
     let id = io.superio_inb(0x20)?;
     let revision = io.superio_inb(0x21)?;
 
@@ -145,25 +153,34 @@ pub fn detect_slot(io: &mut dyn PortIo, slot: u8) -> Result<Option<DetectedChip>
             return Ok(None);
         }
         ChipId::Unknown => {
-            exit_config(io, slot)?;
+            let _ = exit_config(io, slot);
             tracing::info!(
                 "unknown super i/o chip id=0x{id:02x} revision=0x{revision:02x} slot={slot}"
             );
             return Ok(None);
         }
         ChipId::Unsupported(name) => {
-            exit_config(io, slot)?;
+            let _ = exit_config(io, slot);
             tracing::info!("unsupported super i/o chip {name}");
             return Ok(None);
         }
     };
 
+    finish_chip_detection(io, slot, chip, revision)
+}
+
+fn finish_chip_detection(
+    io: &mut dyn PortIo,
+    slot: u8,
+    chip: Chip,
+    revision: u8,
+) -> Result<Option<DetectedChip>, String> {
     io.find_bars()?;
     io.superio_outb(0x07, HARDWARE_MONITOR_LDN)?;
 
     let active = io.superio_inb(0x30)? & 1;
     if active == 0 {
-        exit_config(io, slot)?;
+        let _ = exit_config(io, slot);
         tracing::warn!("hardware monitor logical device inactive");
         return Ok(None);
     }
@@ -532,5 +549,14 @@ mod tests {
         let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
         io.fail_next = Some("boom".to_string());
         assert_eq!(detect_all(&mut io), Err("boom".to_string()));
+    }
+
+    #[test]
+    fn detect_slot_exits_config_mode_when_a_register_access_fails_after_find_bars() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        io.fail_after = Some((4, "boom".to_string()));
+        assert_eq!(detect_all(&mut io), Err("boom".to_string()));
+        let calls = io.take_calls();
+        assert_eq!(calls.last(), Some(&Call::PioOut(0x2E, 0xAA)));
     }
 }

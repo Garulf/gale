@@ -70,16 +70,20 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     }
     handles.push(BackendHandle::spawn(Box::new(NvidiaBackend::new())));
     #[cfg(windows)]
-    match tokio::task::spawn_blocking(gale_hw_superio::probe)
-        .await
-        .expect("super i/o probe task panicked")
-    {
-        Ok(backend) => handles.push(BackendHandle::spawn(Box::new(backend))),
-        Err(status) => {
+    match tokio::task::spawn_blocking(gale_hw_superio::probe).await {
+        Ok(Ok(backend)) => handles.push(BackendHandle::spawn(Box::new(backend))),
+        Ok(Err(status)) => {
             tracing::warn!(?status, "super i/o backend unavailable");
             if let Some(text) = status.warning_text() {
                 platform_warnings.push(text);
             }
+        }
+        Err(join_error) => {
+            tracing::warn!(%join_error, "super i/o probe task panicked");
+            platform_warnings.push(
+                "Motherboard fan control is unavailable: the PawnIO probe panicked. See https://pawnio.eu."
+                    .to_string(),
+            );
         }
     }
     let pool = BackendPool::new(handles);

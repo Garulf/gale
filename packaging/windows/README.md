@@ -59,6 +59,10 @@ service. The banner on the dashboard disappears once the NCT67xx chip is
 found. If the board has no Nuvoton Super I/O chip, the daemon logs it and no
 banner is shown.
 
+Setting `GALE_PAWNIOLIB` to a path overrides where `galed` loads
+`PawnIOLib.dll` from, but PawnIO still has to be installed (its registry
+uninstall key present) for that library to be used at all.
+
 ## Restoring fan control manually
 
 If the service is stopped without going through `install.ps1 -Uninstall`,

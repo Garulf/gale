@@ -104,6 +104,7 @@ pub struct FakePortIo {
     pub calls: Vec<Call>,
     pub lock_available: bool,
     pub fail_next: Option<String>,
+    pub fail_after: Option<(u32, String)>,
     slot: Option<u8>,
     chips: std::collections::HashMap<u8, FakeChip>,
     config_mode: bool,
@@ -128,6 +129,7 @@ impl FakePortIo {
             calls: Vec::new(),
             lock_available: true,
             fail_next: None,
+            fail_after: None,
             slot: None,
             chips: std::collections::HashMap::new(),
             config_mode: false,
@@ -243,7 +245,17 @@ impl FakePortIo {
     }
 
     fn take_failure(&mut self) -> Option<String> {
-        self.fail_next.take()
+        if let Some(message) = self.fail_next.take() {
+            return Some(message);
+        }
+        match self.fail_after.take() {
+            Some((0, message)) => Some(message),
+            Some((remaining, message)) => {
+                self.fail_after = Some((remaining - 1, message));
+                None
+            }
+            None => None,
+        }
     }
 }
 
@@ -538,6 +550,16 @@ mod tests {
         io.select_slot(0).unwrap();
         let _ = io.find_bars();
         assert_eq!(io.superio_inb(0x20), Err("injected".to_string()));
+    }
+
+    #[test]
+    fn fail_after_lets_a_fixed_number_of_calls_succeed_before_failing() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x290));
+        io.select_slot(0).unwrap();
+        io.fail_after = Some((1, "injected".to_string()));
+        assert!(io.superio_inb(0x20).is_ok());
+        assert_eq!(io.superio_inb(0x21), Err("injected".to_string()));
+        assert!(io.superio_inb(0x20).is_ok());
     }
 
     #[test]
