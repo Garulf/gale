@@ -73,6 +73,39 @@ fn restore_via_backends(mut backends: Vec<Box<dyn Backend>>, ids: &[Id]) -> usiz
     restored
 }
 
+const SUPERIO_HINT_KIND: &str = "superio";
+
+pub type HintRestorer = dyn Fn(&str, &str) -> Result<(), String>;
+
+pub fn kind_has_restore_hint(kind: &str) -> bool {
+    matches!(kind, "hwmon" | "superio")
+}
+
+pub fn restore_hint(kind_or_path: &str, value: &str) -> Result<(), String> {
+    if kind_or_path == SUPERIO_HINT_KIND {
+        return restore_superio_hint(value);
+    }
+    fs::write(kind_or_path, value).map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+fn restore_superio_hint(value: &str) -> Result<(), String> {
+    gale_hw_superio::restore::restore_on_hardware(value)
+}
+
+#[cfg(not(windows))]
+fn restore_superio_hint(_value: &str) -> Result<(), String> {
+    Err("superio hints can only be restored on Windows".to_string())
+}
+
+#[cfg(windows)]
+fn superio_backends() -> Vec<Box<dyn Backend>> {
+    match gale_hw_superio::probe() {
+        Ok(backend) => vec![Box::new(backend) as Box<dyn Backend>],
+        Err(_) => Vec::new(),
+    }
+}
+
 fn backends_for_kind(kind: &str) -> Vec<Box<dyn Backend>> {
     match kind {
         "corsair" => CorsairBackend::open_all()
@@ -80,6 +113,8 @@ fn backends_for_kind(kind: &str) -> Vec<Box<dyn Backend>> {
             .map(|backend| Box::new(backend) as Box<dyn Backend>)
             .collect(),
         "nvidia" => vec![Box::new(NvidiaBackend::new()) as Box<dyn Backend>],
+        #[cfg(windows)]
+        "superio" => superio_backends(),
         other => {
             tracing::warn!(
                 backend_kind = other,
@@ -91,12 +126,15 @@ fn backends_for_kind(kind: &str) -> Vec<Box<dyn Backend>> {
 }
 
 pub fn run_restore(path: &Path) -> usize {
-    run_restore_with_factory(path, backends_for_kind)
+    run_restore_with(path, backends_for_kind, &|kind_or_path, value| {
+        restore_hint(kind_or_path, value)
+    })
 }
 
-fn run_restore_with_factory(
+fn run_restore_with(
     path: &Path,
     backend_factory: impl Fn(&str) -> Vec<Box<dyn Backend>>,
+    hint_restorer: &HintRestorer,
 ) -> usize {
     let entries = load(path);
     if entries.is_empty() {
@@ -108,10 +146,10 @@ fn run_restore_with_factory(
 
     for entry in &entries {
         match &entry.hint {
-            Some((hint_path, value)) => match fs::write(hint_path, value) {
+            Some((hint_kind_or_path, value)) => match hint_restorer(hint_kind_or_path, value) {
                 Ok(()) => restored += 1,
                 Err(error) => {
-                    tracing::warn!(id = %entry.id, path = %hint_path, %error, "failed to restore control via hint")
+                    tracing::warn!(id = %entry.id, hint = %hint_kind_or_path, %error, "failed to restore control via hint")
                 }
             },
             None => hintless
@@ -139,6 +177,10 @@ mod tests {
     use super::*;
     use gale_hw::{ControlInfo, HwError, Inventory};
     use std::sync::{Arc, Mutex};
+
+    fn fs_hint_restorer(path: &str, value: &str) -> Result<(), String> {
+        fs::write(path, value).map_err(|error| error.to_string())
+    }
 
     struct FakeRestoreBackend {
         controls: Vec<Id>,
@@ -202,15 +244,19 @@ mod tests {
 
         let released = Arc::new(Mutex::new(Vec::new()));
         let released_for_factory = released.clone();
-        let restored = run_restore_with_factory(&path, move |kind| {
-            assert_eq!(kind, "corsair");
-            vec![Box::new(FakeRestoreBackend {
-                controls: vec!["corsair/abc/fan1".to_string()],
-                fail_enumerate: false,
-                fail_release_for: None,
-                released: released_for_factory.clone(),
-            }) as Box<dyn Backend>]
-        });
+        let restored = run_restore_with(
+            &path,
+            move |kind| {
+                assert_eq!(kind, "corsair");
+                vec![Box::new(FakeRestoreBackend {
+                    controls: vec!["corsair/abc/fan1".to_string()],
+                    fail_enumerate: false,
+                    fail_release_for: None,
+                    released: released_for_factory.clone(),
+                }) as Box<dyn Backend>]
+            },
+            &fs_hint_restorer,
+        );
 
         assert_eq!(restored, 1);
         assert_eq!(
@@ -232,14 +278,18 @@ mod tests {
         write(&path, &entries).unwrap();
 
         let released = Arc::new(Mutex::new(Vec::new()));
-        let restored = run_restore_with_factory(&path, move |_kind| {
-            vec![Box::new(FakeRestoreBackend {
-                controls: vec!["corsair/abc/fan1".to_string()],
-                fail_enumerate: false,
-                fail_release_for: Some("corsair/abc/fan1".to_string()),
-                released: released.clone(),
-            }) as Box<dyn Backend>]
-        });
+        let restored = run_restore_with(
+            &path,
+            move |_kind| {
+                vec![Box::new(FakeRestoreBackend {
+                    controls: vec!["corsair/abc/fan1".to_string()],
+                    fail_enumerate: false,
+                    fail_release_for: Some("corsair/abc/fan1".to_string()),
+                    released: released.clone(),
+                }) as Box<dyn Backend>]
+            },
+            &fs_hint_restorer,
+        );
 
         assert_eq!(restored, 0);
         assert!(path.exists());
@@ -256,14 +306,18 @@ mod tests {
         }];
         write(&path, &entries).unwrap();
 
-        let restored = run_restore_with_factory(&path, |_kind| {
-            vec![Box::new(FakeRestoreBackend {
-                controls: vec!["corsair/other/fan9".to_string()],
-                fail_enumerate: false,
-                fail_release_for: None,
-                released: Arc::new(Mutex::new(Vec::new())),
-            }) as Box<dyn Backend>]
-        });
+        let restored = run_restore_with(
+            &path,
+            |_kind| {
+                vec![Box::new(FakeRestoreBackend {
+                    controls: vec!["corsair/other/fan9".to_string()],
+                    fail_enumerate: false,
+                    fail_release_for: None,
+                    released: Arc::new(Mutex::new(Vec::new())),
+                }) as Box<dyn Backend>]
+            },
+            &fs_hint_restorer,
+        );
 
         assert_eq!(restored, 0);
         assert!(path.exists());
@@ -280,14 +334,18 @@ mod tests {
         }];
         write(&path, &entries).unwrap();
 
-        let restored = run_restore_with_factory(&path, |_kind| {
-            vec![Box::new(FakeRestoreBackend {
-                controls: vec!["corsair/abc/fan1".to_string()],
-                fail_enumerate: true,
-                fail_release_for: None,
-                released: Arc::new(Mutex::new(Vec::new())),
-            }) as Box<dyn Backend>]
-        });
+        let restored = run_restore_with(
+            &path,
+            |_kind| {
+                vec![Box::new(FakeRestoreBackend {
+                    controls: vec!["corsair/abc/fan1".to_string()],
+                    fail_enumerate: true,
+                    fail_release_for: None,
+                    released: Arc::new(Mutex::new(Vec::new())),
+                }) as Box<dyn Backend>]
+            },
+            &fs_hint_restorer,
+        );
 
         assert_eq!(restored, 0);
         assert!(path.exists());
@@ -360,6 +418,70 @@ mod tests {
         assert_eq!(restored, 1);
         assert_eq!(fs::read_to_string(&enable_path).unwrap(), "5");
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn kind_has_restore_hint_matches_hwmon_and_superio_only() {
+        assert!(kind_has_restore_hint("hwmon"));
+        assert!(kind_has_restore_hint("superio"));
+        assert!(!kind_has_restore_hint("corsair"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn restore_hint_for_superio_fails_with_windows_message_on_non_windows() {
+        let error = restore_hint("superio", "nct6798d:pwm1:42:7f").unwrap_err();
+        assert!(error.contains("Windows"));
+    }
+
+    #[test]
+    fn run_restore_with_routes_superio_hint_to_the_injected_restorer_without_touching_the_filesystem(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claims.json");
+        let entries = vec![JournalEntry {
+            id: "superio/nct6798d/pwm1".to_string(),
+            backend_kind: "superio".to_string(),
+            hint: Some(("superio".to_string(), "nct6798d:pwm1:42:7f".to_string())),
+        }];
+        write(&path, &entries).unwrap();
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_for_restorer = seen.clone();
+        let restored = run_restore_with(&path, |_kind| Vec::new(), &move |kind_or_path, value| {
+            seen_for_restorer
+                .lock()
+                .unwrap()
+                .push((kind_or_path.to_string(), value.to_string()));
+            Ok(())
+        });
+
+        assert_eq!(restored, 1);
+        assert_eq!(
+            seen.lock().unwrap().as_slice(),
+            [("superio".to_string(), "nct6798d:pwm1:42:7f".to_string())]
+        );
+        assert!(!dir.path().join("superio").exists());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn run_restore_with_leaves_journal_when_superio_restorer_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claims.json");
+        let entries = vec![JournalEntry {
+            id: "superio/nct6798d/pwm1".to_string(),
+            backend_kind: "superio".to_string(),
+            hint: Some(("superio".to_string(), "nct6798d:pwm1:42:7f".to_string())),
+        }];
+        write(&path, &entries).unwrap();
+
+        let restored = run_restore_with(&path, |_kind| Vec::new(), &|_kind_or_path, _value| {
+            Err("boom".to_string())
+        });
+
+        assert_eq!(restored, 0);
+        assert!(path.exists());
     }
 
     #[test]

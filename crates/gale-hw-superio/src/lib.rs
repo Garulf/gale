@@ -1,10 +1,17 @@
+pub mod backend;
 pub mod detect;
 pub mod ffi_util;
 pub mod module_blob;
 pub mod nct677x;
+pub mod restore;
 pub mod transport;
 
 pub const PAWNIO_URL: &str = "https://pawnio.eu";
+
+#[cfg(windows)]
+pub fn probe() -> Result<backend::SuperIoBackend, SuperIoStatus> {
+    Err(SuperIoStatus::PawnIoMissing)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SuperIoStatus {

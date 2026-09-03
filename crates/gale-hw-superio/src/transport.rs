@@ -166,6 +166,12 @@ impl FakePortIo {
         }
     }
 
+    pub fn set_cr28(&mut self, slot: u8, value: u8) {
+        if let Some(chip) = self.chips.get_mut(&slot) {
+            chip.cr28 = value;
+        }
+    }
+
     pub fn take_calls(&mut self) -> Vec<Call> {
         std::mem::take(&mut self.calls)
     }

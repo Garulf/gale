@@ -46,6 +46,7 @@ pub struct Recorded {
     pub fail_ids: Vec<Id>,
     pub fail_release_ids: Vec<Id>,
     pub sensors: HashMap<Id, Option<f64>>,
+    pub hint: Option<(String, String)>,
 }
 
 pub struct RecordingBackend {
@@ -81,5 +82,9 @@ impl Backend for RecordingBackend {
         }
         state.released.push(id.to_string());
         Ok(())
+    }
+
+    fn restore_hint(&self, _id: &str) -> Option<(String, String)> {
+        self.state.lock().unwrap().hint.clone()
     }
 }

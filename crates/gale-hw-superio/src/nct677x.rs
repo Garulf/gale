@@ -27,6 +27,7 @@ pub const FAN_RPM_REG_NCT6771_76: [u16; 5] = [0x656, 0x658, 0x65A, 0x65C, 0x65E]
 pub const MAX_FAN_COUNT: u32 = 0x1FFF;
 pub const MIN_FAN_COUNT: u32 = 0x15;
 pub const FAN_COUNT_CLOCK: f64 = 1_350_000.0;
+pub const MANUAL_MODE_MASK: u8 = 0x0F;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TempSource {
@@ -521,6 +522,50 @@ impl Nct677x {
     pub fn saved(&self, index: usize) -> Option<SavedControl> {
         self.saved.get(index).copied().flatten()
     }
+
+    pub fn set_control(
+        &mut self,
+        io: &mut dyn PortIo,
+        index: usize,
+        raw: u8,
+    ) -> Result<(), String> {
+        if index >= self.control_count {
+            return Err("control index out of range".to_string());
+        }
+        if self.saved[index].is_none() {
+            let mode = self.read_byte(io, FAN_CONTROL_MODE_REG[index])?;
+            let pwm = self.read_byte(io, FAN_PWM_COMMAND_REG[index])?;
+            self.saved[index] = Some(SavedControl { mode, pwm });
+        }
+        let saved = self.saved[index].expect("just populated above");
+        self.write_byte(
+            io,
+            FAN_CONTROL_MODE_REG[index],
+            saved.mode & MANUAL_MODE_MASK,
+        )?;
+        self.write_byte(io, FAN_PWM_COMMAND_REG[index], raw)
+    }
+
+    pub fn restore_control(&mut self, io: &mut dyn PortIo, index: usize) -> Result<(), String> {
+        let Some(saved) = self.saved.get(index).copied().flatten() else {
+            return Ok(());
+        };
+        self.write_byte(io, FAN_CONTROL_MODE_REG[index], saved.mode)?;
+        self.write_byte(io, FAN_PWM_COMMAND_REG[index], saved.pwm)?;
+        self.saved[index] = None;
+        Ok(())
+    }
+
+    pub fn write_control_raw(
+        &self,
+        io: &mut dyn PortIo,
+        index: usize,
+        mode: u8,
+        pwm: u8,
+    ) -> Result<(), String> {
+        self.write_byte(io, FAN_CONTROL_MODE_REG[index], mode)?;
+        self.write_byte(io, FAN_PWM_COMMAND_REG[index], pwm)
+    }
 }
 
 pub fn duty_to_raw(pct: f64) -> u8 {
@@ -903,5 +948,144 @@ mod tests {
         let readings = chip.read_fans(&mut io);
         assert_eq!(readings[0], None);
         assert_eq!(readings[1], Some(1000.0));
+    }
+
+    #[test]
+    fn set_control_claims_saves_and_writes_manual_mode_and_duty() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        let mut chip = nct6798d(&mut io);
+        io.set_hm(0, 0x102, 0x42);
+        io.set_hm(0, 0x109, 0x7F);
+        io.take_calls();
+
+        chip.set_control(&mut io, 0, 0x99).unwrap();
+
+        assert_eq!(
+            io.take_calls(),
+            vec![
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x02),
+                Call::PioIn(0x296),
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x09),
+                Call::PioIn(0x296),
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x02),
+                Call::PioOut(0x296, 0x02),
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x09),
+                Call::PioOut(0x296, 0x99),
+            ]
+        );
+        assert_eq!(
+            chip.saved(0),
+            Some(SavedControl {
+                mode: 0x42,
+                pwm: 0x7F
+            })
+        );
+        assert_eq!(io.hm(0, 0x102), 0x02);
+        assert_eq!(io.hm(0, 0x109), 0x99);
+    }
+
+    #[test]
+    fn set_control_does_not_reread_saved_state_on_second_call() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        let mut chip = nct6798d(&mut io);
+        io.set_hm(0, 0x102, 0x42);
+        io.set_hm(0, 0x109, 0x7F);
+        chip.set_control(&mut io, 0, 0x99).unwrap();
+        io.take_calls();
+
+        chip.set_control(&mut io, 0, 0x66).unwrap();
+
+        let calls = io.take_calls();
+        assert_eq!(
+            calls,
+            vec![
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x02),
+                Call::PioOut(0x296, 0x02),
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x09),
+                Call::PioOut(0x296, 0x66),
+            ]
+        );
+        assert!(!calls.iter().any(|call| matches!(call, Call::PioIn(_))));
+    }
+
+    #[test]
+    fn restore_control_writes_saved_bytes_and_clears_the_slot() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        let mut chip = nct6798d(&mut io);
+        io.set_hm(0, 0x102, 0x42);
+        io.set_hm(0, 0x109, 0x7F);
+        chip.set_control(&mut io, 0, 0x99).unwrap();
+        io.take_calls();
+
+        chip.restore_control(&mut io, 0).unwrap();
+
+        assert_eq!(
+            io.take_calls(),
+            vec![
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x02),
+                Call::PioOut(0x296, 0x42),
+                Call::PioOut(0x295, 0x4E),
+                Call::PioOut(0x296, 0x01),
+                Call::PioOut(0x295, 0x09),
+                Call::PioOut(0x296, 0x7F),
+            ]
+        );
+        assert_eq!(chip.saved(0), None);
+
+        chip.restore_control(&mut io, 0).unwrap();
+        assert!(io.take_calls().is_empty());
+    }
+
+    #[test]
+    fn set_control_uses_channel_seven_registers_on_nct6798d() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        let mut chip = nct6798d(&mut io);
+        io.take_calls();
+
+        chip.set_control(&mut io, 6, 0xFF).unwrap();
+
+        let calls = io.take_calls();
+        assert!(calls
+            .windows(2)
+            .any(|w| w == [Call::PioOut(0x296, 0x0B), Call::PioOut(0x295, 0x02)]));
+        assert!(calls
+            .windows(2)
+            .any(|w| w == [Call::PioOut(0x296, 0x0B), Call::PioOut(0x295, 0x09)]));
+    }
+
+    #[test]
+    fn set_control_rejects_index_out_of_range_for_five_control_chip() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6779d(0x0A30));
+        detect::reselect(&mut io, 0).unwrap();
+        let detected = DetectedChip {
+            chip: Chip::Nct6779D,
+            slot: 0,
+            revision: 0x62,
+            base: 0x0A30,
+        };
+        let mut chip = Nct677x::new(&mut io, &detected).unwrap();
+        assert_eq!(
+            chip.set_control(&mut io, 5, 0x80),
+            Err("control index out of range".to_string())
+        );
+    }
+
+    #[test]
+    fn manual_mode_mask_matches_the_reference_data() {
+        assert_eq!(MANUAL_MODE_MASK, 0x0F);
     }
 }

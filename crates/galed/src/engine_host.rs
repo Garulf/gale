@@ -193,7 +193,7 @@ impl EngineHost {
         let mut entries = Vec::new();
         for id in self.claimed_ids() {
             let backend_kind = claims_journal::backend_kind_of(&id);
-            let hint = if backend_kind == "hwmon" {
+            let hint = if claims_journal::kind_has_restore_hint(&backend_kind) {
                 self.backend.restore_hint(&id).await
             } else {
                 None
@@ -398,13 +398,43 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert!(host.config_warnings(&config).is_empty());
     }
 
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn claiming_a_superio_control_journals_its_restore_hint() {
+        let _guard = crate::test_support::lock_env();
+        let runtime_dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("GALE_RUNTIME_DIR", runtime_dir.path());
+        }
+
+        let (host, state) = setup(&[("t1", Some(50.0))]);
+        state.lock().unwrap().hint =
+            Some(("superio".to_string(), "nct6798d:pwm1:42:7f".to_string()));
+
+        host.set_manual("superio/nct6798d/pwm1", 60.0)
+            .await
+            .unwrap();
+
+        let journal_path = runtime_dir.path().join("claims.json");
+        let entries = claims_journal::load(&journal_path);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "superio/nct6798d/pwm1");
+        assert_eq!(entries[0].backend_kind, "superio");
+        assert_eq!(
+            entries[0].hint,
+            Some(("superio".to_string(), "nct6798d:pwm1:42:7f".to_string()))
+        );
+    }
+
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn claiming_a_hwmon_control_journals_its_restore_hint_and_survives_unclean_death() {
         use crate::backend_handle::BackendHandle;
         use gale_hw_hwmon::HwmonBackend;
         use std::fs;
 
+        let _guard = crate::test_support::lock_env();
         let runtime_dir = tempfile::tempdir().unwrap();
         unsafe {
             std::env::set_var("GALE_RUNTIME_DIR", runtime_dir.path());
