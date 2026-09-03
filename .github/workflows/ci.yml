@@ -54,6 +54,8 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - name: npm ci
         run: npm ci
+      - name: npm test
+        run: npm test
       - name: build
         run: npm run build
       - name: guard against stale committed ui/dist

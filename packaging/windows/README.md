@@ -50,6 +50,15 @@ the service and run the binary directly from an elevated terminal:
 Set `RUST_LOG` for more detail, for example `$env:RUST_LOG = "debug"` before
 running it.
 
+## Motherboard fans
+
+Motherboard fan control on Windows goes through PawnIO, a separate driver
+that gives Gale access to the Super I/O chip. Install it from
+https://pawnio.eu before or after installing Gale, then restart the `galed`
+service. The banner on the dashboard disappears once the NCT67xx chip is
+found. If the board has no Nuvoton Super I/O chip, the daemon logs it and no
+banner is shown.
+
 ## Restoring fan control manually
 
 If the service is stopped without going through `install.ps1 -Uninstall`,

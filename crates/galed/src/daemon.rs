@@ -19,6 +19,7 @@ use crate::shutdown::ShutdownSignal;
 pub struct DaemonOptions {
     pub shutdown: ShutdownSignal,
     pub on_ready: Option<Box<dyn FnOnce(SocketAddr) + Send>>,
+    pub on_host_ready: Option<Box<dyn FnOnce(Arc<EngineHost>) + Send>>,
 }
 
 #[derive(Debug)]
@@ -60,12 +61,27 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
         .load()
         .map_err(|error| DaemonError::ConfigLoad(store.path().to_path_buf(), error))?;
     let mut handles: Vec<BackendHandle> = Vec::new();
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut platform_warnings: Vec<String> = Vec::new();
     #[cfg(target_os = "linux")]
     handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
     for backend in CorsairBackend::open_all() {
         handles.push(BackendHandle::spawn(Box::new(backend)));
     }
     handles.push(BackendHandle::spawn(Box::new(NvidiaBackend::new())));
+    #[cfg(windows)]
+    match tokio::task::spawn_blocking(gale_hw_superio::probe)
+        .await
+        .expect("super i/o probe task panicked")
+    {
+        Ok(backend) => handles.push(BackendHandle::spawn(Box::new(backend))),
+        Err(status) => {
+            tracing::warn!(?status, "super i/o backend unavailable");
+            if let Some(text) = status.warning_text() {
+                platform_warnings.push(text);
+            }
+        }
+    }
     let pool = BackendPool::new(handles);
     let inventory = pool.enumerate().await;
     tracing::info!(
@@ -81,7 +97,11 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
             .map(|sensor| sensor.id.clone())
             .collect(),
     );
+    host.set_platform_warnings(platform_warnings);
     host.log_config_warnings(&config);
+    if let Some(on_host_ready) = options.on_host_ready {
+        on_host_ready(host.clone());
+    }
     install_panic_release_hook(host.clone());
     let heartbeat = Arc::new(Mutex::new(Instant::now()));
     let tick_handle = tokio::spawn(runtime::tick_loop(
@@ -154,7 +174,7 @@ fn install_panic_release_hook(host: Arc<EngineHost>) {
     }));
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", windows)))]
 mod tests {
     use super::*;
     use crate::shutdown;
@@ -206,10 +226,14 @@ bind = "127.0.0.1:0"
         trigger.fire();
 
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (host_tx, host_rx) = std::sync::mpsc::channel();
         let options = DaemonOptions {
             shutdown: signal,
             on_ready: Some(Box::new(move |addr| {
                 let _ = ready_tx.send(addr);
+            })),
+            on_host_ready: Some(Box::new(move |host| {
+                let _ = host_tx.send(host);
             })),
         };
 
@@ -217,6 +241,18 @@ bind = "127.0.0.1:0"
 
         let addr = ready_rx.try_recv().expect("on_ready was not called");
         assert_ne!(addr.port(), 0);
+
+        #[cfg(windows)]
+        {
+            let host = host_rx.try_recv().expect("on_host_ready was not called");
+            let config = host.config();
+            let warnings = host.warnings(&config);
+            assert!(warnings
+                .iter()
+                .any(|warning| warning.contains("https://pawnio.eu")));
+        }
+        #[cfg(not(windows))]
+        drop(host_rx);
     }
 
     #[tokio::test]
@@ -271,6 +307,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let options = DaemonOptions {
             shutdown: signal,
             on_ready: Some(on_ready),
+            on_host_ready: None,
         };
 
         run(options).await.unwrap();

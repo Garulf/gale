@@ -130,7 +130,7 @@ struct WarningsResponse {
 
 async fn get_warnings(State(ctx): State<ApiContext>) -> Response {
     let config = ctx.host.config();
-    let warnings = ctx.host.config_warnings(&config);
+    let warnings = ctx.host.warnings(&config);
     Json(WarningsResponse { warnings }).into_response()
 }
 
@@ -641,6 +641,37 @@ duty = 10.0
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert_eq!(json["warnings"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_warnings_includes_platform_warning_and_put_config_still_returns_204() {
+        let (router, host) = make_router(None);
+        host.set_platform_warnings(vec!["a https://pawnio.eu".to_string()]);
+        let response = router
+            .clone()
+            .oneshot(Request::get("/api/warnings").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        let warnings = json["warnings"].as_array().unwrap();
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.as_str().unwrap().contains("pawnio.eu")));
+
+        let clean = GaleConfig::from_toml(CONFIG).unwrap();
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&clean).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]

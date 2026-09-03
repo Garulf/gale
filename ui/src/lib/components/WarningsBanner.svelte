@@ -1,12 +1,13 @@
 <script>
   import { warnings, warningsDismissed } from '../warnings.js';
+  import { splitLinks } from '../linkify.js';
 </script>
 
 {#if $warnings.length > 0 && !$warningsDismissed}
   <div class="banner">
     <ul>
       {#each $warnings as warning}
-        <li>{warning}</li>
+        <li>{#each splitLinks(warning) as part}{#if part.href}<a href={part.href} target="_blank" rel="noopener">{part.href}</a>{:else}{part.text}{/if}{/each}</li>
       {/each}
     </ul>
     <button on:click={() => warningsDismissed.set(true)}>Dismiss</button>
@@ -40,5 +41,10 @@
     padding: 0.2rem 0.6rem;
     cursor: pointer;
     flex-shrink: 0;
+  }
+
+  li a {
+    color: #fbbf24;
+    text-decoration: underline;
   }
 </style>

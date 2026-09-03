@@ -112,6 +112,7 @@ fn run_service() -> Result<(), windows_service::Error> {
     let outcome = runtime.block_on(daemon::run(DaemonOptions {
         shutdown: signal,
         on_ready: Some(on_ready),
+        on_host_ready: None,
     }));
 
     let exit_code = match &outcome {

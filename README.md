@@ -102,6 +102,7 @@ an optional API key set in `[api] api_key`:
 | Corsair PSU             | supported, runtime-unverified against real hardware |
 | Corsair Hydro Platinum  | supported, runtime-unverified against real hardware |
 | NVIDIA GPU (NVML)       | supported, runtime-unverified against real hardware |
+| Nuvoton NCT67xx Super I/O (Windows, PawnIO) | supported, only NCT6798D targeted, runtime-unverified against real hardware |
 
 ### Release semantics
 

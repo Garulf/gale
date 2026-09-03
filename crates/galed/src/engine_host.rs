@@ -29,6 +29,7 @@ pub struct EngineHost {
     backend: BackendPool,
     snapshot_tx: watch::Sender<Snapshot>,
     known_sensors: RwLock<HashSet<Id>>,
+    platform_warnings: RwLock<Vec<String>>,
 }
 
 impl EngineHost {
@@ -45,6 +46,7 @@ impl EngineHost {
             backend,
             snapshot_tx,
             known_sensors: RwLock::new(HashSet::new()),
+            platform_warnings: RwLock::new(Vec::new()),
         }))
     }
 
@@ -58,6 +60,16 @@ impl EngineHost {
 
     pub fn set_known_sensors(&self, sensors: HashSet<Id>) {
         *self.known_sensors.write().unwrap() = sensors;
+    }
+
+    pub fn set_platform_warnings(&self, warnings: Vec<String>) {
+        *self.platform_warnings.write().unwrap() = warnings;
+    }
+
+    pub fn warnings(&self, config: &GaleConfig) -> Vec<String> {
+        let mut warnings = self.platform_warnings.read().unwrap().clone();
+        warnings.extend(self.config_warnings(config));
+        warnings
     }
 
     pub fn log_config_warnings(&self, config: &GaleConfig) {
@@ -387,6 +399,22 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let mut ids = host.claimed_ids();
         ids.sort();
         assert_eq!(ids, vec!["pwm1".to_string(), "pwm2".to_string()]);
+    }
+
+    #[test]
+    fn warnings_puts_platform_warnings_before_config_warnings() {
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.set_known_sensors(["other".to_string()].into());
+        host.set_platform_warnings(vec!["a https://pawnio.eu".to_string()]);
+        let config = GaleConfig::from_toml(CONFIG).unwrap();
+        let warnings = host.warnings(&config);
+        assert_eq!(warnings[0], "a https://pawnio.eu");
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[1].contains("t1"));
+        assert!(!host
+            .config_warnings(&config)
+            .iter()
+            .any(|warning| warning.contains("pawnio")));
     }
 
     #[test]

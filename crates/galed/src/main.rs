@@ -35,6 +35,7 @@ fn main() {
         galed::daemon::run(DaemonOptions {
             shutdown: ShutdownSignal::from_os(),
             on_ready: None,
+            on_host_ready: None,
         })
         .await
     });
