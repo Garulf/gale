@@ -693,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "gale-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "gale-core",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "gale-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-corsair"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gale-hw",
  "hidapi",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-hwmon"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gale-hw",
  "tempfile",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-nvidia"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gale-hw",
  "nvml-wrapper",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-superio"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gale-hw",
  "libloading 0.9.0",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "gale-tray"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "galed"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "futures",
