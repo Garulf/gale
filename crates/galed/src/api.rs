@@ -7,8 +7,8 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
-use gale_core::config::{ConfigError, GaleConfig};
-use gale_hw::Inventory;
+use gale_core::config::{virtual_id, ConfigError, GaleConfig};
+use gale_hw::{Id, Inventory};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -113,8 +113,45 @@ async fn status(State(ctx): State<ApiContext>) -> Response {
     Json(ctx.host.subscribe().borrow().clone()).into_response()
 }
 
+#[derive(Serialize)]
+struct VirtualSensorInfo {
+    id: Id,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    inputs: Vec<Id>,
+}
+
+#[derive(Serialize)]
+struct InventoryResponse {
+    #[serde(flatten)]
+    hardware: Inventory,
+    #[serde(rename = "virtual")]
+    virtual_sensors: Vec<VirtualSensorInfo>,
+}
+
+fn virtual_sensor_infos(config: &GaleConfig) -> Vec<VirtualSensorInfo> {
+    let Some(profile) = config.profiles.get(&config.active_profile) else {
+        return Vec::new();
+    };
+    profile
+        .sensors
+        .iter()
+        .map(|(name, cfg)| VirtualSensorInfo {
+            id: virtual_id(name),
+            kind: cfg.type_name(),
+            inputs: cfg.inputs(),
+        })
+        .collect()
+}
+
 async fn inventory(State(ctx): State<ApiContext>) -> Response {
-    Json(ctx.inventory.read().unwrap().clone()).into_response()
+    let hardware = ctx.inventory.read().unwrap().clone();
+    let virtual_sensors = virtual_sensor_infos(&ctx.host.config());
+    Json(InventoryResponse {
+        hardware,
+        virtual_sensors,
+    })
+    .into_response()
 }
 
 async fn get_config(State(ctx): State<ApiContext>) -> Response {
@@ -288,10 +325,42 @@ duty = 10.0
 "pwm1" = "flat"
 "#;
 
+    const CONFIG_VIRTUAL: &str = r#"
+active_profile = "p"
+
+[profiles.p.curves.flat]
+type = "flat"
+duty = 42.0
+
+[profiles.quiet.curves.flat]
+type = "flat"
+duty = 10.0
+
+[profiles.p.sensors.cpu_hot]
+type = "max"
+inputs = ["t1", "t2"]
+
+[profiles.p.curves.hot]
+type = "point"
+sensor = "virtual/cpu_hot"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.assignments]
+"pwm1" = "flat"
+"pwm2" = "hot"
+"#;
+
     fn make_router(api_key: Option<String>) -> (axum::Router, Arc<EngineHost>) {
+        make_router_with(CONFIG, api_key)
+    }
+
+    fn make_router_with(
+        config_toml: &str,
+        api_key: Option<String>,
+    ) -> (axum::Router, Arc<EngineHost>) {
         let handle = BackendHandle::spawn(Box::new(NullBackend));
         let pool = BackendPool::new(vec![handle]);
-        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
+        let host = EngineHost::new(GaleConfig::from_toml(config_toml).unwrap(), pool).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(ConfigStore::new(dir.path().join("config.toml")));
         std::mem::forget(dir);
@@ -792,6 +861,119 @@ duty = 10.0
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn status_includes_virtual_sensor_values() {
+        let (router, host) = make_router_with(CONFIG_VIRTUAL, None);
+        host.tick(1.0).await;
+        let response = router
+            .oneshot(Request::get("/api/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["sensors"]["virtual/cpu_hot"], 40.0);
+        assert_eq!(json["duties"]["pwm2"], 40.0);
+    }
+
+    #[tokio::test]
+    async fn inventory_lists_virtual_sensors_of_active_profile() {
+        let (router, _host) = make_router_with(CONFIG_VIRTUAL, None);
+        let response = router
+            .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(
+            json["virtual"],
+            serde_json::json!([{"id": "virtual/cpu_hot", "type": "max", "inputs": ["t1", "t2"]}])
+        );
+        assert!(json["sensors"].is_array());
+        assert!(json["controls"].is_array());
+    }
+
+    #[tokio::test]
+    async fn inventory_virtual_list_follows_active_profile() {
+        let (router, _host) = make_router_with(CONFIG_VIRTUAL, None);
+        let activated = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/profiles/quiet/activate")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(activated.status(), StatusCode::NO_CONTENT);
+        let response = router
+            .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["virtual"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn config_put_rejects_virtual_cycle_with_422() {
+        let (router, _host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        let profile = config.profiles.get_mut("p").unwrap();
+        profile.sensors.insert(
+            "a".to_string(),
+            gale_core::config::VirtualSensorConfig::Max {
+                inputs: vec!["virtual/b".to_string()],
+            },
+        );
+        profile.sensors.insert(
+            "b".to_string(),
+            gale_core::config::VirtualSensorConfig::Min {
+                inputs: vec!["virtual/a".to_string()],
+            },
+        );
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&config).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.contains("cycle"));
+    }
+
+    #[tokio::test]
+    async fn config_put_warns_for_hardware_input_behind_virtual_sensor() {
+        let (router, host) = make_router(None);
+        host.set_known_sensors(["t1".to_string()].into());
+        let config = GaleConfig::from_toml(CONFIG_VIRTUAL).unwrap();
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&config).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        let warnings = json["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].as_str().unwrap().contains("t2"));
+        assert!(!warnings[0].as_str().unwrap().contains("virtual"));
     }
 
     #[test]

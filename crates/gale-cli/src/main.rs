@@ -173,6 +173,26 @@ fn render_inventory(inventory: &Value) -> String {
             control["label"].as_str().unwrap_or("")
         ));
     }
+    if let Some(virtual_sensors) = inventory["virtual"].as_array() {
+        if !virtual_sensors.is_empty() {
+            out.push_str("virtual:\n");
+            for sensor in virtual_sensors {
+                let empty = Vec::new();
+                let inputs: Vec<&str> = sensor["inputs"]
+                    .as_array()
+                    .unwrap_or(&empty)
+                    .iter()
+                    .map(|v| v.as_str().unwrap_or(""))
+                    .collect();
+                out.push_str(&format!(
+                    "  {}  [{}]  {}\n",
+                    sensor["id"].as_str().unwrap_or(""),
+                    sensor["type"].as_str().unwrap_or(""),
+                    inputs.join(", ")
+                ));
+            }
+        }
+    }
     out
 }
 
@@ -218,6 +238,20 @@ mod tests {
     fn encode_segment_percent_encodes_reserved_characters() {
         assert_eq!(encode_segment("quiet profile"), "quiet%20profile");
         assert_eq!(encode_segment("plain-name_1.2~3"), "plain-name_1.2~3");
+    }
+
+    #[test]
+    fn render_inventory_lists_virtual_sensors() {
+        let inventory = serde_json::json!({
+            "sensors": [],
+            "controls": [],
+            "virtual": [{"id": "virtual/cpu_hot", "type": "max", "inputs": ["t1", "t2"]}]
+        });
+        let text = render_inventory(&inventory);
+        assert!(text.contains("virtual/cpu_hot  [max]  t1, t2"));
+
+        let no_virtual = serde_json::json!({"sensors": [], "controls": []});
+        assert!(!render_inventory(&no_virtual).contains("virtual:"));
     }
 
     #[test]
