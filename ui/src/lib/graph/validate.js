@@ -45,6 +45,19 @@ export function wouldCycle(candidateEdge, edges) {
   return false;
 }
 
+function sensorRowKind(nodes, nodeId, handle) {
+  const node = (nodes || []).find((candidate) => candidate.id === nodeId);
+  const rows = node && node.data && node.data.deviceSensor ? node.data.deviceSensor.rows : [];
+  const row = rows.find((candidate) => candidate.handle === handle);
+  return row ? row.kind : undefined;
+}
+
+function sourceIsTemperatureLike(connection, nodes) {
+  if (nodeKind(connection.source) !== 'sensor') return true;
+  const kind = sensorRowKind(nodes, connection.source, connection.sourceHandle);
+  return kind === undefined || kind === 'temp';
+}
+
 export function isValidConnection(connection, nodes, edges) {
   const { source, target } = connection;
   if (source === target) return false;
@@ -52,6 +65,7 @@ export function isValidConnection(connection, nodes, edges) {
   const kind = sourceKind(source);
   const accepted = targetAcceptsKind(target);
   if (accepted !== kind) return false;
+  if (!sourceIsTemperatureLike(connection, nodes)) return false;
 
   if (wouldCycle(connection, edges)) return false;
 

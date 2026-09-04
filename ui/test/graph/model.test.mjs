@@ -207,3 +207,57 @@ test('graphToConfig_only_persists_hidden_for_device_nodes', () => {
   const result = graphToConfig(withHiddenVirtual, edges, config, 'default');
   assert.equal(result.ui.hidden.default.includes('virtual:hot'), false);
 });
+
+function wideDeviceConfig() {
+  return {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {},
+        curves: {
+          late: { type: 'point', sensor: 'hwmon/chipA/temp5', points: [[30, 20], [70, 100]] },
+        },
+        assignments: { 'hwmon/chipA/pwm5': 'late' },
+      },
+    },
+  };
+}
+
+function wideDeviceInventory() {
+  return {
+    sensors: [
+      { id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' },
+      { id: 'hwmon/chipA/temp2', label: 'SYS', kind: 'temp' },
+      { id: 'hwmon/chipA/temp3', label: 'AUX', kind: 'temp' },
+      { id: 'hwmon/chipA/temp4', label: 'VRM', kind: 'temp' },
+      { id: 'hwmon/chipA/temp5', label: 'PCH', kind: 'temp' },
+      { id: 'hwmon/chipA/fan1', label: 'CPU fan speed', kind: 'rpm' },
+    ],
+    controls: [1, 2, 3, 4, 5].map((n) => ({ id: `hwmon/chipA/pwm${n}`, label: `pwm${n}` })),
+  };
+}
+
+test('configToGraph marks device rows wired by their edges regardless of row position', () => {
+  const { nodes } = configToGraph(wideDeviceConfig(), wideDeviceInventory(), 'default');
+  const sensorRows = nodes.find((node) => node.id === 'sensor:hwmon/chipA').data.deviceSensor.rows;
+  const controlRows = nodes.find((node) => node.id === 'control:hwmon/chipA').data.deviceControl.rows;
+
+  assert.deepEqual(
+    sensorRows.map((row) => row.wired),
+    [false, false, false, false, true, false],
+  );
+  assert.equal(sensorRows[4].handle, 'hwmon/chipA/temp5');
+  assert.deepEqual(
+    controlRows.map((row) => row.wired),
+    [false, false, false, false, true],
+  );
+  assert.equal(controlRows[4].handle, 'hwmon/chipA/pwm5');
+});
+
+test('configToGraph preserves each sensor row kind from the inventory', () => {
+  const { nodes } = configToGraph(wideDeviceConfig(), wideDeviceInventory(), 'default');
+  const rows = nodes.find((node) => node.id === 'sensor:hwmon/chipA').data.deviceSensor.rows;
+  assert.equal(rows.find((row) => row.handle === 'hwmon/chipA/temp1').kind, 'temp');
+  assert.equal(rows.find((row) => row.handle === 'hwmon/chipA/fan1').kind, 'rpm');
+});

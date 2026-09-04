@@ -77,6 +77,20 @@ function fallbackPositions(allNodeIds) {
   return positions;
 }
 
+function markWiredRows(nodeSpecs, edges) {
+  for (const spec of nodeSpecs) {
+    if (spec.type === 'deviceSensor') {
+      for (const row of spec.data.deviceSensor.rows) {
+        row.wired = edges.some((edge) => edge.source === spec.id && edge.sourceHandle === row.handle);
+      }
+    } else if (spec.type === 'deviceControl') {
+      for (const row of spec.data.deviceControl.rows) {
+        row.wired = edges.some((edge) => edge.target === spec.id && edge.targetHandle === row.handle);
+      }
+    }
+  }
+}
+
 function handleIndex(handle) {
   if (handle === 'in') return 0;
   const match = /^in-(\d+)$/.exec(handle);
@@ -93,7 +107,7 @@ export function configToGraph(config, inventory, profileName) {
     nodeSpecs.push({
       id: sensorNodeId(device),
       type: 'deviceSensor',
-      data: { deviceSensor: { device, rows: rows.map((row) => ({ handle: row.id, label: row.label })) } },
+      data: { deviceSensor: { device, rows: rows.map((row) => ({ handle: row.id, label: row.label, kind: row.kind })) } },
     });
   }
 
@@ -152,6 +166,8 @@ export function configToGraph(config, inventory, profileName) {
     const source = nodeIdForCurveRef(curveId, profile.curves);
     edges.push(makeEdge(source, 'out', target, controlId, 'duty'));
   }
+
+  markWiredRows(nodeSpecs, edges);
 
   const allNodeIds = nodeSpecs.map((spec) => spec.id);
   const storedPositions = (config.ui && config.ui.graph && config.ui.graph[profileName]) || {};

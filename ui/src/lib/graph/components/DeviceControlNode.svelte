@@ -3,14 +3,16 @@
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { formatDuty } from '../liveValues.js';
+  import { foldRows } from '../fold.js';
 
   let { id, data, selected } = $props();
   let expanded = $state(false);
 
   const hideNode = getContext('galeHideNode');
 
-  let visibleRows = $derived(expanded ? data.deviceControl.rows : data.deviceControl.rows.slice(0, 3));
-  let hiddenCount = $derived(Math.max(0, data.deviceControl.rows.length - 3));
+  let folded = $derived(foldRows(data.deviceControl.rows));
+  let visibleRows = $derived(expanded ? data.deviceControl.rows : folded.visible);
+  let hiddenCount = $derived(folded.hidden.length);
 
   function valueFor(handle) {
     const snap = $snapshot;

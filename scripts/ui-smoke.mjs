@@ -16,7 +16,14 @@ const CONTROL_LABEL = 'nct6798 pwm1';
 const SENSOR_NODE = 'sensor:hwmon/nct6798';
 const TEMP1 = 'hwmon/nct6798/temp1';
 const TEMP2 = 'hwmon/nct6798/temp2';
+const CONTROL_NODE = 'control:hwmon/nct6798';
+const TEMP3 = 'hwmon/nct6798/temp3';
+const TEMP5 = 'hwmon/nct6798/temp5';
+const PWM3 = 'hwmon/nct6798/pwm3';
+const PWM5 = 'hwmon/nct6798/pwm5';
 const CONTROL_EDGE_ID = 'curve:cpu:out->control:hwmon/nct6798:hwmon/nct6798/pwm1';
+const LATE_SENSOR_EDGE_ID = `${SENSOR_NODE}:${TEMP5}->curve:late:sensor`;
+const LATE_CONTROL_EDGE_ID = `curve:late:out->${CONTROL_NODE}:${PWM5}`;
 const NEW_SENSOR_NAME = 'gpu_hot';
 
 if (!CHROME_PATH) {
@@ -218,6 +225,30 @@ async function main() {
       );
     });
 
+    await record('device rows wired past the fold render their edges on load', async () => {
+      await page.waitForSelector(`g.svelte-flow__edge[data-id="${LATE_SENSOR_EDGE_ID}"] path`, { timeout: 5000 });
+      await page.waitForSelector(`g.svelte-flow__edge[data-id="${LATE_CONTROL_EDGE_ID}"] path`, { timeout: 5000 });
+      assert(await page.$(handleSelector(SENSOR_NODE, TEMP5)), 'wired temp5 handle should be visible without expanding');
+      assert(await page.$(handleSelector(CONTROL_NODE, PWM5)), 'wired pwm5 handle should be visible without expanding');
+      assert(!(await page.$(handleSelector(SENSOR_NODE, TEMP3))), 'unwired temp3 should still be folded');
+      assert(!(await page.$(handleSelector(CONTROL_NODE, PWM3))), 'unwired pwm3 should still be folded');
+    });
+
+    await record('expanding the sensor node shows fan1 as an RPM value', async () => {
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"] button.fold`).click();
+      }, SENSOR_NODE);
+      await page.waitForSelector(handleSelector(SENSOR_NODE, TEMP3), { timeout: 5000 });
+      const fanText = await page.evaluate((nodeId) => {
+        const rows = Array.from(document.querySelectorAll(`[data-node-id="${nodeId}"] .row`));
+        const row = rows.find((el) => el.textContent.includes('fan1'));
+        return row ? row.textContent : null;
+      }, SENSOR_NODE);
+      assert(fanText !== null, 'fan1 row not found');
+      assert(fanText.includes('1200 RPM'), `fan1 row should read as RPM, got: ${fanText}`);
+      assert(!fanText.includes(' C'), `fan1 row is still formatted as a temperature: ${fanText}`);
+    });
+
     await record('virtual node exposes one more input handle than it has connections', async () => {
       await page.waitForSelector(handleSelector('virtual:combined', 'in-2'), { timeout: 5000 });
       const handles = await page.$$eval('[data-node-id="virtual:combined"] [data-handleid^="in-"]', (els) =>
@@ -345,7 +376,7 @@ async function main() {
 
       await saveGraph(page);
       const config = await fetchConfig();
-      deepStrictEqual(config.profiles.default.assignments, {});
+      deepStrictEqual(config.profiles.default.assignments, { [PWM5]: 'late' });
     });
 
     await record('Save round-trips 204', async () => {

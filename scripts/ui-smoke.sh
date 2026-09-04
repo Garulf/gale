@@ -96,10 +96,15 @@ echo "45000" >"$CHIP_DIR/temp1_input"
 echo "CPUTIN" >"$CHIP_DIR/temp1_label"
 echo "50000" >"$CHIP_DIR/temp2_input"
 echo "SYSTIN" >"$CHIP_DIR/temp2_label"
+for n in 3 4 5; do
+  echo "40000" >"$CHIP_DIR/temp${n}_input"
+done
 echo "1200" >"$CHIP_DIR/fan1_input"
-echo "128" >"$CHIP_DIR/pwm1"
-echo "5" >"$CHIP_DIR/pwm1_enable"
-echo "1" >"$CHIP_DIR/pwm1_mode"
+for n in 1 2 3 4 5; do
+  echo "128" >"$CHIP_DIR/pwm${n}"
+  echo "5" >"$CHIP_DIR/pwm${n}_enable"
+  echo "1" >"$CHIP_DIR/pwm${n}_mode"
+done
 
 PORT="$(pick_port)"
 BIND="127.0.0.1:$PORT"
@@ -127,8 +132,14 @@ type = "point"
 sensor = "hwmon/nct6798/temp1"
 points = [[30.0, 20.0], [70.0, 100.0]]
 
+[profiles.default.curves.late]
+type = "point"
+sensor = "hwmon/nct6798/temp5"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
 [profiles.default.assignments]
 "hwmon/nct6798/pwm1" = "cpu"
+"hwmon/nct6798/pwm5" = "late"
 EOF
 
 RUNTIME_DIR="$WORKDIR/run"

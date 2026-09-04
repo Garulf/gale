@@ -129,3 +129,61 @@ test('wouldCycle is false for every existing edge in fixture B (acyclic graph)',
   }
   assert.ok(fixtureNodes.length > 0);
 });
+
+const nodesWithSensorKinds = [
+  {
+    id: 'sensor:hwmon/x',
+    type: 'deviceSensor',
+    data: {
+      deviceSensor: {
+        device: 'hwmon/x',
+        rows: [
+          { handle: 'hwmon/x/temp1', label: 'CPU', kind: 'temp', wired: false },
+          { handle: 'hwmon/x/fan1', label: 'CPU fan', kind: 'rpm', wired: false },
+        ],
+      },
+    },
+  },
+  { id: 'virtual:cpu_hot', type: 'virtual', data: {} },
+  { id: 'curve:cpu', type: 'curve', data: {} },
+];
+
+test('an rpm sensor row into a curve sensor input is invalid', () => {
+  const connection = {
+    source: 'sensor:hwmon/x',
+    sourceHandle: 'hwmon/x/fan1',
+    target: 'curve:cpu',
+    targetHandle: 'sensor',
+  };
+  assert.equal(isValidConnection(connection, nodesWithSensorKinds, []), false);
+});
+
+test('an rpm sensor row into a virtual sensor input is invalid', () => {
+  const connection = {
+    source: 'sensor:hwmon/x',
+    sourceHandle: 'hwmon/x/fan1',
+    target: 'virtual:cpu_hot',
+    targetHandle: 'in-0',
+  };
+  assert.equal(isValidConnection(connection, nodesWithSensorKinds, []), false);
+});
+
+test('a temp sensor row into a curve sensor input stays valid', () => {
+  const connection = {
+    source: 'sensor:hwmon/x',
+    sourceHandle: 'hwmon/x/temp1',
+    target: 'curve:cpu',
+    targetHandle: 'sensor',
+  };
+  assert.equal(isValidConnection(connection, nodesWithSensorKinds, []), true);
+});
+
+test('a sensor row with no kind information is still accepted', () => {
+  const connection = {
+    source: 'sensor:hwmon/x',
+    sourceHandle: 'hwmon/x/temp1',
+    target: 'curve:cpu',
+    targetHandle: 'sensor',
+  };
+  assert.equal(isValidConnection(connection, nodes, []), true);
+});
