@@ -55,6 +55,8 @@ the next release. Corsair and NVIDIA GPU control work today.
 - A REST and WebSocket API served alongside an embedded web UI, no separate
   frontend to install
 - Curve types: point, trigger, target, flat, mix, and sync
+- Virtual sensors: max, min, mean (optionally smoothed over a window), offset and
+  delta nodes that combine or transform sensors before a curve reads them
 - Journaled claims so a killed daemon restores prior fan state on the next start
 
 ### Quick start
@@ -83,6 +85,53 @@ Start the daemon (or `systemctl start galed` once installed) and open
 `http://127.0.0.1:5250` for the dashboard and curve editor, or drive it with
 the `gale` CLI.
 
+### Virtual sensors
+
+A profile can define derived sensors under `[profiles.<name>.sensors]`. They are
+addressed as `virtual/<id>` anywhere a sensor id is accepted, including other
+virtual sensors, and show up in the dashboard and `GET /api/status` like any
+hardware sensor.
+
+```toml
+[profiles.default.sensors.cpu_hot]
+type = "max"
+inputs = ["superio/nct6798d/temp2", "nvidia/0/temp"]
+
+[profiles.default.sensors.coolant_smooth]
+type = "mean"
+inputs = ["corsair/commander-pro-0805009c9327/temp1"]
+window_s = 10
+
+[profiles.default.sensors.coolant_rise]
+type = "delta"
+input = "virtual/coolant_smooth"
+window_s = 30
+
+[profiles.default.sensors.gpu_adjusted]
+type = "offset"
+input = "nvidia/0/temp"
+add = -5.0
+scale = 1.0
+
+[profiles.default.curves.case]
+type = "point"
+sensor = "virtual/cpu_hot"
+points = [[35.0, 25.0], [75.0, 100.0]]
+```
+
+| type | inputs | output |
+| ------ | ------ | ------ |
+| `max`, `min` | one or more sensor ids | the extreme of the inputs that have a value; unavailable only when every input is |
+| `mean` | one or more ids, optional `window_s` | the mean of the available inputs, smoothed over `window_s` seconds when set |
+| `offset` | one id, `add`, `scale` | `input * scale + add` |
+| `delta` | one id, `window_s` | change in degrees per minute over the window, positive when rising |
+
+A virtual sensor with no value behaves like an unplugged probe: the curve reading it
+has no input and its fan falls back to 100 percent. Cycles between virtual sensors
+and references to undefined ones are rejected when the config is loaded. Missing
+hardware behind a virtual sensor is reported in `GET /api/warnings` by its hardware
+id.
+
 ### API
 
 The daemon exposes REST and WebSocket endpoints under `/api`, all guarded by
@@ -91,7 +140,7 @@ an optional API key set in `[api] api_key`:
 | Method | Path                      | Description                          |
 | ------ | ------------------------- | ------------------------------------ |
 | GET    | `/api/status`             | Daemon status                        |
-| GET    | `/api/inventory`          | Detected sensors and controls        |
+| GET    | `/api/inventory`          | Detected sensors and controls, plus the active profile's virtual sensors |
 | GET    | `/api/config`             | Current config                       |
 | PUT    | `/api/config`             | Replace and reload the config        |
 | GET    | `/api/warnings`           | Non-fatal startup and runtime issues |

@@ -7,9 +7,18 @@ bind = "127.0.0.1:5250"
 [hardware.corsair]
 on_release = "keep_last"
 
+[profiles.default.sensors.cpu_hot]
+type = "max"
+inputs = ["hwmon/nct6798/temp1", "nvidia/0/temp"]
+
 [profiles.default.curves.cpu]
 type = "point"
 sensor = "hwmon/nct6798/temp1"
 points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.default.curves.case]
+type = "point"
+sensor = "virtual/cpu_hot"
+points = [[35.0, 25.0], [75.0, 100.0]]
 
 [profiles.default.assignments]

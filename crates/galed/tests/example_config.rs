@@ -1,4 +1,4 @@
-use gale_core::config::GaleConfig;
+use gale_core::config::{GaleConfig, VirtualSensorConfig};
 
 #[test]
 fn packaged_example_config_parses() {
@@ -10,4 +10,11 @@ fn packaged_example_config_parses() {
     assert!(profile.assignments.is_empty());
     assert!(!profile.curves.is_empty());
     assert!(profile.assigned_sensors().is_empty());
+    assert_eq!(profile.sensors.len(), 1);
+    assert!(matches!(
+        profile.sensors["cpu_hot"],
+        VirtualSensorConfig::Max { .. }
+    ));
+    assert!(profile.hardware_sensors_used().is_empty());
+    gale_core::build::build_engine(&config).unwrap();
 }
