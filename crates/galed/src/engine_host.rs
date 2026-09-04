@@ -87,7 +87,7 @@ impl EngineHost {
             return Vec::new();
         };
         profile
-            .assigned_sensors()
+            .hardware_sensors_used()
             .into_iter()
             .filter(|sensor| !known.contains(sensor))
             .map(|sensor| format!("referenced sensor not found on hardware: {sensor}"))
@@ -95,10 +95,10 @@ impl EngineHost {
     }
 
     pub async fn tick(&self, dt_secs: f64) {
-        let sensors = self.backend.read_all().await;
+        let mut sensors = self.backend.read_all().await;
         let (mut duties, manual, active_profile, assigned) = {
             let mut state = self.state.lock().unwrap();
-            let mut duties = state.engine.tick(&sensors, dt_secs);
+            let mut duties = state.engine.tick(&mut sensors, dt_secs);
             for (id, duty) in &state.manual {
                 duties.insert(id.clone(), *duty);
             }
@@ -266,6 +266,13 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 "#;
 
     fn setup(sensors: &[(&str, Option<f64>)]) -> (Arc<EngineHost>, Arc<Mutex<Recorded>>) {
+        setup_with_config(CONFIG, sensors)
+    }
+
+    fn setup_with_config(
+        config: &str,
+        sensors: &[(&str, Option<f64>)],
+    ) -> (Arc<EngineHost>, Arc<Mutex<Recorded>>) {
         let state = Arc::new(Mutex::new(Recorded {
             sensors: sensors.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
             ..Recorded::default()
@@ -274,7 +281,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             state: state.clone(),
         }));
         let pool = BackendPool::new(vec![handle]);
-        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
+        let host = EngineHost::new(GaleConfig::from_toml(config).unwrap(), pool).unwrap();
         (host, state)
     }
 
@@ -465,6 +472,53 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         host.set_known_sensors(["t1".to_string()].into());
         let config = GaleConfig::from_toml(CONFIG).unwrap();
         assert!(host.config_warnings(&config).is_empty());
+    }
+
+    const VIRTUAL_CONFIG: &str = r#"
+active_profile = "p"
+
+[profiles.p.sensors.cpu_hot]
+type = "max"
+inputs = ["t1", "t2"]
+
+[profiles.p.curves.cpu]
+type = "point"
+sensor = "virtual/cpu_hot"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.assignments]
+"pwm1" = "cpu"
+"#;
+
+    #[test]
+    fn config_warnings_resolve_virtual_sensors_to_hardware_inputs() {
+        let (host, _state) = setup(&[("t1", Some(50.0)), ("t2", Some(60.0))]);
+        host.set_known_sensors(["t1".to_string()].into());
+        let config = GaleConfig::from_toml(VIRTUAL_CONFIG).unwrap();
+        let warnings = host.config_warnings(&config);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("t2"));
+        assert!(!warnings.iter().any(|w| w.contains("virtual")));
+    }
+
+    #[test]
+    fn config_warnings_never_mention_virtual_ids_even_when_inventory_is_empty_of_them() {
+        let (host, _state) = setup(&[("t1", Some(50.0)), ("t2", Some(60.0))]);
+        host.set_known_sensors(["t1".to_string(), "t2".to_string()].into());
+        let config = GaleConfig::from_toml(VIRTUAL_CONFIG).unwrap();
+        assert!(host.config_warnings(&config).is_empty());
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn snapshot_sensors_include_virtual_values() {
+        let _guard = crate::test_support::lock_env();
+        let (host, _state) =
+            setup_with_config(VIRTUAL_CONFIG, &[("t1", Some(50.0)), ("t2", Some(58.0))]);
+        host.tick(1.0).await;
+        let snapshot = host.subscribe().borrow().clone();
+        assert_eq!(snapshot.sensors["virtual/cpu_hot"], Some(58.0));
+        assert_eq!(snapshot.duties["pwm1"], 76.0);
     }
 
     #[tokio::test]
