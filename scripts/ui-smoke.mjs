@@ -138,6 +138,15 @@ async function main() {
       assert(pointsBeforeDrag >= 2, 'expected at least 2 curve points to start');
     });
 
+    await record('Curves page renders the Virtual sensors section', async () => {
+      const found = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('h3')).some((h) => h.textContent.trim() === 'Virtual sensors')
+      );
+      assert(found, 'Virtual sensors heading not found');
+      const input = await page.$('.new-sensor input');
+      assert(input, 'new sensor name input not found');
+    });
+
     await record('point drag via mouse events adds no stray point', async () => {
       const circle = await page.$('svg.graph circle.curve-point');
       assert(circle, 'no curve point circle found');

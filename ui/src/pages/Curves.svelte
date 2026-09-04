@@ -5,6 +5,14 @@
   import { refreshWarnings } from '../lib/warnings.js';
   import { page } from '../lib/page.js';
   import PointCurveEditor from '../lib/components/PointCurveEditor.svelte';
+  import {
+    SENSOR_TYPES,
+    virtualId,
+    sensorOptions,
+    defaultVirtualSensor,
+    virtualSensorReferences,
+    virtualSensorValidationError,
+  } from '../lib/sensors.js';
 
   let config = null;
   let inventory = null;
@@ -18,6 +26,10 @@
   let saving = false;
   let deleteBlocked = '';
   let dirty = false;
+  let selectedSensorName = '';
+  let newSensorName = '';
+  let newSensorType = 'max';
+  let sensorDeleteBlocked = '';
 
   let previousPage = 'curves';
   const unsubscribePage = page.subscribe((value) => {
@@ -53,6 +65,7 @@
           curve.points = tagPoints(curve.points);
         }
       }
+      profileConfig.sensors = profileConfig.sensors || {};
     }
     return cfg;
   }
@@ -140,6 +153,14 @@
   $: selectedCurve = profile ? profile.curves[selectedCurveId] : null;
   $: sensors = inventory ? inventory.sensors : [];
   $: controls = inventory ? inventory.controls : [];
+  $: virtualNames = profile ? Object.keys(profile.sensors).sort() : [];
+  $: selectedSensor = profile ? profile.sensors[selectedSensorName] : null;
+  $: pickerOptions = sensorOptions(sensors, virtualNames, null);
+  $: sensorInputOptions = sensorOptions(
+    sensors,
+    virtualNames,
+    selectedSensorName ? virtualId(selectedSensorName) : null
+  );
 
   function typeBadge(curve) {
     return curve ? curve.type : '';
@@ -160,7 +181,7 @@
   function addProfile() {
     const name = newProfileName.trim();
     if (!name || config.profiles[name]) return;
-    config.profiles[name] = { curves: {}, assignments: {} };
+    config.profiles[name] = { curves: {}, assignments: {}, sensors: {} };
     config = config;
     dirty = true;
     editingProfile = name;
@@ -271,6 +292,55 @@
     dirty = true;
   }
 
+  function addSensor() {
+    const name = newSensorName.trim();
+    if (!name || profile.sensors[name]) return;
+    profile.sensors[name] = defaultVirtualSensor(newSensorType);
+    config = config;
+    dirty = true;
+    selectedSensorName = name;
+    newSensorName = '';
+  }
+
+  function deleteSensor(name) {
+    const refs = virtualSensorReferences(name, profile.curves, profile.sensors);
+    if (refs.length > 0) {
+      sensorDeleteBlocked = `Cannot delete "${name}": referenced by ${refs.join(', ')}.`;
+      return;
+    }
+    sensorDeleteBlocked = '';
+    delete profile.sensors[name];
+    config = config;
+    dirty = true;
+    if (selectedSensorName === name) {
+      selectedSensorName = '';
+    }
+  }
+
+  function setSensorField(field, value) {
+    selectedSensor[field] = value;
+    config = config;
+    dirty = true;
+  }
+
+  function toggleSensorInput(id, checked) {
+    if (checked) {
+      if (!selectedSensor.inputs.includes(id)) {
+        selectedSensor.inputs = [...selectedSensor.inputs, id];
+      }
+    } else {
+      selectedSensor.inputs = selectedSensor.inputs.filter((i) => i !== id);
+    }
+    config = config;
+    dirty = true;
+  }
+
+  function toggleSensorWindow(enabled) {
+    selectedSensor.window_s = enabled ? 10 : null;
+    config = config;
+    dirty = true;
+  }
+
   $: liveTemp = liveTempFor(selectedCurve && selectedCurve.sensor, $snapshot);
 
   function liveTempFor(sensorId, snap) {
@@ -278,6 +348,10 @@
     const value = snap.sensors[sensorId];
     return value === null || value === undefined ? null : value;
   }
+
+  $: liveValue = selectedSensorName
+    ? liveTempFor(virtualId(selectedSensorName), $snapshot)
+    : null;
 
   $: unknownAssignments = profile
     ? Object.keys(profile.assignments).filter(
@@ -319,6 +393,10 @@
             if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;
           }
         }
+      }
+      for (const [name, sensor] of Object.entries(profileConfig.sensors)) {
+        const invalid = virtualSensorValidationError(name, sensor);
+        if (invalid) return invalid;
       }
     }
     return '';
@@ -429,8 +507,8 @@
                   on:change={(e) => setCurveField('sensor', e.target.value)}
                 >
                   <option value="">(none)</option>
-                  {#each sensors as sensor}
-                    <option value={sensor.id}>{sensor.label}</option>
+                  {#each pickerOptions as option}
+                    <option value={option.id}>{option.label}</option>
                   {/each}
                 </select>
               </label>
@@ -556,8 +634,8 @@
                   on:change={(e) => setCurveField('sensor', e.target.value)}
                 >
                   <option value="">(none)</option>
-                  {#each sensors as sensor}
-                    <option value={sensor.id}>{sensor.label}</option>
+                  {#each pickerOptions as option}
+                    <option value={option.id}>{option.label}</option>
                   {/each}
                 </select>
               </label>
@@ -601,8 +679,8 @@
                   on:change={(e) => setCurveField('sensor', e.target.value)}
                 >
                   <option value="">(none)</option>
-                  {#each sensors as sensor}
-                    <option value={sensor.id}>{sensor.label}</option>
+                  {#each pickerOptions as option}
+                    <option value={option.id}>{option.label}</option>
                   {/each}
                 </select>
               </label>
@@ -644,6 +722,134 @@
           {/if}
         </div>
       </div>
+
+      <section class="virtual-sensors">
+        <h3>Virtual sensors</h3>
+        <ul class="sensor-list">
+          {#each virtualNames as name}
+            <li class:selected={name === selectedSensorName}>
+              <button class="curve-name" on:click={() => (selectedSensorName = name)}>
+                {name}
+                <span class="type-badge">{profile.sensors[name].type}</span>
+              </button>
+              <button class="mini" on:click={() => deleteSensor(name)}>Delete</button>
+            </li>
+          {/each}
+        </ul>
+        {#if sensorDeleteBlocked}
+          <p class="error small">{sensorDeleteBlocked}</p>
+        {/if}
+        <div class="new-sensor">
+          <input placeholder="sensor name" bind:value={newSensorName} />
+          <select bind:value={newSensorType}>
+            {#each SENSOR_TYPES as type}
+              <option value={type}>{type}</option>
+            {/each}
+          </select>
+          <button class="mini" on:click={addSensor}>Add sensor</button>
+        </div>
+
+        {#if selectedSensor}
+          <h4>
+            {selectedSensorName} <span class="type-badge">{selectedSensor.type}</span>
+          </h4>
+
+          {#if selectedSensor.type === 'max' || selectedSensor.type === 'min' || selectedSensor.type === 'mean'}
+            <p>Inputs</p>
+            <div class="checkbox-list">
+              {#each sensorInputOptions as option}
+                <label class="inline">
+                  <input
+                    type="checkbox"
+                    checked={selectedSensor.inputs.includes(option.id)}
+                    on:change={(e) => toggleSensorInput(option.id, e.target.checked)}
+                  />
+                  {option.label}
+                </label>
+              {/each}
+            </div>
+
+            {#if selectedSensor.type === 'mean'}
+              <fieldset>
+                <legend>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selectedSensor.window_s !== null}
+                      on:change={(e) => toggleSensorWindow(e.target.checked)}
+                    />
+                    Moving average window
+                  </label>
+                </legend>
+                {#if selectedSensor.window_s !== null}
+                  <label class="inline">
+                    window_s
+                    <input
+                      type="number"
+                      bind:value={selectedSensor.window_s}
+                      on:input={() => (dirty = true)}
+                    />
+                  </label>
+                {/if}
+              </fieldset>
+            {/if}
+          {:else if selectedSensor.type === 'offset'}
+            <label>
+              Input
+              <select
+                value={selectedSensor.input}
+                on:change={(e) => setSensorField('input', e.target.value)}
+              >
+                <option value="">(none)</option>
+                {#each sensorInputOptions as option}
+                  <option value={option.id}>{option.label}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="inline">
+              add
+              <input
+                type="number"
+                bind:value={selectedSensor.add}
+                on:input={() => (dirty = true)}
+              />
+            </label>
+            <label class="inline">
+              scale
+              <input
+                type="number"
+                bind:value={selectedSensor.scale}
+                on:input={() => (dirty = true)}
+              />
+            </label>
+          {:else if selectedSensor.type === 'delta'}
+            <label>
+              Input
+              <select
+                value={selectedSensor.input}
+                on:change={(e) => setSensorField('input', e.target.value)}
+              >
+                <option value="">(none)</option>
+                {#each sensorInputOptions as option}
+                  <option value={option.id}>{option.label}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="inline">
+              window_s
+              <input
+                type="number"
+                bind:value={selectedSensor.window_s}
+                on:input={() => (dirty = true)}
+              />
+            </label>
+          {/if}
+
+          <p class="mini">
+            Live: {liveValue === null || liveValue === undefined ? 'n/a' : liveValue}
+          </p>
+        {/if}
+      </section>
 
       <h3>Assignments</h3>
       <table class="assignments">
@@ -772,13 +978,15 @@
     gap: 1.5rem;
   }
 
-  .curve-list ul {
+  .curve-list ul,
+  .sensor-list {
     list-style: none;
     padding: 0;
     margin: 0.5rem 0;
   }
 
-  .curve-list li {
+  .curve-list li,
+  .sensor-list li {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -786,7 +994,8 @@
     border-radius: 4px;
   }
 
-  .curve-list li.selected {
+  .curve-list li.selected,
+  .sensor-list li.selected {
     background: #1b1e24;
   }
 
@@ -909,5 +1118,15 @@
   .save-warnings {
     margin-top: 0.75rem;
     color: #fbbf24;
+  }
+
+  .virtual-sensors {
+    margin-top: 1.5rem;
+  }
+
+  .new-sensor {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
   }
 </style>

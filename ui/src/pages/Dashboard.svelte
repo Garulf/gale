@@ -47,6 +47,15 @@
       if (!byGroup.has(group)) byGroup.set(group, []);
       byGroup.get(group).push({ ...sensor, value: values[sensor.id] ?? null });
     }
+    for (const entry of inv.virtual || []) {
+      if (!byGroup.has('virtual')) byGroup.set('virtual', []);
+      byGroup.get('virtual').push({
+        id: entry.id,
+        label: entry.id.slice('virtual/'.length),
+        kind: 'temp',
+        value: values[entry.id] ?? null,
+      });
+    }
     return [...byGroup.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }
 
