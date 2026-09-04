@@ -418,6 +418,52 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     }
 
     #[tokio::test]
+    async fn status_reports_overrides_and_clears_them() {
+        let (router, host) = make_router(None);
+        let put = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/controls/pwm1")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"duty": 55.0}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(put.status(), StatusCode::NO_CONTENT);
+        host.tick(1.0).await;
+        let response = router
+            .clone()
+            .oneshot(Request::get("/api/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let json = body_json(response).await;
+        assert_eq!(json["overrides"], serde_json::json!(["pwm1"]));
+
+        let delete = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/controls/pwm1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+        host.tick(1.0).await;
+        let response = router
+            .oneshot(Request::get("/api/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let json = body_json(response).await;
+        assert_eq!(json["overrides"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn manual_override_endpoints_validate_and_route_slashed_ids() {
         let (router, host) = make_router(None);
         let put = |uri: &str, body: &str| {

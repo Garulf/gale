@@ -225,6 +225,13 @@ async function main() {
       );
     });
 
+    await record('control node shows an override badge for the manually overridden control', async () => {
+      await page.waitForSelector(
+        `[data-node-id="${CONTROL_NODE}"] .row [data-node-override]`,
+        { timeout: 5000 }
+      );
+    });
+
     await record('clean config shows live rows ungreyed and no node warning badges', async () => {
       await page.waitForFunction(
         (nodeId, label) => {

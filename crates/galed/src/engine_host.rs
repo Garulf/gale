@@ -14,6 +14,7 @@ pub struct Snapshot {
     pub sensors: HashMap<Id, Option<f64>>,
     pub duties: HashMap<Id, f64>,
     pub manual: HashMap<Id, f64>,
+    pub overrides: HashSet<Id>,
     pub active_profile: String,
 }
 
@@ -172,10 +173,12 @@ impl EngineHost {
             }
         }
 
+        let overrides: HashSet<Id> = manual.keys().cloned().collect();
         self.snapshot_tx.send_replace(Snapshot {
             sensors,
             duties,
             manual,
+            overrides,
             active_profile,
         });
     }
@@ -345,6 +348,33 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(snapshot.manual["pwm1"], 33.0);
         assert!(!snapshot.duties.contains_key("pwm2"));
         assert_eq!(snapshot.duties["pwm1"], 33.0);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn snapshot_overrides_lists_manually_overridden_controls_and_clears() {
+        let _guard = crate::test_support::lock_env();
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.set_manual("pwm1", 33.0).await.unwrap();
+        host.tick(1.0).await;
+        let snapshot = host.subscribe().borrow().clone();
+        assert!(snapshot.overrides.contains("pwm1"));
+        assert!(!snapshot.overrides.contains("pwm2"));
+
+        host.clear_manual("pwm1").await.unwrap();
+        host.tick(1.0).await;
+        let snapshot = host.subscribe().borrow().clone();
+        assert!(!snapshot.overrides.contains("pwm1"));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn snapshot_overrides_is_empty_when_no_control_is_overridden() {
+        let _guard = crate::test_support::lock_env();
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        host.tick(1.0).await;
+        let snapshot = host.subscribe().borrow().clone();
+        assert!(snapshot.overrides.is_empty());
     }
 
     #[tokio::test]

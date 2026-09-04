@@ -29,6 +29,11 @@ export function formatRpm(value) {
   return value === null || value === undefined ? 'n/a' : `${Math.round(value)} RPM`;
 }
 
+export function isOverridden(snap, targetHandle) {
+  if (!snap || !snap.overrides) return false;
+  return snap.overrides.includes(targetHandle);
+}
+
 export function formatSensor(value, kind) {
   if (kind === 'rpm') return formatRpm(value);
   if (kind === 'duty') return formatDuty(value);

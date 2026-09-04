@@ -1,9 +1,10 @@
 <script>
   import { getContext } from 'svelte';
   import WarningBadge from './WarningBadge.svelte';
+  import OverrideBadge from './OverrideBadge.svelte';
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { dutyValue, formatDuty } from '../liveValues.js';
+  import { dutyValue, formatDuty, isOverridden } from '../liveValues.js';
   import { foldRows } from '../fold.js';
 
   let { id, data, selected } = $props();
@@ -21,6 +22,10 @@
   function valueFor(handle) {
     return dutyValue($snapshot, handle);
   }
+
+  function overriddenFor(handle) {
+    return isOverridden($snapshot, handle);
+  }
 </script>
 
 <div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
@@ -32,7 +37,7 @@
     {#each visibleRows as row (row.handle)}
       <div class="row in" class:missing={valueFor(row.handle) === null}>
         <Handle type="target" position={Position.Left} id={row.handle} class="port in duty" />
-        <span>{row.label}</span>
+        <span>{row.label}<OverrideBadge active={overriddenFor(row.handle)} /></span>
         <span class="val duty">{formatDuty(valueFor(row.handle))}</span>
       </div>
     {/each}
