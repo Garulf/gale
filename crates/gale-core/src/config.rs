@@ -5,7 +5,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, PartialEq)]
 pub enum ConfigError {
     #[error("config parse error: {0}")]
     Parse(String),
@@ -108,15 +108,221 @@ impl Default for ApiConfig {
     }
 }
 
+pub const VIRTUAL_PREFIX: &str = "virtual/";
+
+pub fn virtual_id(name: &str) -> Id {
+    format!("{VIRTUAL_PREFIX}{name}")
+}
+
+pub fn virtual_name(id: &str) -> Option<&str> {
+    id.strip_prefix(VIRTUAL_PREFIX)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum VirtualSensorConfig {
+    Max {
+        inputs: Vec<Id>,
+    },
+    Min {
+        inputs: Vec<Id>,
+    },
+    Mean {
+        inputs: Vec<Id>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window_s: Option<f64>,
+    },
+    Offset {
+        input: Id,
+        add: f64,
+        scale: f64,
+    },
+    Delta {
+        input: Id,
+        window_s: f64,
+    },
+}
+
+impl VirtualSensorConfig {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            VirtualSensorConfig::Max { .. } => "max",
+            VirtualSensorConfig::Min { .. } => "min",
+            VirtualSensorConfig::Mean { .. } => "mean",
+            VirtualSensorConfig::Offset { .. } => "offset",
+            VirtualSensorConfig::Delta { .. } => "delta",
+        }
+    }
+
+    pub fn inputs(&self) -> Vec<Id> {
+        match self {
+            VirtualSensorConfig::Max { inputs }
+            | VirtualSensorConfig::Min { inputs }
+            | VirtualSensorConfig::Mean { inputs, .. } => inputs.clone(),
+            VirtualSensorConfig::Offset { input, .. }
+            | VirtualSensorConfig::Delta { input, .. } => {
+                vec![input.clone()]
+            }
+        }
+    }
+}
+
+fn validate_virtual_sensor(
+    name: &str,
+    cfg: &VirtualSensorConfig,
+    sensors: &BTreeMap<String, VirtualSensorConfig>,
+) -> Result<(), ConfigError> {
+    if name.is_empty() {
+        return Err(ConfigError::Invalid(
+            "virtual sensor name must not be empty".to_string(),
+        ));
+    }
+    if name.contains('/') {
+        return Err(ConfigError::Invalid(format!(
+            "virtual sensor name '{name}' must not contain '/'"
+        )));
+    }
+
+    let inputs = cfg.inputs();
+    if matches!(
+        cfg,
+        VirtualSensorConfig::Max { .. }
+            | VirtualSensorConfig::Min { .. }
+            | VirtualSensorConfig::Mean { .. }
+    ) && inputs.is_empty()
+    {
+        return Err(ConfigError::Invalid(format!(
+            "virtual sensor '{name}' has no inputs"
+        )));
+    }
+
+    for input in &inputs {
+        if input.is_empty() {
+            return Err(ConfigError::Invalid(format!(
+                "virtual sensor '{name}' has an empty input id"
+            )));
+        }
+    }
+
+    for input in &inputs {
+        if let Some(other) = virtual_name(input) {
+            if !sensors.contains_key(other) {
+                return Err(ConfigError::Invalid(format!(
+                    "virtual sensor '{name}' references undefined virtual sensor '{input}'"
+                )));
+            }
+        }
+    }
+
+    if let VirtualSensorConfig::Offset { add, scale, .. } = cfg {
+        if !add.is_finite() {
+            return Err(ConfigError::Invalid(format!(
+                "virtual sensor '{name}' has a non-finite add"
+            )));
+        }
+        if !scale.is_finite() {
+            return Err(ConfigError::Invalid(format!(
+                "virtual sensor '{name}' has a non-finite scale"
+            )));
+        }
+    }
+
+    let window_s = match cfg {
+        VirtualSensorConfig::Mean { window_s, .. } => *window_s,
+        VirtualSensorConfig::Delta { window_s, .. } => Some(*window_s),
+        _ => None,
+    };
+    if let Some(window_s) = window_s {
+        if !window_s.is_finite() || window_s <= 0.0 {
+            return Err(ConfigError::Invalid(format!(
+                "virtual sensor '{name}' window_s must be a positive number"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProfileConfig {
     #[serde(default)]
     pub curves: BTreeMap<Id, CurveConfig>,
     #[serde(default)]
     pub assignments: BTreeMap<Id, Id>,
+    #[serde(default)]
+    pub sensors: BTreeMap<String, VirtualSensorConfig>,
 }
 
 impl ProfileConfig {
+    pub fn hardware_sensors_used(&self) -> BTreeSet<Id> {
+        let mut result = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut stack: Vec<Id> = self.assigned_sensors().into_iter().collect();
+        while let Some(id) = stack.pop() {
+            match virtual_name(&id) {
+                Some(name) => {
+                    if !visited.insert(name.to_string()) {
+                        continue;
+                    }
+                    if let Some(cfg) = self.sensors.get(name) {
+                        stack.extend(cfg.inputs());
+                    }
+                }
+                None => {
+                    result.insert(id);
+                }
+            }
+        }
+        result
+    }
+
+    pub fn validate_virtual_sensors(&self) -> Result<Vec<String>, ConfigError> {
+        for (name, cfg) in &self.sensors {
+            validate_virtual_sensor(name, cfg, &self.sensors)?;
+        }
+
+        let mut order = Vec::new();
+        let mut visited = BTreeSet::new();
+        for name in self.sensors.keys() {
+            self.order_virtual_sensor(name, &mut visited, &mut Vec::new(), &mut order)?;
+        }
+        Ok(order)
+    }
+
+    fn order_virtual_sensor(
+        &self,
+        name: &str,
+        visited: &mut BTreeSet<String>,
+        stack: &mut Vec<String>,
+        order: &mut Vec<String>,
+    ) -> Result<(), ConfigError> {
+        if visited.contains(name) {
+            return Ok(());
+        }
+        if let Some(pos) = stack.iter().position(|n| n == name) {
+            let mut cycle = stack[pos..].to_vec();
+            cycle.push(name.to_string());
+            return Err(ConfigError::Invalid(format!(
+                "virtual sensor cycle: {}",
+                cycle.join(" -> ")
+            )));
+        }
+
+        stack.push(name.to_string());
+        if let Some(cfg) = self.sensors.get(name) {
+            for input in cfg.inputs() {
+                if let Some(dependency) = virtual_name(&input) {
+                    self.order_virtual_sensor(dependency, visited, stack, order)?;
+                }
+            }
+        }
+        stack.pop();
+
+        visited.insert(name.to_string());
+        order.push(name.to_string());
+        Ok(())
+    }
+
     pub fn referenced_sensors(&self) -> BTreeSet<Id> {
         self.curves
             .values()
@@ -242,6 +448,7 @@ impl GaleConfig {
                 ProfileConfig {
                     curves: BTreeMap::new(),
                     assignments: BTreeMap::new(),
+                    sensors: BTreeMap::new(),
                 },
             )]
             .into(),
@@ -315,6 +522,7 @@ mode = "max"
             ProfileConfig {
                 curves: BTreeMap::new(),
                 assignments: BTreeMap::new(),
+                sensors: BTreeMap::new(),
             },
         );
         cfg.profiles.insert(
@@ -322,6 +530,7 @@ mode = "max"
             ProfileConfig {
                 curves: BTreeMap::new(),
                 assignments: BTreeMap::new(),
+                sensors: BTreeMap::new(),
             },
         );
         let rendered = cfg.to_toml().unwrap();
@@ -450,6 +659,7 @@ mode = "max"
             ]
             .into(),
             assignments: BTreeMap::new(),
+            sensors: BTreeMap::new(),
         };
         let referenced = profile.referenced_sensors();
         assert_eq!(
@@ -476,6 +686,7 @@ mode = "max"
             )]
             .into(),
             assignments: BTreeMap::new(),
+            sensors: BTreeMap::new(),
         };
         assert!(profile.assigned_sensors().is_empty());
     }
@@ -494,6 +705,7 @@ mode = "max"
             )]
             .into(),
             assignments: [("pwm1".to_string(), "cpu".to_string())].into(),
+            sensors: BTreeMap::new(),
         };
         assert_eq!(
             profile.assigned_sensors(),
@@ -533,6 +745,7 @@ mode = "max"
             ]
             .into(),
             assignments: [("pwm1".to_string(), "case".to_string())].into(),
+            sensors: BTreeMap::new(),
         };
         assert_eq!(
             profile.assigned_sensors(),
@@ -562,6 +775,7 @@ mode = "max"
             ]
             .into(),
             assignments: [("pwm1".to_string(), "case".to_string())].into(),
+            sensors: BTreeMap::new(),
         };
         assert_eq!(
             profile.assigned_sensors(),
@@ -581,7 +795,469 @@ mode = "max"
             )]
             .into(),
             assignments: [("pwm1".to_string(), "loopy".to_string())].into(),
+            sensors: BTreeMap::new(),
         };
         assert!(profile.assigned_sensors().is_empty());
+    }
+
+    const VIRTUAL_SENSOR_SAMPLE: &str = r#"
+active_profile = "default"
+
+[profiles.default.sensors.cpu_hot]
+type = "max"
+inputs = ["superio/nct6798d/temp2", "nvidia/0/temp"]
+
+[profiles.default.sensors.coolant_smooth]
+type = "mean"
+inputs = ["corsair/commander-pro-0805009c9327/temp1"]
+window_s = 10
+
+[profiles.default.sensors.coolant_rise]
+type = "delta"
+input = "virtual/coolant_smooth"
+window_s = 30
+
+[profiles.default.sensors.gpu_adjusted]
+type = "offset"
+input = "nvidia/0/temp"
+add = -5.0
+scale = 1.0
+"#;
+
+    #[test]
+    fn virtual_sensor_toml_round_trips_every_node_type() {
+        let cfg = GaleConfig::from_toml(VIRTUAL_SENSOR_SAMPLE).unwrap();
+        let profile = &cfg.profiles["default"];
+        assert_eq!(
+            profile.sensors["cpu_hot"],
+            VirtualSensorConfig::Max {
+                inputs: vec![
+                    "superio/nct6798d/temp2".to_string(),
+                    "nvidia/0/temp".to_string(),
+                ],
+            }
+        );
+        match &profile.sensors["coolant_smooth"] {
+            VirtualSensorConfig::Mean { window_s, .. } => {
+                assert_eq!(*window_s, Some(10.0));
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+        assert_eq!(
+            profile.sensors["coolant_rise"],
+            VirtualSensorConfig::Delta {
+                input: "virtual/coolant_smooth".to_string(),
+                window_s: 30.0,
+            }
+        );
+        match &profile.sensors["gpu_adjusted"] {
+            VirtualSensorConfig::Offset { add, scale, .. } => {
+                assert_eq!(*add, -5.0);
+                assert_eq!(*scale, 1.0);
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+
+        let rendered = cfg.to_toml().unwrap();
+        assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
+
+        let mut extra_cfg = GaleConfig::default_config();
+        extra_cfg
+            .profiles
+            .get_mut("default")
+            .unwrap()
+            .sensors
+            .insert(
+                "min_temp".to_string(),
+                VirtualSensorConfig::Min {
+                    inputs: vec!["hw/t1".to_string()],
+                },
+            );
+        extra_cfg
+            .profiles
+            .get_mut("default")
+            .unwrap()
+            .sensors
+            .insert(
+                "windowless_mean".to_string(),
+                VirtualSensorConfig::Mean {
+                    inputs: vec!["hw/t2".to_string()],
+                    window_s: None,
+                },
+            );
+        let extra_rendered = extra_cfg.to_toml().unwrap();
+        assert_eq!(GaleConfig::from_toml(&extra_rendered).unwrap(), extra_cfg);
+        let windowless_section = extra_rendered
+            .split("[profiles.default.sensors.windowless_mean]")
+            .nth(1)
+            .unwrap();
+        let windowless_section = windowless_section.split("\n\n").next().unwrap();
+        assert!(!windowless_section.contains("window_s"));
+    }
+
+    #[test]
+    fn config_without_sensors_table_parses_as_before() {
+        let cfg = GaleConfig::from_toml(SAMPLE).unwrap();
+        assert!(cfg.profiles["quiet"].sensors.is_empty());
+    }
+
+    #[test]
+    fn virtual_id_and_name_round_trip() {
+        assert_eq!(virtual_id("cpu_hot"), "virtual/cpu_hot");
+        assert_eq!(virtual_name("virtual/cpu_hot"), Some("cpu_hot"));
+        assert_eq!(virtual_name("hwmon/x/temp1"), None);
+    }
+
+    #[test]
+    fn type_name_and_inputs_cover_every_variant() {
+        let max = VirtualSensorConfig::Max {
+            inputs: vec!["a".to_string(), "b".to_string()],
+        };
+        assert_eq!(max.type_name(), "max");
+        assert_eq!(max.inputs(), vec!["a".to_string(), "b".to_string()]);
+
+        let min = VirtualSensorConfig::Min {
+            inputs: vec!["a".to_string()],
+        };
+        assert_eq!(min.type_name(), "min");
+        assert_eq!(min.inputs(), vec!["a".to_string()]);
+
+        let mean = VirtualSensorConfig::Mean {
+            inputs: vec!["a".to_string()],
+            window_s: None,
+        };
+        assert_eq!(mean.type_name(), "mean");
+        assert_eq!(mean.inputs(), vec!["a".to_string()]);
+
+        let offset = VirtualSensorConfig::Offset {
+            input: "a".to_string(),
+            add: 1.0,
+            scale: 2.0,
+        };
+        assert_eq!(offset.type_name(), "offset");
+        assert_eq!(offset.inputs(), vec!["a".to_string()]);
+
+        let delta = VirtualSensorConfig::Delta {
+            input: "a".to_string(),
+            window_s: 5.0,
+        };
+        assert_eq!(delta.type_name(), "delta");
+        assert_eq!(delta.inputs(), vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn validate_returns_dependency_order_for_spec_example() {
+        let cfg = GaleConfig::from_toml(VIRTUAL_SENSOR_SAMPLE).unwrap();
+        let profile = &cfg.profiles["default"];
+        let order = profile.validate_virtual_sensors().unwrap();
+        let smooth_pos = order.iter().position(|n| n == "coolant_smooth").unwrap();
+        let rise_pos = order.iter().position(|n| n == "coolant_rise").unwrap();
+        assert!(smooth_pos < rise_pos);
+        assert_eq!(
+            order,
+            vec![
+                "coolant_smooth".to_string(),
+                "coolant_rise".to_string(),
+                "cpu_hot".to_string(),
+                "gpu_adjusted".to_string(),
+            ]
+        );
+    }
+
+    fn profile_with_sensors(
+        sensors: impl Into<BTreeMap<String, VirtualSensorConfig>>,
+    ) -> ProfileConfig {
+        ProfileConfig {
+            curves: BTreeMap::new(),
+            assignments: BTreeMap::new(),
+            sensors: sensors.into(),
+        }
+    }
+
+    #[test]
+    fn rule_1_rejects_empty_name() {
+        let profile = profile_with_sensors([(
+            String::new(),
+            VirtualSensorConfig::Max {
+                inputs: vec!["hw/t1".to_string()],
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor name must not be empty".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_2_rejects_name_with_slash() {
+        let profile = profile_with_sensors([(
+            "a/b".to_string(),
+            VirtualSensorConfig::Max {
+                inputs: vec!["hw/t1".to_string()],
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor name 'a/b' must not contain '/'".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_3_rejects_empty_inputs() {
+        let profile =
+            profile_with_sensors([("x".to_string(), VirtualSensorConfig::Max { inputs: vec![] })]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' has no inputs".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_4_rejects_empty_input_id() {
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Max {
+                inputs: vec![String::new()],
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' has an empty input id".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_5_rejects_reference_to_undefined_virtual_sensor() {
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Max {
+                inputs: vec!["virtual/other".to_string()],
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' references undefined virtual sensor 'virtual/other'"
+                    .to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_6_rejects_non_finite_add_and_scale() {
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Offset {
+                input: "hw/t1".to_string(),
+                add: f64::NAN,
+                scale: 1.0,
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' has a non-finite add".to_string()
+            ))
+        );
+
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Offset {
+                input: "hw/t1".to_string(),
+                add: 0.0,
+                scale: f64::INFINITY,
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' has a non-finite scale".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_7_rejects_invalid_window_s() {
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Mean {
+                inputs: vec!["hw/t1".to_string()],
+                window_s: Some(0.0),
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' window_s must be a positive number".to_string()
+            ))
+        );
+
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Delta {
+                input: "hw/t1".to_string(),
+                window_s: f64::NAN,
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' window_s must be a positive number".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_8_rejects_cycle_between_two_sensors() {
+        let profile = profile_with_sensors([
+            (
+                "a".to_string(),
+                VirtualSensorConfig::Max {
+                    inputs: vec!["virtual/b".to_string()],
+                },
+            ),
+            (
+                "b".to_string(),
+                VirtualSensorConfig::Offset {
+                    input: "virtual/a".to_string(),
+                    add: 0.0,
+                    scale: 1.0,
+                },
+            ),
+        ]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor cycle: a -> b -> a".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_8_rejects_self_reference() {
+        let profile = profile_with_sensors([(
+            "s".to_string(),
+            VirtualSensorConfig::Min {
+                inputs: vec!["virtual/s".to_string()],
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor cycle: s -> s".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn hardware_sensors_used_resolves_through_virtual_chain() {
+        let profile = ProfileConfig {
+            curves: [(
+                "c".to_string(),
+                CurveConfig::Point {
+                    sensor: "virtual/a".to_string(),
+                    points: vec![[0.0, 0.0]],
+                    hysteresis: None,
+                    response: None,
+                },
+            )]
+            .into(),
+            assignments: [("pwm1".to_string(), "c".to_string())].into(),
+            sensors: [
+                (
+                    "a".to_string(),
+                    VirtualSensorConfig::Max {
+                        inputs: vec!["virtual/b".to_string(), "hw/t1".to_string()],
+                    },
+                ),
+                (
+                    "b".to_string(),
+                    VirtualSensorConfig::Offset {
+                        input: "hw/t2".to_string(),
+                        add: 0.0,
+                        scale: 1.0,
+                    },
+                ),
+                (
+                    "orphan".to_string(),
+                    VirtualSensorConfig::Max {
+                        inputs: vec!["hw/t9".to_string()],
+                    },
+                ),
+            ]
+            .into(),
+        };
+        assert_eq!(
+            profile.hardware_sensors_used(),
+            BTreeSet::from(["hw/t1".to_string(), "hw/t2".to_string()])
+        );
+    }
+
+    #[test]
+    fn hardware_sensors_used_drops_undefined_virtual_ids() {
+        let profile = ProfileConfig {
+            curves: [(
+                "c".to_string(),
+                CurveConfig::Point {
+                    sensor: "virtual/ghost".to_string(),
+                    points: vec![[0.0, 0.0]],
+                    hysteresis: None,
+                    response: None,
+                },
+            )]
+            .into(),
+            assignments: [("pwm1".to_string(), "c".to_string())].into(),
+            sensors: BTreeMap::new(),
+        };
+        assert!(profile.hardware_sensors_used().is_empty());
+    }
+
+    #[test]
+    fn hardware_sensors_used_matches_assigned_sensors_when_no_virtual_sensors() {
+        let profile = ProfileConfig {
+            curves: [
+                (
+                    "cpu".to_string(),
+                    CurveConfig::Point {
+                        sensor: "s_cpu".to_string(),
+                        points: vec![[0.0, 0.0]],
+                        hysteresis: None,
+                        response: None,
+                    },
+                ),
+                (
+                    "gpu".to_string(),
+                    CurveConfig::Point {
+                        sensor: "s_gpu".to_string(),
+                        points: vec![[0.0, 0.0]],
+                        hysteresis: None,
+                        response: None,
+                    },
+                ),
+                (
+                    "case".to_string(),
+                    CurveConfig::Mix {
+                        sources: vec!["cpu".to_string(), "gpu".to_string()],
+                        mode: MixMode::Max,
+                    },
+                ),
+            ]
+            .into(),
+            assignments: [("pwm1".to_string(), "case".to_string())].into(),
+            sensors: BTreeMap::new(),
+        };
+        assert_eq!(profile.hardware_sensors_used(), profile.assigned_sensors());
+        assert_eq!(
+            profile.hardware_sensors_used(),
+            BTreeSet::from(["s_cpu".to_string(), "s_gpu".to_string()])
+        );
     }
 }
