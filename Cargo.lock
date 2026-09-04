@@ -784,6 +784,7 @@ dependencies = [
  "http-body-util",
  "mime_guess",
  "notify",
+ "rand",
  "rust-embed",
  "serde",
  "serde_json",

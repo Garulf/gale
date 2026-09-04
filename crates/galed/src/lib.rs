@@ -13,3 +13,4 @@ pub mod shutdown;
 #[cfg(test)]
 pub mod test_support;
 pub mod ui_assets;
+pub mod webhooks;
