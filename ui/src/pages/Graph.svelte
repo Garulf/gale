@@ -6,7 +6,7 @@
   import { getConfig, putConfig, getInventory } from '../lib/api.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { page } from '../lib/page.js';
-  import { configToGraph, graphToConfig, edgeInto, replaceEdge } from '../lib/graph/model.js';
+  import { configToGraph, graphToConfig, edgeInto, replaceEdge, adoptSavedTokens } from '../lib/graph/model.js';
   import { isValidConnection } from '../lib/graph/validate.js';
   import { autoLayout } from '../lib/graph/layout.js';
   import { nodeKind, edgeId } from '../lib/graph/ids.js';
@@ -372,6 +372,9 @@
     try {
       const result = await putConfig(wireConfig);
       saveWarnings = (result && result.warnings) || [];
+      const saved = await getConfig();
+      config = saved;
+      nodes = adoptSavedTokens(nodes, saved.profiles[editingProfile]);
       dirty = false;
       await refreshWarnings();
     } catch (err) {

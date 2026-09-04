@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
+  import { getWebhookUrl } from '../../api.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
   import { tempValue, dutyValue, formatTemp, formatDuty, formatDeltaRate } from '../liveValues.js';
@@ -158,6 +159,50 @@
     updateVirtualField('window_s', enabled ? 10 : null);
   }
 
+  let webhookUrl = $state('');
+  let webhookUrlError = $state('');
+  let copied = $state(false);
+
+  let webhookKey = $derived.by(() => {
+    if (!node || node.type !== 'virtual') return '';
+    const config = node.data.virtual.config;
+    if (config.type !== 'webhook' || !config.token) return '';
+    return `${node.data.virtual.name}\n${config.token}`;
+  });
+
+  $effect(() => {
+    const key = webhookKey;
+    webhookUrl = '';
+    webhookUrlError = '';
+    copied = false;
+    if (!key) return;
+    const name = key.slice(0, key.indexOf('\n'));
+    let cancelled = false;
+    getWebhookUrl(name)
+      .then((result) => {
+        if (!cancelled) webhookUrl = result.url;
+      })
+      .catch((err) => {
+        if (!cancelled) webhookUrlError = err.message;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  function toggleWebhookTimeout(enabled) {
+    updateVirtualField('timeout_s', enabled ? 60 : null);
+  }
+
+  async function copyWebhookUrl() {
+    try {
+      await navigator.clipboard.writeText(webhookUrl);
+      copied = true;
+    } catch (err) {
+      webhookUrlError = err.message;
+    }
+  }
+
   function numberFromEvent(event) {
     const raw = event.target.value.trim();
     if (raw === '') return null;
@@ -180,7 +225,11 @@
     </label>
     <label class="inline">
       Type
-      <select value={node.data[node.type].config.type} onchange={(e) => onRetypeNode(node.id, e.target.value)}>
+      <select
+        data-testid="node-type"
+        value={node.data[node.type].config.type}
+        onchange={(e) => onRetypeNode(node.id, e.target.value)}
+      >
         {#each types as type}
           <option value={type}>{type}</option>
         {/each}
@@ -254,6 +303,44 @@
         </label>
       {/if}
     </fieldset>
+  {:else if config.type === 'webhook'}
+    <fieldset>
+      <legend>
+        <label>
+          <input
+            type="checkbox"
+            data-testid="webhook-expires"
+            checked={config.timeout_s != null}
+            onchange={(e) => toggleWebhookTimeout(e.target.checked)}
+          />
+          Unavailable when no value arrives in time
+        </label>
+      </legend>
+      {#if config.timeout_s != null}
+        <label class="inline">
+          timeout_s
+          <input
+            type="number"
+            data-testid="webhook-timeout"
+            value={config.timeout_s}
+            oninput={(e) => updateVirtualField('timeout_s', numberFromEvent(e))}
+          />
+        </label>
+      {/if}
+    </fieldset>
+    {#if !config.token}
+      <p class="mini">Save the profile to generate this sensor's URL.</p>
+    {:else if webhookUrlError}
+      <p class="error">{webhookUrlError}</p>
+    {:else}
+      <label class="inline url">
+        URL
+        <input type="text" class="url" data-testid="webhook-url" readonly value={webhookUrl} />
+      </label>
+      <button type="button" class="copy" data-testid="webhook-copy" disabled={!webhookUrl} onclick={copyWebhookUrl}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    {/if}
   {/if}
 
   <p class="mini">
@@ -507,5 +594,27 @@
     border-radius: 4px;
     padding: 0.35rem 0.8rem;
     cursor: pointer;
+  }
+
+  input.url {
+    width: 100%;
+    min-width: 18rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+  }
+
+  label.inline.url {
+    display: flex;
+    margin-right: 0;
+  }
+
+  button.copy {
+    background: none;
+    border: 1px solid #2a3745;
+    color: inherit;
+    border-radius: 4px;
+    padding: 0.25rem 0.7rem;
+    cursor: pointer;
+    margin-top: 0.4rem;
   }
 </style>
