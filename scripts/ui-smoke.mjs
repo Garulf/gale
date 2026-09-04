@@ -25,6 +25,13 @@ const CONTROL_EDGE_ID = 'curve:cpu:out->control:hwmon/nct6798:hwmon/nct6798/pwm1
 const LATE_SENSOR_EDGE_ID = `${SENSOR_NODE}:${TEMP5}->curve:late:sensor`;
 const LATE_CONTROL_EDGE_ID = `curve:late:out->${CONTROL_NODE}:${PWM5}`;
 const NEW_SENSOR_NAME = 'gpu_hot';
+const WEBHOOK_SENSOR_NAME = 'remote_temp';
+const WEBHOOK_NODE = `virtual:${WEBHOOK_SENSOR_NAME}`;
+const WEBHOOK_STATUS_ID = `virtual/${WEBHOOK_SENSOR_NAME}`;
+const WEBHOOK_VALUE = 51.5;
+const WEBHOOK_VALUE_TEXT = '51.5 C';
+const WEBHOOK_TIMEOUT_S = 0.5;
+const UNKNOWN_TOKEN = 'f'.repeat(64);
 
 if (!CHROME_PATH) {
   console.error('GALE_UI_SMOKE_CHROME is not set');
@@ -148,6 +155,111 @@ async function virtualNodeIds(page) {
   );
 }
 
+async function fetchStatus() {
+  const response = await fetch(`${BASE_URL}/api/status`);
+  assert(response.ok, `GET /api/status returned ${response.status}`);
+  return response.json();
+}
+
+async function waitForStatusSensor(id, predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    const status = await fetchStatus();
+    last = status.sensors[id];
+    if (predicate(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`status sensor ${id} never satisfied the predicate, last value ${JSON.stringify(last)}`);
+}
+
+async function postWebhook(token, value) {
+  return fetch(`${BASE_URL}/api/webhook/${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  });
+}
+
+async function setPanelInput(page, testId, value) {
+  await page.evaluate(
+    (testId, value) => {
+      const input = document.querySelector(`[data-testid="${testId}"]`);
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+    testId,
+    value
+  );
+}
+
+async function addVirtualNode(page) {
+  const before = await virtualNodeIds(page);
+  await page.evaluate(() => {
+    document.querySelector('.gale-toolbar .add-node-menu > button').click();
+  });
+  await page.waitForSelector('[data-testid="add-node-virtual"]', { timeout: 5000 });
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="add-node-virtual"]').click();
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('[data-node-id^="virtual:"]').length > n,
+    { timeout: 5000 },
+    before.length
+  );
+  const added = (await virtualNodeIds(page)).filter((id) => !before.includes(id));
+  assert(added.length === 1, `expected exactly one new virtual node, got ${added.join(', ')}`);
+  await page.waitForSelector('[data-testid="virtual-sensor-name"]', { timeout: 5000 });
+  return added[0];
+}
+
+async function renameSelectedVirtualNode(page, name) {
+  await setPanelInput(page, 'virtual-sensor-name', name);
+  await page.evaluate(() => document.querySelector('[data-testid="virtual-sensor-name"]').blur());
+  await page.waitForSelector(`[data-node-id="virtual:${name}"]`, { timeout: 5000 });
+}
+
+function nodeOutputSelector(nodeId) {
+  return `[data-node-id="${nodeId}"] .row.out .val`;
+}
+
+async function webhookPanelState(page) {
+  return page.evaluate(() => {
+    const url = document.querySelector('[data-testid="webhook-url"]');
+    const copy = document.querySelector('[data-testid="webhook-copy"]');
+    const error = document.querySelector('.panel p.error, p.error');
+    return {
+      url: url ? url.value : null,
+      copy: copy ? copy.textContent.trim() : null,
+      error: error ? error.textContent.trim() : null,
+    };
+  });
+}
+
+async function waitForWebhookPanel(page, predicate, description) {
+  const deadline = Date.now() + 5000;
+  let state;
+  while (Date.now() < deadline) {
+    state = await webhookPanelState(page);
+    if (predicate(state)) return state;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`${description}, panel state ${JSON.stringify(state)}`);
+}
+
+async function waitForNodeOutput(page, nodeId, text) {
+  await page.waitForFunction(
+    (selector, text) => {
+      const el = document.querySelector(selector);
+      return !!el && el.textContent.trim() === text;
+    },
+    { timeout: 5000 },
+    nodeOutputSelector(nodeId),
+    text
+  );
+}
+
 async function main() {
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
@@ -158,6 +270,7 @@ async function main() {
   let dialogMessage = null;
   try {
     const page = await browser.newPage();
+    await browser.defaultBrowserContext().overridePermissions(BASE_URL, ['clipboard-read', 'clipboard-sanitized-write']);
     await page.setViewport({ width: 1600, height: 1000 });
     page.on('dialog', async (dialog) => {
       dialogMessage = dialog.message();
@@ -334,35 +447,12 @@ async function main() {
     });
 
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {
-      const before = await virtualNodeIds(page);
-      await page.evaluate(() => {
-        document.querySelector('.gale-toolbar .add-node-menu > button').click();
-      });
-      await page.waitForSelector('[data-testid="add-node-virtual"]', { timeout: 5000 });
-      await page.evaluate(() => {
-        document.querySelector('[data-testid="add-node-virtual"]').click();
-      });
-      await page.waitForFunction(
-        (n) => document.querySelectorAll('[data-node-id^="virtual:"]').length > n,
-        { timeout: 5000 },
-        before.length
-      );
-      const added = (await virtualNodeIds(page)).filter((id) => !before.includes(id));
-      assert(added.length === 1, `expected exactly one new virtual node, got ${added.join(', ')}`);
-
-      await page.waitForSelector('[data-testid="virtual-sensor-name"]', { timeout: 5000 });
-      await page.evaluate((name) => {
-        const input = document.querySelector('[data-testid="virtual-sensor-name"]');
-        input.value = name;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        input.blur();
-      }, NEW_SENSOR_NAME);
+      const addedId = await addVirtualNode(page);
+      await renameSelectedVirtualNode(page, NEW_SENSOR_NAME);
       const newNodeId = `virtual:${NEW_SENSOR_NAME}`;
-      await page.waitForSelector(`[data-node-id="${newNodeId}"]`, { timeout: 5000 });
       assert(
-        !(await page.$(`[data-node-id="${added[0]}"]`)),
-        `renamed node still present under its old id ${added[0]}`
+        !(await page.$(`[data-node-id="${addedId}"]`)),
+        `renamed node still present under its old id ${addedId}`
       );
 
       await page.waitForSelector(handleSelector(newNodeId, 'in-0'), { timeout: 5000 });
@@ -408,6 +498,74 @@ async function main() {
       await saveGraph(page);
       const config = await fetchConfig();
       deepStrictEqual(config.profiles.default.assignments, { [PWM5]: 'late' });
+    });
+
+    let webhookToken = '';
+    await record('adding a webhook node saves with a daemon-generated token and no inputs', async () => {
+      await addVirtualNode(page);
+      await renameSelectedVirtualNode(page, WEBHOOK_SENSOR_NAME);
+      await setPanelInput(page, 'node-type', 'webhook');
+      await page.waitForFunction(
+        (nodeId) =>
+          document.querySelectorAll(`[data-node-id="${nodeId}"] [data-handleid^="in"]`).length === 0 &&
+          !document.querySelector(`[data-node-id="${nodeId}"] [data-node-warning]`),
+        { timeout: 5000 },
+        WEBHOOK_NODE
+      );
+      await page.waitForSelector('[data-testid="webhook-expires"]', { timeout: 5000 });
+      await waitForNodeOutput(page, WEBHOOK_NODE, 'n/a');
+
+      await saveGraph(page);
+      const config = await fetchConfig();
+      const sensor = config.profiles.default.sensors[WEBHOOK_SENSOR_NAME];
+      assert(sensor && sensor.type === 'webhook', `expected a webhook sensor, got ${JSON.stringify(sensor)}`);
+      assert(/^[0-9a-f]{64}$/.test(sensor.token), `token is not 64 lowercase hex chars: ${sensor.token}`);
+      assert(!('timeout_s' in sensor), `timeout_s should be absent, got ${JSON.stringify(sensor)}`);
+      assert(!('inputs' in sensor) && !('input' in sensor), `webhook sensor should carry no inputs: ${JSON.stringify(sensor)}`);
+      webhookToken = sensor.token;
+    });
+
+    await record('the panel shows the saved webhook URL and the copy button puts it on the clipboard', async () => {
+      const expected = `${BASE_URL}/api/webhook/${webhookToken}`;
+      await waitForWebhookPanel(page, (state) => state.url === expected, `panel never showed ${expected}`);
+      await page.evaluate(() => document.querySelector('[data-testid="webhook-copy"]').click());
+      await waitForWebhookPanel(page, (state) => state.copy === 'Copied', 'copy button never read Copied');
+      const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+      assert(clipboard === expected, `clipboard holds ${clipboard}, expected ${expected}`);
+
+      await saveGraph(page);
+      const config = await fetchConfig();
+      assert(
+        config.profiles.default.sensors[WEBHOOK_SENSOR_NAME].token === webhookToken,
+        'a second save rotated the webhook token'
+      );
+    });
+
+    await record('POSTing a value to the webhook URL shows on the node and in status', async () => {
+      const response = await postWebhook(webhookToken, WEBHOOK_VALUE);
+      assert(response.status === 204, `expected 204 from the webhook, got ${response.status}`);
+      await waitForStatusSensor(WEBHOOK_STATUS_ID, (v) => v === WEBHOOK_VALUE, 5000);
+      await waitForNodeOutput(page, WEBHOOK_NODE, WEBHOOK_VALUE_TEXT);
+      const wrongToken = await postWebhook(UNKNOWN_TOKEN, 1);
+      assert(wrongToken.status === 404, `unknown token should be 404, got ${wrongToken.status}`);
+    });
+
+    await record('a webhook value expires after timeout_s and the node reads n/a again', async () => {
+      await page.evaluate(() => document.querySelector('[data-testid="webhook-expires"]').click());
+      await page.waitForSelector('[data-testid="webhook-timeout"]', { timeout: 5000 });
+      await setPanelInput(page, 'webhook-timeout', String(WEBHOOK_TIMEOUT_S));
+      await saveGraph(page);
+      const config = await fetchConfig();
+      assert(
+        config.profiles.default.sensors[WEBHOOK_SENSOR_NAME].timeout_s === WEBHOOK_TIMEOUT_S,
+        `timeout_s did not save: ${JSON.stringify(config.profiles.default.sensors[WEBHOOK_SENSOR_NAME])}`
+      );
+
+      const response = await postWebhook(webhookToken, WEBHOOK_VALUE);
+      assert(response.status === 204, `expected 204 from the webhook, got ${response.status}`);
+      await waitForStatusSensor(WEBHOOK_STATUS_ID, (v) => v === WEBHOOK_VALUE, 5000);
+      await waitForStatusSensor(WEBHOOK_STATUS_ID, (v) => v === null, 5000);
+      await waitForNodeOutput(page, WEBHOOK_NODE, 'n/a');
     });
 
     await record('Save round-trips 204', async () => {
