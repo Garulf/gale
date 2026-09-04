@@ -191,9 +191,9 @@ impl VirtualSensors {
                         None => None,
                     }
                 }
-                NodeKind::Offset { input, add, scale } => read(sensors, input)
-                    .map(|v| v * *scale + *add)
-                    .and_then(finite),
+                NodeKind::Offset { input, add, scale } => {
+                    read(sensors, input).map(|v| v * *scale + *add)
+                }
                 NodeKind::Delta { input, window } => {
                     window.advance(dt_secs);
                     match read(sensors, input) {
@@ -205,7 +205,7 @@ impl VirtualSensors {
                     }
                 }
             };
-            sensors.insert(node.id.clone(), output);
+            sensors.insert(node.id.clone(), output.and_then(finite));
         }
     }
 }
@@ -362,6 +362,71 @@ mod tests {
         let mut map = sensors(&[("t", Some(1.0e10))]);
         vs.evaluate(&mut map, 1.0);
         assert_eq!(map[&virtual_id("o")], None);
+    }
+
+    #[test]
+    fn max_maps_non_finite_results_to_none() {
+        let profile = parse_profile(
+            r#"
+            [sensors.m]
+            type = "max"
+            inputs = ["a", "b"]
+            "#,
+        );
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+        let mut map = sensors(&[("a", Some(f64::INFINITY)), ("b", Some(10.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("m")], None);
+    }
+
+    #[test]
+    fn min_maps_non_finite_results_to_none() {
+        let profile = parse_profile(
+            r#"
+            [sensors.m]
+            type = "min"
+            inputs = ["a", "b"]
+            "#,
+        );
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+        let mut map = sensors(&[("a", Some(f64::NEG_INFINITY)), ("b", Some(10.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("m")], None);
+    }
+
+    #[test]
+    fn mean_maps_non_finite_results_to_none() {
+        let profile = parse_profile(
+            r#"
+            [sensors.m]
+            type = "mean"
+            inputs = ["a"]
+            "#,
+        );
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+        let mut map = sensors(&[("a", Some(f64::NAN))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("m")], None);
+    }
+
+    #[test]
+    fn delta_maps_non_finite_results_to_none() {
+        let profile = parse_profile(
+            r#"
+            [sensors.d]
+            type = "delta"
+            input = "t"
+            window_s = 60.0
+            "#,
+        );
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+
+        let mut map = sensors(&[("t", Some(0.0))]);
+        vs.evaluate(&mut map, 10.0);
+
+        let mut map = sensors(&[("t", Some(f64::INFINITY))]);
+        vs.evaluate(&mut map, 10.0);
+        assert_eq!(map[&virtual_id("d")], None);
     }
 
     #[test]

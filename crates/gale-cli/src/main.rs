@@ -177,10 +177,10 @@ fn render_inventory(inventory: &Value) -> String {
         if !virtual_sensors.is_empty() {
             out.push_str("virtual:\n");
             for sensor in virtual_sensors {
-                let empty = Vec::new();
                 let inputs: Vec<&str> = sensor["inputs"]
                     .as_array()
-                    .unwrap_or(&empty)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[])
                     .iter()
                     .map(|v| v.as_str().unwrap_or(""))
                     .collect();

@@ -294,42 +294,78 @@ impl ProfileConfig {
         let mut order = Vec::new();
         let mut visited = BTreeSet::new();
         for name in self.sensors.keys() {
-            self.order_virtual_sensor(name, &mut visited, &mut Vec::new(), &mut order)?;
+            self.order_virtual_sensor(name, &mut visited, &mut order)?;
         }
         Ok(order)
+    }
+
+    fn virtual_dependencies(&self, name: &str) -> Vec<String> {
+        self.sensors
+            .get(name)
+            .map(|cfg| {
+                cfg.inputs()
+                    .into_iter()
+                    .filter_map(|input| virtual_name(&input).map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn order_virtual_sensor(
         &self,
         name: &str,
         visited: &mut BTreeSet<String>,
-        stack: &mut Vec<String>,
         order: &mut Vec<String>,
     ) -> Result<(), ConfigError> {
         if visited.contains(name) {
             return Ok(());
         }
-        if let Some(pos) = stack.iter().position(|n| n == name) {
-            let mut cycle = stack[pos..].to_vec();
-            cycle.push(name.to_string());
-            return Err(ConfigError::Invalid(format!(
-                "virtual sensor cycle: {}",
-                cycle.join(" -> ")
-            )));
+
+        struct Frame {
+            name: String,
+            children: Vec<String>,
+            next: usize,
         }
 
-        stack.push(name.to_string());
-        if let Some(cfg) = self.sensors.get(name) {
-            for input in cfg.inputs() {
-                if let Some(dependency) = virtual_name(&input) {
-                    self.order_virtual_sensor(dependency, visited, stack, order)?;
+        let mut stack = vec![Frame {
+            name: name.to_string(),
+            children: self.virtual_dependencies(name),
+            next: 0,
+        }];
+
+        while !stack.is_empty() {
+            let top = stack.len() - 1;
+            if stack[top].next < stack[top].children.len() {
+                let child = stack[top].children[stack[top].next].clone();
+                stack[top].next += 1;
+
+                if visited.contains(&child) {
+                    continue;
                 }
+                if let Some(pos) = stack.iter().position(|frame| frame.name == child) {
+                    let mut cycle: Vec<String> = stack[pos..]
+                        .iter()
+                        .map(|frame| frame.name.clone())
+                        .collect();
+                    cycle.push(child);
+                    return Err(ConfigError::Invalid(format!(
+                        "virtual sensor cycle: {}",
+                        cycle.join(" -> ")
+                    )));
+                }
+
+                let children = self.virtual_dependencies(&child);
+                stack.push(Frame {
+                    name: child,
+                    children,
+                    next: 0,
+                });
+            } else {
+                let done = stack.pop().expect("stack is non-empty");
+                visited.insert(done.name.clone());
+                order.push(done.name);
             }
         }
-        stack.pop();
-
-        visited.insert(name.to_string());
-        order.push(name.to_string());
         Ok(())
     }
 
@@ -907,6 +943,21 @@ scale = 1.0
     }
 
     #[test]
+    fn unknown_virtual_sensor_type_is_a_parse_error() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default.sensors.bogus]
+type = "bogus"
+inputs = ["hw/t1"]
+"#;
+        assert!(matches!(
+            GaleConfig::from_toml(toml),
+            Err(ConfigError::Parse(_))
+        ));
+    }
+
+    #[test]
     fn config_without_sensors_table_parses_as_before() {
         let cfg = GaleConfig::from_toml(SAMPLE).unwrap();
         assert!(cfg.profiles["quiet"].sensors.is_empty());
@@ -973,6 +1024,67 @@ scale = 1.0
                 "gpu_adjusted".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn validate_orders_diamond_dependencies_before_their_shared_ancestor() {
+        let profile = profile_with_sensors([
+            (
+                "a".to_string(),
+                VirtualSensorConfig::Max {
+                    inputs: vec!["virtual/b".to_string(), "virtual/c".to_string()],
+                },
+            ),
+            (
+                "b".to_string(),
+                VirtualSensorConfig::Offset {
+                    input: "hw/d".to_string(),
+                    add: 1.0,
+                    scale: 1.0,
+                },
+            ),
+            (
+                "c".to_string(),
+                VirtualSensorConfig::Offset {
+                    input: "hw/d".to_string(),
+                    add: 2.0,
+                    scale: 1.0,
+                },
+            ),
+        ]);
+        let order = profile.validate_virtual_sensors().unwrap();
+        let a_pos = order.iter().position(|n| n == "a").unwrap();
+        let b_pos = order.iter().position(|n| n == "b").unwrap();
+        let c_pos = order.iter().position(|n| n == "c").unwrap();
+        assert!(b_pos < a_pos);
+        assert!(c_pos < a_pos);
+    }
+
+    #[test]
+    fn validate_handles_a_very_long_chain_without_overflowing_the_stack() {
+        const DEPTH: usize = 2000;
+        let mut sensors: BTreeMap<String, VirtualSensorConfig> = BTreeMap::new();
+        sensors.insert(
+            "s0".to_string(),
+            VirtualSensorConfig::Offset {
+                input: "hw/t".to_string(),
+                add: 0.0,
+                scale: 1.0,
+            },
+        );
+        for i in 1..DEPTH {
+            sensors.insert(
+                format!("s{i}"),
+                VirtualSensorConfig::Offset {
+                    input: format!("virtual/s{}", i - 1),
+                    add: 0.0,
+                    scale: 1.0,
+                },
+            );
+        }
+        let profile = profile_with_sensors(sensors);
+        let order = profile.validate_virtual_sensors().unwrap();
+        assert_eq!(order.len(), DEPTH);
     }
 
     fn profile_with_sensors(

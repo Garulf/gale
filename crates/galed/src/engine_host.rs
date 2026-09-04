@@ -1,7 +1,7 @@
 use crate::backend_pool::BackendPool;
 use crate::claims_journal::{self, JournalEntry};
 use gale_core::build::build_engine;
-use gale_core::config::{ConfigError, GaleConfig};
+use gale_core::config::{ConfigError, GaleConfig, ProfileConfig, VirtualSensorConfig};
 use gale_core::engine::FanEngine;
 use gale_hw::{HwError, Id};
 use serde::Serialize;
@@ -79,18 +79,50 @@ impl EngineHost {
     }
 
     pub fn config_warnings(&self, config: &GaleConfig) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if let Some(profile) = config.profiles.get(&config.active_profile) {
+            warnings.extend(Self::window_warnings(profile, config.tick_interval_ms));
+        }
+
         let known = self.known_sensors.read().unwrap();
         if known.is_empty() {
-            return Vec::new();
+            return warnings;
         }
         let Some(profile) = config.profiles.get(&config.active_profile) else {
-            return Vec::new();
+            return warnings;
         };
+        warnings.extend(
+            profile
+                .hardware_sensors_used()
+                .into_iter()
+                .filter(|sensor| !known.contains(sensor))
+                .map(|sensor| format!("referenced sensor not found on hardware: {sensor}")),
+        );
+        warnings
+    }
+
+    fn window_warnings(profile: &ProfileConfig, tick_interval_ms: u64) -> Vec<String> {
+        let tick_interval_s = tick_interval_ms as f64 / 1000.0;
         profile
-            .hardware_sensors_used()
-            .into_iter()
-            .filter(|sensor| !known.contains(sensor))
-            .map(|sensor| format!("referenced sensor not found on hardware: {sensor}"))
+            .sensors
+            .iter()
+            .filter_map(|(name, cfg)| {
+                let window_s = match cfg {
+                    VirtualSensorConfig::Mean {
+                        window_s: Some(window_s),
+                        ..
+                    } => Some(*window_s),
+                    VirtualSensorConfig::Delta { window_s, .. } => Some(*window_s),
+                    _ => None,
+                }?;
+                if window_s < tick_interval_s {
+                    Some(format!(
+                        "virtual sensor '{name}' has window_s shorter than the tick interval and will not smooth or measure correctly"
+                    ))
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
@@ -489,6 +521,91 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 [profiles.p.assignments]
 "pwm1" = "cpu"
 "#;
+
+    #[test]
+    fn config_warnings_flags_windowed_sensors_shorter_than_the_tick_interval() {
+        const CONFIG_SHORT_WINDOWS: &str = r#"
+tick_interval_ms = 1000
+active_profile = "p"
+
+[profiles.p.curves.c]
+type = "flat"
+duty = 50.0
+
+[profiles.p.assignments]
+"pwm1" = "c"
+
+[profiles.p.sensors.coolant_smooth]
+type = "mean"
+inputs = ["t1"]
+window_s = 0.5
+
+[profiles.p.sensors.coolant_rise]
+type = "delta"
+input = "t1"
+window_s = 0.9
+"#;
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        let config = GaleConfig::from_toml(CONFIG_SHORT_WINDOWS).unwrap();
+        let warnings = host.config_warnings(&config);
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("coolant_smooth") && w.contains("tick interval")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("coolant_rise") && w.contains("tick interval")));
+    }
+
+    #[test]
+    fn config_warnings_does_not_flag_windows_at_or_above_the_tick_interval() {
+        const CONFIG_LONG_WINDOWS: &str = r#"
+tick_interval_ms = 1000
+active_profile = "p"
+
+[profiles.p.curves.c]
+type = "flat"
+duty = 50.0
+
+[profiles.p.assignments]
+"pwm1" = "c"
+
+[profiles.p.sensors.coolant_smooth]
+type = "mean"
+inputs = ["t1"]
+window_s = 1.0
+
+[profiles.p.sensors.coolant_rise]
+type = "delta"
+input = "t1"
+window_s = 2.0
+"#;
+        let (host, _state) = setup(&[("t1", Some(50.0))]);
+        let config = GaleConfig::from_toml(CONFIG_LONG_WINDOWS).unwrap();
+        assert!(host.config_warnings(&config).is_empty());
+    }
+
+    #[test]
+    fn config_warnings_never_flags_non_windowed_virtual_sensors() {
+        const CONFIG_NON_WINDOWED: &str = r#"
+tick_interval_ms = 100
+active_profile = "p"
+
+[profiles.p.curves.c]
+type = "flat"
+duty = 50.0
+
+[profiles.p.assignments]
+"pwm1" = "c"
+
+[profiles.p.sensors.cpu_hot]
+type = "max"
+inputs = ["t1", "t2"]
+"#;
+        let (host, _state) = setup(&[("t1", Some(50.0)), ("t2", Some(60.0))]);
+        let config = GaleConfig::from_toml(CONFIG_NON_WINDOWED).unwrap();
+        assert!(host.config_warnings(&config).is_empty());
+    }
 
     #[test]
     fn config_warnings_resolve_virtual_sensors_to_hardware_inputs() {
