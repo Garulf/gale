@@ -1,4 +1,4 @@
-import { nodeKind, deviceOf } from './ids.js';
+import { nodeKind, deviceOf, isZeroInputVirtualType } from './ids.js';
 import { virtualId } from '../sensors.js';
 
 const ID_CHAR = /[A-Za-z0-9_./-]/;
@@ -72,7 +72,11 @@ export function unwiredRequiredInputs(nodes, edges) {
       } else if (type === 'mix' && !hasEdgeInto(edges, node.id)) {
         flagged.push({ nodeId: node.id, message: 'no inputs are wired' });
       }
-    } else if (node.type === 'virtual' && !hasEdgeInto(edges, node.id)) {
+    } else if (
+      node.type === 'virtual' &&
+      !isZeroInputVirtualType(node.data.virtual.config.type) &&
+      !hasEdgeInto(edges, node.id)
+    ) {
       flagged.push({ nodeId: node.id, message: 'no inputs are wired' });
     }
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configToGraph, graphToConfig } from '../../src/lib/graph/model.js';
+import { configToGraph, graphToConfig, adoptSavedTokens } from '../../src/lib/graph/model.js';
 
 function fixtureAConfig() {
   return {
@@ -237,6 +237,75 @@ function wideDeviceInventory() {
     controls: [1, 2, 3, 4, 5].map((n) => ({ id: `hwmon/chipA/pwm${n}`, label: `pwm${n}` })),
   };
 }
+
+function webhookConfig() {
+  return {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {
+          remote: { type: 'webhook', token: 'abc', timeout_s: 60 },
+          forever: { type: 'webhook', token: 'def' },
+        },
+        curves: {
+          cpu: { type: 'point', sensor: 'virtual/remote', points: [[30, 20], [70, 100]] },
+        },
+        assignments: {},
+      },
+    },
+  };
+}
+
+function webhookInventory() {
+  return { sensors: [], controls: [] };
+}
+
+test('configToGraph builds webhook nodes with no incoming edges', () => {
+  const { nodes, edges } = configToGraph(webhookConfig(), webhookInventory(), 'default');
+  const ids = nodes.map((node) => node.id);
+  assert.ok(ids.includes('virtual:remote'));
+  assert.ok(ids.includes('virtual:forever'));
+  assert.equal(edges.filter((e) => e.target === 'virtual:remote').length, 0);
+  assert.equal(edges.length, 1);
+  assert.equal(edges[0].id, 'virtual:remote:out->curve:cpu:sensor');
+});
+
+test('graphToConfig round-trips webhook sensors without adding an input field', () => {
+  const config = webhookConfig();
+  const { nodes, edges } = configToGraph(config, webhookInventory(), 'default');
+  const result = graphToConfig(nodes, edges, config, 'default');
+  assert.deepEqual(result.profiles.default.sensors, webhookConfig().profiles.default.sensors);
+  assert.ok(!('input' in result.profiles.default.sensors.remote));
+  assert.ok(!('inputs' in result.profiles.default.sensors.remote));
+  assert.ok(!('input' in result.profiles.default.sensors.forever));
+  assert.ok(!('inputs' in result.profiles.default.sensors.forever));
+});
+
+test('adoptSavedTokens fills empty webhook tokens from the saved profile and leaves everything else alone', () => {
+  const nodes = [
+    { id: 'virtual:remote', type: 'virtual', data: { virtual: { name: 'remote', config: { type: 'webhook', token: '', timeout_s: null } } } },
+    { id: 'virtual:forever', type: 'virtual', data: { virtual: { name: 'forever', config: { type: 'webhook', token: 'keep', timeout_s: null } } } },
+    { id: 'virtual:hot', type: 'virtual', data: { virtual: { name: 'hot', config: { type: 'max', inputs: [] } } } },
+  ];
+  const savedProfile = {
+    sensors: {
+      remote: { type: 'webhook', token: 'newtoken' },
+      forever: { type: 'webhook', token: 'other' },
+      hot: { type: 'max', inputs: [] },
+    },
+  };
+  const result = adoptSavedTokens(nodes, savedProfile);
+  assert.equal(result.find((n) => n.id === 'virtual:remote').data.virtual.config.token, 'newtoken');
+  assert.equal(result.find((n) => n.id === 'virtual:forever').data.virtual.config.token, 'keep');
+  assert.equal(result.find((n) => n.id === 'virtual:hot'), nodes[2]);
+
+  const withMissing = [
+    { id: 'virtual:ghost', type: 'virtual', data: { virtual: { name: 'ghost', config: { type: 'webhook', token: '', timeout_s: null } } } },
+  ];
+  const missingResult = adoptSavedTokens(withMissing, { sensors: {} });
+  assert.equal(missingResult[0], withMissing[0]);
+});
 
 test('configToGraph marks device rows wired by their edges regardless of row position', () => {
   const { nodes } = configToGraph(wideDeviceConfig(), wideDeviceInventory(), 'default');

@@ -212,7 +212,7 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
     const sensorConfig = { ...node.data.virtual.config };
     if ('inputs' in sensorConfig) {
       sensorConfig.inputs = inputIds;
-    } else {
+    } else if ('input' in sensorConfig) {
       sensorConfig.input = inputIds.length > 0 ? inputIds[0] : '';
     }
     profile.sensors[name] = sensorConfig;
@@ -278,4 +278,19 @@ export function isSingleInputHandle(nodeType, targetHandle) {
 export function replaceEdge(edges, newEdge, target, targetHandle) {
   const remaining = edges.filter((edge) => !(edge.target === target && edge.targetHandle === targetHandle));
   return [...remaining, newEdge];
+}
+
+export function adoptSavedTokens(nodes, savedProfile) {
+  const sensors = (savedProfile && savedProfile.sensors) || {};
+  return nodes.map((node) => {
+    if (node.type !== 'virtual') return node;
+    const config = node.data.virtual.config;
+    if (config.type !== 'webhook' || config.token) return node;
+    const saved = sensors[node.data.virtual.name];
+    if (!saved || saved.type !== 'webhook' || !saved.token) return node;
+    return {
+      ...node,
+      data: { ...node.data, virtual: { ...node.data.virtual, config: { ...config, token: saved.token } } },
+    };
+  });
 }

@@ -52,7 +52,14 @@ export function isSingleInputVirtualType(type) {
   return SINGLE_INPUT_VIRTUAL_TYPES.includes(type);
 }
 
+export const ZERO_INPUT_VIRTUAL_TYPES = ['webhook'];
+
+export function isZeroInputVirtualType(type) {
+  return ZERO_INPUT_VIRTUAL_TYPES.includes(type);
+}
+
 export function virtualInputHandles(type, count) {
+  if (isZeroInputVirtualType(type)) return [];
   if (isSingleInputVirtualType(type)) return ['in'];
   return Array.from({ length: count }, (_, i) => `in-${i}`);
 }

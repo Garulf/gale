@@ -30,8 +30,8 @@ test('isVirtualId recognizes virtual ids', () => {
   assert.equal(isVirtualId(42), false);
 });
 
-test('SENSOR_TYPES lists the five virtual sensor types', () => {
-  assert.deepEqual(SENSOR_TYPES, ['max', 'min', 'mean', 'offset', 'delta']);
+test('SENSOR_TYPES lists the six virtual sensor types', () => {
+  assert.deepEqual(SENSOR_TYPES, ['max', 'min', 'mean', 'offset', 'delta', 'webhook']);
 });
 
 test('sensorOptions lists hardware first then virtual, sorted', () => {
@@ -81,11 +81,13 @@ test('defaultVirtualSensor returns the right shape for each type', () => {
     scale: 1,
   });
   assert.deepEqual(defaultVirtualSensor('delta'), { type: 'delta', input: '', window_s: 30 });
+  assert.deepEqual(defaultVirtualSensor('webhook'), { type: 'webhook', token: '', timeout_s: null });
 });
 
 test('virtualSensorInputs returns inputs array or wraps input', () => {
   assert.deepEqual(virtualSensorInputs({ type: 'max', inputs: ['a', 'b'] }), ['a', 'b']);
   assert.deepEqual(virtualSensorInputs({ type: 'offset', input: 't' }), ['t']);
+  assert.deepEqual(virtualSensorInputs({ type: 'webhook', token: 'abc' }), []);
 });
 
 test('virtualSensorReferences finds curves and sensors referencing a name', () => {
@@ -174,4 +176,33 @@ test('virtualSensorValidationError allows a positive window_s for mean', () => {
 
 test('virtualSensorValidationError allows an absent window_s for mean', () => {
   assert.equal(virtualSensorValidationError('m', { type: 'mean', inputs: ['t'] }), '');
+});
+
+test('virtualSensorValidationError checks webhook timeout_s the way it checks mean window_s', () => {
+  assert.equal(
+    virtualSensorValidationError('w', { type: 'webhook', token: '', timeout_s: 0 }),
+    'Sensor "w": timeout_s must be a positive number'
+  );
+  assert.equal(
+    virtualSensorValidationError('w', { type: 'webhook', token: '', timeout_s: -5 }),
+    'Sensor "w": timeout_s must be a positive number'
+  );
+  assert.equal(
+    virtualSensorValidationError('w', { type: 'webhook', token: '', timeout_s: null }),
+    ''
+  );
+  assert.equal(virtualSensorValidationError('w', { type: 'webhook', token: '' }), '');
+  assert.equal(
+    virtualSensorValidationError('w', { type: 'webhook', token: '', timeout_s: 30 }),
+    ''
+  );
+});
+
+test('virtualSensorReferences sees a webhook as a reference source but never a target', () => {
+  const sensors = {
+    hook: { type: 'webhook', token: 't' },
+    agg: { type: 'max', inputs: ['virtual/hook'] },
+  };
+  assert.deepEqual(virtualSensorReferences('hook', {}, sensors), ['sensor "agg"']);
+  assert.deepEqual(virtualSensorReferences('agg', {}, sensors), []);
 });

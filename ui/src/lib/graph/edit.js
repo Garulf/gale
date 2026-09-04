@@ -4,6 +4,7 @@ import {
   combineNodeId,
   isCombineType,
   isSingleInputVirtualType,
+  isZeroInputVirtualType,
   nodeKind,
   edgeId,
 } from './ids.js';
@@ -64,6 +65,8 @@ export function renameNode(nodes, edges, id, name) {
 }
 
 function virtualHandleRemap(oldType, newType) {
+  if (isZeroInputVirtualType(newType)) return () => null;
+  if (isZeroInputVirtualType(oldType)) return keepHandle;
   const wasSingle = isSingleInputVirtualType(oldType);
   const isSingle = isSingleInputVirtualType(newType);
   if (wasSingle === isSingle) return keepHandle;

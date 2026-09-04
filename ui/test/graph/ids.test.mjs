@@ -14,6 +14,7 @@ import {
   nodeName,
   edgeId,
   virtualInputHandles,
+  isZeroInputVirtualType,
 } from '../../src/lib/graph/ids.js';
 
 test('deviceOf strips the trailing channel segment', () => {
@@ -74,4 +75,11 @@ test('virtualInputHandles is always numbered for max/min/mean, even with a singl
   assert.deepEqual(virtualInputHandles('min', 1), ['in-0']);
   assert.deepEqual(virtualInputHandles('mean', 1), ['in-0']);
   assert.deepEqual(virtualInputHandles('max', 3), ['in-0', 'in-1', 'in-2']);
+});
+
+test('virtualInputHandles is empty for webhook regardless of count', () => {
+  assert.deepEqual(virtualInputHandles('webhook', 0), []);
+  assert.deepEqual(virtualInputHandles('webhook', 3), []);
+  assert.equal(isZeroInputVirtualType('webhook'), true);
+  assert.equal(isZeroInputVirtualType('offset'), false);
 });

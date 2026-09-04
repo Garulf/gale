@@ -84,3 +84,7 @@ export function releaseControl(id) {
 export function getWarnings() {
   return requestJson('/api/warnings');
 }
+
+export function getWebhookUrl(name) {
+  return requestJson(`/api/webhook-url/${encodeURIComponent(name)}`);
+}

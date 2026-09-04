@@ -107,6 +107,25 @@ test('changeVirtualType to the same type returns the inputs untouched', () => {
   assert.equal(result.edges, edges);
 });
 
+test('changeVirtualType to webhook drops every incoming edge and keeps the output edge', () => {
+  const { nodes, edges } = fixture();
+  const result = changeVirtualType(nodes, edges, 'virtual:hot', 'webhook');
+  const node = result.nodes.find((n) => n.id === 'virtual:hot');
+  assert.deepEqual(node.data.virtual.config, { type: 'webhook', token: '', timeout_s: null });
+  assert.equal(result.edges.filter((e) => e.target === 'virtual:hot').length, 0);
+  assert.equal(result.edges.some((e) => e.source === 'virtual:hot' && e.target === 'curve:cpu'), true);
+  assert.equal(result.edges.length, edges.length - 2);
+});
+
+test('changeVirtualType from webhook to max yields a node with no inputs and no incoming edges', () => {
+  const { nodes, edges } = fixture();
+  const toWebhook = changeVirtualType(nodes, edges, 'virtual:hot', 'webhook');
+  const result = changeVirtualType(toWebhook.nodes, toWebhook.edges, 'virtual:hot', 'max');
+  const node = result.nodes.find((n) => n.id === 'virtual:hot');
+  assert.deepEqual(node.data.virtual.config, { type: 'max', inputs: [] });
+  assert.equal(result.edges.filter((e) => e.target === 'virtual:hot').length, 0);
+});
+
 test('changeCurveType between sensor-driven types keeps the sensor edge and the output edge', () => {
   const { nodes, edges } = fixture();
   const result = changeCurveType(nodes, edges, 'curve:cpu', 'trigger');

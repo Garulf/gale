@@ -111,6 +111,15 @@ test('a virtual sensor with no inputs is flagged, a wired one is not', () => {
   assert.deepEqual(flagged, ['virtual:empty']);
 });
 
+test('a webhook virtual sensor is never flagged for having no inputs', () => {
+  const nodes = [
+    virtual('hook', { type: 'webhook', token: '', timeout_s: null }),
+    virtual('empty', { type: 'max', inputs: [] }),
+  ];
+  const flagged = unwiredRequiredInputs(nodes, []).map((e) => e.nodeId);
+  assert.deepEqual(flagged, ['virtual:empty']);
+});
+
 test('an rpm or duty device row feeding a temperature input is pre-existing bad wiring', () => {
   const nodes = [SENSOR_NODE, curve('cpu', 'point'), virtual('hot', { type: 'max', inputs: [] })];
   const edges = [

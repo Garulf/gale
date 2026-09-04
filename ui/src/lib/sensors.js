@@ -1,5 +1,5 @@
 export const VIRTUAL_PREFIX = 'virtual/';
-export const SENSOR_TYPES = ['max', 'min', 'mean', 'offset', 'delta'];
+export const SENSOR_TYPES = ['max', 'min', 'mean', 'offset', 'delta', 'webhook'];
 
 export function virtualId(name) {
   return `${VIRTUAL_PREFIX}${name}`;
@@ -36,13 +36,17 @@ export function defaultVirtualSensor(type) {
       return { type: 'offset', input: '', add: 0, scale: 1 };
     case 'delta':
       return { type: 'delta', input: '', window_s: 30 };
+    case 'webhook':
+      return { type: 'webhook', token: '', timeout_s: null };
     default:
       return { type: 'max', inputs: [] };
   }
 }
 
 export function virtualSensorInputs(sensor) {
-  return sensor.inputs || [sensor.input];
+  if (Array.isArray(sensor.inputs)) return sensor.inputs;
+  if (sensor.input !== undefined) return [sensor.input];
+  return [];
 }
 
 export function virtualSensorReferences(name, curves, sensors) {
@@ -81,6 +85,10 @@ export function virtualSensorValidationError(name, sensor) {
     if (!sensor.input) return `${label}: input is required`;
     if (isBadNumber(sensor.window_s) || sensor.window_s <= 0) {
       return `${label}: window_s must be a positive number`;
+    }
+  } else if (sensor.type === 'webhook') {
+    if (sensor.timeout_s != null && (isBadNumber(sensor.timeout_s) || sensor.timeout_s <= 0)) {
+      return `${label}: timeout_s must be a positive number`;
     }
   }
   return '';
