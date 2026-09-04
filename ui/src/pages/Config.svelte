@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import { getConfig } from '../lib/api.js';
 
-  let config = null;
-  let error = '';
+  let config = $state(null);
+  let error = $state('');
 
   onMount(async () => {
     try {

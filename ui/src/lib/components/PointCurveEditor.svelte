@@ -1,7 +1,5 @@
 <script>
-  export let points;
-  export let liveTemp = null;
-  export let onChange;
+  let { points, liveTemp = null, onChange } = $props();
 
   const WIDTH = 560;
   const HEIGHT = 280;
@@ -109,27 +107,29 @@
     withPoint(id, (point) => ({ ...point, [field]: numeric }));
   }
 
-  $: pathD = points.length
-    ? sortedByTemp(points)
-        .map((point, i) => `${i === 0 ? 'M' : 'L'} ${xToPx(point.temp)} ${yToPx(point.duty)}`)
-        .join(' ')
-    : '';
+  let pathD = $derived(
+    points.length
+      ? sortedByTemp(points)
+          .map((point, i) => `${i === 0 ? 'M' : 'L'} ${xToPx(point.temp)} ${yToPx(point.duty)}`)
+          .join(' ')
+      : ''
+  );
 
-  $: gridTemps = [0, 20, 40, 60, 80, 100];
-  $: gridDuties = [0, 20, 40, 60, 80, 100];
+  let gridTemps = [0, 20, 40, 60, 80, 100];
+  let gridDuties = [0, 20, 40, 60, 80, 100];
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <svg
   bind:this={svgEl}
   viewBox="0 0 {WIDTH} {HEIGHT}"
   class="graph"
   role="img"
   aria-label="Point curve editor"
-  on:pointermove={pointerMove}
-  on:pointerup={pointerUp}
-  on:click={addPoint}
+  onpointermove={pointerMove}
+  onpointerup={pointerUp}
+  onclick={addPoint}
 >
   <rect
     class="plot-bg"
@@ -196,12 +196,12 @@
       role="button"
       tabindex="0"
       aria-label="Curve point at {point.temp} degrees, {point.duty} percent"
-      on:pointerdown={(event) => pointerDown(point.id, event)}
-      on:dblclick={(event) => {
+      onpointerdown={(event) => pointerDown(point.id, event)}
+      ondblclick={(event) => {
         event.stopPropagation();
         removePoint(point.id);
       }}
-      on:keydown={(event) => {
+      onkeydown={(event) => {
         if (event.key === 'Delete' || event.key === 'Backspace') {
           event.stopPropagation();
           removePoint(point.id);
@@ -228,7 +228,7 @@
             min="0"
             max="100"
             value={point.temp}
-            on:input={(event) => updateField(point.id, 'temp', event.target.value)}
+            oninput={(event) => updateField(point.id, 'temp', event.target.value)}
           />
         </td>
         <td>
@@ -237,14 +237,14 @@
             min="0"
             max="100"
             value={point.duty}
-            on:input={(event) => updateField(point.id, 'duty', event.target.value)}
+            oninput={(event) => updateField(point.id, 'duty', event.target.value)}
           />
         </td>
         <td>
           <button
             class="remove"
             disabled={points.length <= 2}
-            on:click={() => removePoint(point.id)}
+            onclick={() => removePoint(point.id)}
           >
             Remove
           </button>

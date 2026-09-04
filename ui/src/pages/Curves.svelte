@@ -14,22 +14,22 @@
     virtualSensorValidationError,
   } from '../lib/sensors.js';
 
-  let config = null;
-  let inventory = null;
-  let editingProfile = '';
-  let selectedCurveId = '';
-  let newProfileName = '';
-  let newCurveId = '';
-  let newCurveType = 'point';
-  let error = '';
-  let saveWarnings = [];
-  let saving = false;
-  let deleteBlocked = '';
-  let dirty = false;
-  let selectedSensorName = '';
-  let newSensorName = '';
-  let newSensorType = 'max';
-  let sensorDeleteBlocked = '';
+  let config = $state(null);
+  let inventory = $state(null);
+  let editingProfile = $state('');
+  let selectedCurveId = $state('');
+  let newProfileName = $state('');
+  let newCurveId = $state('');
+  let newCurveType = $state('point');
+  let error = $state('');
+  let saveWarnings = $state([]);
+  let saving = $state(false);
+  let deleteBlocked = $state('');
+  let dirty = $state(false);
+  let selectedSensorName = $state('');
+  let newSensorName = $state('');
+  let newSensorType = $state('max');
+  let sensorDeleteBlocked = $state('');
 
   let previousPage = 'curves';
   const unsubscribePage = page.subscribe((value) => {
@@ -147,19 +147,17 @@
     }
   }
 
-  $: profileNames = config ? Object.keys(config.profiles).sort() : [];
-  $: profile = config ? config.profiles[editingProfile] : null;
-  $: curveIds = profile ? Object.keys(profile.curves).sort() : [];
-  $: selectedCurve = profile ? profile.curves[selectedCurveId] : null;
-  $: sensors = inventory ? inventory.sensors : [];
-  $: controls = inventory ? inventory.controls : [];
-  $: virtualNames = profile ? Object.keys(profile.sensors).sort() : [];
-  $: selectedSensor = profile ? profile.sensors[selectedSensorName] : null;
-  $: pickerOptions = sensorOptions(sensors, virtualNames, null);
-  $: sensorInputOptions = sensorOptions(
-    sensors,
-    virtualNames,
-    selectedSensorName ? virtualId(selectedSensorName) : null
+  let profileNames = $derived(config ? Object.keys(config.profiles).sort() : []);
+  let profile = $derived(config ? config.profiles[editingProfile] : null);
+  let curveIds = $derived(profile ? Object.keys(profile.curves).sort() : []);
+  let selectedCurve = $derived(profile ? profile.curves[selectedCurveId] : null);
+  let sensors = $derived(inventory ? inventory.sensors : []);
+  let controls = $derived(inventory ? inventory.controls : []);
+  let virtualNames = $derived(profile ? Object.keys(profile.sensors).sort() : []);
+  let selectedSensor = $derived(profile ? profile.sensors[selectedSensorName] : null);
+  let pickerOptions = $derived(sensorOptions(sensors, virtualNames, null));
+  let sensorInputOptions = $derived(
+    sensorOptions(sensors, virtualNames, selectedSensorName ? virtualId(selectedSensorName) : null)
   );
 
   function typeBadge(curve) {
@@ -341,7 +339,7 @@
     dirty = true;
   }
 
-  $: liveTemp = liveTempFor(selectedCurve && selectedCurve.sensor, $snapshot);
+  let liveTemp = $derived(liveTempFor(selectedCurve && selectedCurve.sensor, $snapshot));
 
   function liveTempFor(sensorId, snap) {
     if (!sensorId || !snap || !snap.sensors) return null;
@@ -349,15 +347,17 @@
     return value === null || value === undefined ? null : value;
   }
 
-  $: liveValue = selectedSensorName
-    ? liveTempFor(virtualId(selectedSensorName), $snapshot)
-    : null;
+  let liveValue = $derived(
+    selectedSensorName ? liveTempFor(virtualId(selectedSensorName), $snapshot) : null
+  );
 
-  $: unknownAssignments = profile
-    ? Object.keys(profile.assignments).filter(
-        (controlId) => !controls.some((c) => c.id === controlId)
-      )
-    : [];
+  let unknownAssignments = $derived(
+    profile
+      ? Object.keys(profile.assignments).filter(
+          (controlId) => !controls.some((c) => c.id === controlId)
+        )
+      : []
+  );
 
   function isBadNumber(value) {
     return value === null || value === undefined || typeof value !== 'number' || Number.isNaN(value);
@@ -443,18 +443,18 @@
     <div class="profile-bar">
       {#each profileNames as name}
         <div class="profile-tab" class:selected={name === editingProfile}>
-          <button class="tab-name" on:click={() => (editingProfile = name)}>
+          <button class="tab-name" onclick={() => (editingProfile = name)}>
             {name}
             {#if name === config.active_profile}<span class="active-mark">active</span>{/if}
           </button>
           {#if name !== config.active_profile}
-            <button class="mini" on:click={() => activate(name)}>Activate</button>
+            <button class="mini" onclick={() => activate(name)}>Activate</button>
           {/if}
-          <button class="mini" on:click={() => duplicateProfile(name)}>Duplicate</button>
+          <button class="mini" onclick={() => duplicateProfile(name)}>Duplicate</button>
           <button
             class="mini"
             disabled={profileNames.length <= 1 || name === config.active_profile}
-            on:click={() => deleteProfile(name)}
+            onclick={() => deleteProfile(name)}
           >
             Delete
           </button>
@@ -462,7 +462,7 @@
       {/each}
       <div class="new-profile">
         <input placeholder="new profile name" bind:value={newProfileName} />
-        <button class="mini" on:click={addProfile}>Add profile</button>
+        <button class="mini" onclick={addProfile}>Add profile</button>
       </div>
     </div>
 
@@ -473,11 +473,11 @@
           <ul>
             {#each curveIds as id}
               <li class:selected={id === selectedCurveId}>
-                <button class="curve-name" on:click={() => (selectedCurveId = id)}>
+                <button class="curve-name" onclick={() => (selectedCurveId = id)}>
                   {id}
                   <span class="type-badge">{typeBadge(profile.curves[id])}</span>
                 </button>
-                <button class="mini" on:click={() => deleteCurve(id)}>Delete</button>
+                <button class="mini" onclick={() => deleteCurve(id)}>Delete</button>
               </li>
             {/each}
           </ul>
@@ -491,7 +491,7 @@
                 <option value={type}>{type}</option>
               {/each}
             </select>
-            <button class="mini" on:click={addCurve}>Add curve</button>
+            <button class="mini" onclick={addCurve}>Add curve</button>
           </div>
         </div>
 
@@ -504,7 +504,7 @@
                 Sensor
                 <select
                   value={selectedCurve.sensor}
-                  on:change={(e) => setCurveField('sensor', e.target.value)}
+                  onchange={(e) => setCurveField('sensor', e.target.value)}
                 >
                   <option value="">(none)</option>
                   {#each pickerOptions as option}
@@ -525,7 +525,7 @@
                     <input
                       type="checkbox"
                       checked={selectedCurve.hysteresis !== null}
-                      on:change={(e) => toggleHysteresis(e.target.checked)}
+                      onchange={(e) => toggleHysteresis(e.target.checked)}
                     />
                     Hysteresis
                   </label>
@@ -536,7 +536,7 @@
                     <input
                       type="number"
                       bind:value={selectedCurve.hysteresis.up}
-                      on:input={() => (dirty = true)}
+                      oninput={() => (dirty = true)}
                     />
                   </label>
                   <label class="inline">
@@ -544,7 +544,7 @@
                     <input
                       type="number"
                       bind:value={selectedCurve.hysteresis.down}
-                      on:input={() => (dirty = true)}
+                      oninput={() => (dirty = true)}
                     />
                   </label>
                 {/if}
@@ -556,7 +556,7 @@
                     <input
                       type="checkbox"
                       checked={selectedCurve.response !== null}
-                      on:change={(e) => toggleResponse(e.target.checked)}
+                      onchange={(e) => toggleResponse(e.target.checked)}
                     />
                     Response limiting
                   </label>
@@ -567,7 +567,7 @@
                     <input
                       type="number"
                       bind:value={selectedCurve.response.rise_pct_per_sec}
-                      on:input={() => (dirty = true)}
+                      oninput={() => (dirty = true)}
                     />
                   </label>
                   <label class="inline">
@@ -575,7 +575,7 @@
                     <input
                       type="number"
                       bind:value={selectedCurve.response.fall_pct_per_sec}
-                      on:input={() => (dirty = true)}
+                      oninput={() => (dirty = true)}
                     />
                   </label>
                 {/if}
@@ -588,13 +588,13 @@
                   min="0"
                   max="100"
                   bind:value={selectedCurve.duty}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
             {:else if selectedCurve.type === 'mix'}
               <label>
                 Mode
-                <select bind:value={selectedCurve.mode} on:change={() => (dirty = true)}>
+                <select bind:value={selectedCurve.mode} onchange={() => (dirty = true)}>
                   {#each MIX_MODES as mode}
                     <option value={mode}>{mode}</option>
                   {/each}
@@ -607,7 +607,7 @@
                     <input
                       type="checkbox"
                       checked={selectedCurve.sources.includes(id)}
-                      on:change={(e) => toggleMixSource(id, e.target.checked)}
+                      onchange={(e) => toggleMixSource(id, e.target.checked)}
                     />
                     {id}
                   </label>
@@ -618,7 +618,7 @@
                 Source curve
                 <select
                   value={selectedCurve.source}
-                  on:change={(e) => setCurveField('source', e.target.value)}
+                  onchange={(e) => setCurveField('source', e.target.value)}
                 >
                   <option value="">(none)</option>
                   {#each curveIds.filter((id) => id !== selectedCurveId) as id}
@@ -631,7 +631,7 @@
                 Sensor
                 <select
                   value={selectedCurve.sensor}
-                  on:change={(e) => setCurveField('sensor', e.target.value)}
+                  onchange={(e) => setCurveField('sensor', e.target.value)}
                 >
                   <option value="">(none)</option>
                   {#each pickerOptions as option}
@@ -644,7 +644,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.on_temp}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
               <label class="inline">
@@ -652,7 +652,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.off_temp}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
               <label class="inline">
@@ -660,7 +660,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.on_duty}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
               <label class="inline">
@@ -668,7 +668,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.off_duty}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
             {:else if selectedCurve.type === 'target'}
@@ -676,7 +676,7 @@
                 Sensor
                 <select
                   value={selectedCurve.sensor}
-                  on:change={(e) => setCurveField('sensor', e.target.value)}
+                  onchange={(e) => setCurveField('sensor', e.target.value)}
                 >
                   <option value="">(none)</option>
                   {#each pickerOptions as option}
@@ -689,7 +689,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.target_temp}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
               <label class="inline">
@@ -697,7 +697,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.step_pct_per_sec}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
               <label class="inline">
@@ -705,7 +705,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.min_duty}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
               <label class="inline">
@@ -713,7 +713,7 @@
                 <input
                   type="number"
                   bind:value={selectedCurve.max_duty}
-                  on:input={() => (dirty = true)}
+                  oninput={() => (dirty = true)}
                 />
               </label>
             {/if}
@@ -728,11 +728,11 @@
         <ul class="sensor-list">
           {#each virtualNames as name}
             <li class:selected={name === selectedSensorName}>
-              <button class="curve-name" on:click={() => (selectedSensorName = name)}>
+              <button class="curve-name" onclick={() => (selectedSensorName = name)}>
                 {name}
                 <span class="type-badge">{profile.sensors[name].type}</span>
               </button>
-              <button class="mini" on:click={() => deleteSensor(name)}>Delete</button>
+              <button class="mini" onclick={() => deleteSensor(name)}>Delete</button>
             </li>
           {/each}
         </ul>
@@ -746,7 +746,7 @@
               <option value={type}>{type}</option>
             {/each}
           </select>
-          <button class="mini" on:click={addSensor}>Add sensor</button>
+          <button class="mini" onclick={addSensor}>Add sensor</button>
         </div>
 
         {#if selectedSensor}
@@ -762,7 +762,7 @@
                   <input
                     type="checkbox"
                     checked={selectedSensor.inputs.includes(option.id)}
-                    on:change={(e) => toggleSensorInput(option.id, e.target.checked)}
+                    onchange={(e) => toggleSensorInput(option.id, e.target.checked)}
                   />
                   {option.label}
                 </label>
@@ -776,7 +776,7 @@
                     <input
                       type="checkbox"
                       checked={selectedSensor.window_s != null}
-                      on:change={(e) => toggleSensorWindow(e.target.checked)}
+                      onchange={(e) => toggleSensorWindow(e.target.checked)}
                     />
                     Moving average window
                   </label>
@@ -787,7 +787,7 @@
                     <input
                       type="number"
                       bind:value={selectedSensor.window_s}
-                      on:input={() => (dirty = true)}
+                      oninput={() => (dirty = true)}
                     />
                   </label>
                 {/if}
@@ -798,7 +798,7 @@
               Input
               <select
                 value={selectedSensor.input}
-                on:change={(e) => setSensorField('input', e.target.value)}
+                onchange={(e) => setSensorField('input', e.target.value)}
               >
                 <option value="">(none)</option>
                 {#each sensorInputOptions as option}
@@ -811,7 +811,7 @@
               <input
                 type="number"
                 bind:value={selectedSensor.add}
-                on:input={() => (dirty = true)}
+                oninput={() => (dirty = true)}
               />
             </label>
             <label class="inline">
@@ -819,7 +819,7 @@
               <input
                 type="number"
                 bind:value={selectedSensor.scale}
-                on:input={() => (dirty = true)}
+                oninput={() => (dirty = true)}
               />
             </label>
           {:else if selectedSensor.type === 'delta'}
@@ -827,7 +827,7 @@
               Input
               <select
                 value={selectedSensor.input}
-                on:change={(e) => setSensorField('input', e.target.value)}
+                onchange={(e) => setSensorField('input', e.target.value)}
               >
                 <option value="">(none)</option>
                 {#each sensorInputOptions as option}
@@ -840,7 +840,7 @@
               <input
                 type="number"
                 bind:value={selectedSensor.window_s}
-                on:input={() => (dirty = true)}
+                oninput={() => (dirty = true)}
               />
             </label>
           {/if}
@@ -866,7 +866,7 @@
               <td>
                 <select
                   value={profile.assignments[control.id] || ''}
-                  on:change={(e) => setAssignment(control.id, e.target.value)}
+                  onchange={(e) => setAssignment(control.id, e.target.value)}
                 >
                   <option value="">None</option>
                   {#each curveIds as id}
@@ -885,7 +885,7 @@
               <td>
                 <select
                   value={profile.assignments[controlId]}
-                  on:change={(e) => setAssignment(controlId, e.target.value)}
+                  onchange={(e) => setAssignment(controlId, e.target.value)}
                 >
                   <option value="">None</option>
                   {#each curveIds as id}
@@ -900,8 +900,8 @@
     {/if}
 
     <div class="actions">
-      <button on:click={save} disabled={saving}>Save</button>
-      <button class="secondary" on:click={revert} disabled={saving}>Revert</button>
+      <button onclick={save} disabled={saving}>Save</button>
+      <button class="secondary" onclick={revert} disabled={saving}>Revert</button>
     </div>
 
     {#if saveWarnings.length > 0}

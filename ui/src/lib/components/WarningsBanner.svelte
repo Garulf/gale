@@ -10,7 +10,7 @@
         <li>{#each splitLinks(warning) as part}{#if part.href}<a href={part.href} target="_blank" rel="noopener">{part.href}</a>{:else}{part.text}{/if}{/each}</li>
       {/each}
     </ul>
-    <button on:click={() => warningsDismissed.set(true)}>Dismiss</button>
+    <button onclick={() => warningsDismissed.set(true)}>Dismiss</button>
   </div>
 {/if}
 

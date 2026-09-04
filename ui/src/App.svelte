@@ -12,7 +12,7 @@
   const disconnect = connect();
   onDestroy(disconnect);
 
-  let keyDraft = '';
+  let keyDraft = $state('');
 
   function submitKey() {
     const key = keyDraft.trim();
@@ -23,29 +23,30 @@
 
   const pages = { dashboard: Dashboard, curves: Curves, config: Config };
 
-  $: activeProfile = $snapshot ? $snapshot.active_profile : null;
+  let activeProfile = $derived($snapshot ? $snapshot.active_profile : null);
+  let Current = $derived(pages[$page]);
 
   refreshWarnings();
 
   let wasConnected = false;
-  $: {
+  $effect(() => {
     if ($connected && !wasConnected) {
       refreshWarnings();
     }
     wasConnected = $connected;
-  }
+  });
 </script>
 
 <div class="shell">
   <nav>
     <h1>gale</h1>
-    <button class:active={$page === 'dashboard'} on:click={() => page.set('dashboard')}>
+    <button class:active={$page === 'dashboard'} onclick={() => page.set('dashboard')}>
       Dashboard
     </button>
-    <button class:active={$page === 'curves'} on:click={() => page.set('curves')}>
+    <button class:active={$page === 'curves'} onclick={() => page.set('curves')}>
       Curves
     </button>
-    <button class:active={$page === 'config'} on:click={() => page.set('config')}>
+    <button class:active={$page === 'config'} onclick={() => page.set('config')}>
       Config
     </button>
   </nav>
@@ -57,7 +58,7 @@
         <span class="profile">profile: {activeProfile}</span>
       {/if}
       {#if $unauthorized}
-        <form class="key-form" on:submit|preventDefault={submitKey}>
+        <form class="key-form" onsubmit={(e) => { e.preventDefault(); submitKey(e); }}>
           <input type="password" placeholder="api key" bind:value={keyDraft} />
           <button type="submit">Save</button>
         </form>
@@ -65,7 +66,7 @@
     </header>
     <WarningsBanner />
     <main>
-      <svelte:component this={pages[$page]} />
+      <Current />
     </main>
   </div>
 </div>

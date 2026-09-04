@@ -4,10 +4,10 @@
   import { getInventory, setControl, releaseControl } from '../lib/api.js';
   import { refreshWarnings } from '../lib/warnings.js';
 
-  let inventory = null;
-  let error = '';
-  let pending = {};
-  let drafts = {};
+  let inventory = $state(null);
+  let error = $state('');
+  let pending = $state({});
+  let drafts = $state({});
 
   onMount(async () => {
     try {
@@ -35,8 +35,8 @@
     return Math.round(value);
   }
 
-  $: sensorGroups = groupSensors(inventory, $snapshot);
-  $: controls = inventory ? inventory.controls : [];
+  let sensorGroups = $derived(groupSensors(inventory, $snapshot));
+  let controls = $derived(inventory ? inventory.controls : []);
 
   function groupSensors(inv, snap) {
     if (!inv) return [];
@@ -59,9 +59,9 @@
     return [...byGroup.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }
 
-  $: duties = ($snapshot && $snapshot.duties) || {};
-  $: manual = ($snapshot && $snapshot.manual) || {};
-  $: draftValues = computeDrafts(controls, duties, drafts);
+  let duties = $derived(($snapshot && $snapshot.duties) || {});
+  let manual = $derived(($snapshot && $snapshot.manual) || {});
+  let draftValues = $derived(computeDrafts(controls, duties, drafts));
 
   function computeDrafts(ctrls, dutyMap, draftMap) {
     const result = {};
@@ -158,22 +158,22 @@
               min="0"
               max="100"
               value={draftValues[control.id]}
-              on:input={(event) => setDraft(control.id, event.target.value)}
+              oninput={(event) => setDraft(control.id, event.target.value)}
             />
             <input
               type="number"
               min="0"
               max="100"
               value={draftValues[control.id]}
-              on:input={(event) => setDraft(control.id, event.target.value)}
+              oninput={(event) => setDraft(control.id, event.target.value)}
             />
-            <button disabled={pending[control.id]} on:click={() => apply(control.id)}>
+            <button disabled={pending[control.id]} onclick={() => apply(control.id)}>
               Apply
             </button>
             <button
               class="secondary"
               disabled={pending[control.id] || !(control.id in manual)}
-              on:click={() => release(control.id)}
+              onclick={() => release(control.id)}
             >
               Release
             </button>
