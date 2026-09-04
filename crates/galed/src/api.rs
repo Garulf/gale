@@ -1,8 +1,9 @@
 use crate::config_store::ConfigStore;
 use crate::engine_host::EngineHost;
+use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::{Request, StatusCode};
+use axum::http::{header, HeaderMap, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -34,6 +35,8 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/warnings", get(get_warnings))
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
+        .route("/webhook/:token", post(post_webhook))
+        .route("/webhook-url/:name", get(get_webhook_url))
         .route("/ws", get(ws_upgrade))
         .fallback(api_not_found)
         .layer(middleware::from_fn_with_state(ctx.clone(), require_api_key))
@@ -49,6 +52,9 @@ async fn require_api_key(
     next: Next,
 ) -> Response {
     if let Some(expected) = &ctx.api_key {
+        if request.uri().path().starts_with("/webhook/") {
+            return next.run(request).await;
+        }
         let header_key = request
             .headers()
             .get("X-Api-Key")
@@ -197,8 +203,9 @@ fn merge_api_key(existing: Option<String>, incoming: Option<String>) -> Option<S
 }
 
 async fn put_config(State(ctx): State<ApiContext>, Json(mut config): Json<GaleConfig>) -> Response {
-    let existing_key = ctx.host.config().api.api_key;
-    config.api.api_key = merge_api_key(existing_key, config.api.api_key.clone());
+    let existing = ctx.host.config();
+    config.api.api_key = merge_api_key(existing.api.api_key.clone(), config.api.api_key.clone());
+    crate::webhooks::fill_missing_tokens(&mut config, &existing);
     if let Err(error) = validate_profiles(&config) {
         return config_error_response(error);
     }
@@ -250,6 +257,58 @@ async fn clear_control(State(ctx): State<ApiContext>, Path(id): Path<String>) ->
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
     }
+}
+
+fn webhook_value(body: &[u8]) -> Option<f64> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    match json.get("value")? {
+        serde_json::Value::Bool(flag) => Some(if *flag { 1.0 } else { 0.0 }),
+        serde_json::Value::Number(number) => number.as_f64().filter(|value| value.is_finite()),
+        _ => None,
+    }
+}
+
+async fn post_webhook(
+    State(ctx): State<ApiContext>,
+    Path(token): Path<String>,
+    body: Bytes,
+) -> Response {
+    let Some(value) = webhook_value(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "body must be a JSON object with a finite number or boolean \"value\"",
+        )
+            .into_response();
+    };
+    if ctx.host.record_webhook(&token, value) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+#[derive(Serialize)]
+struct WebhookUrlResponse {
+    url: String,
+}
+
+async fn get_webhook_url(
+    State(ctx): State<ApiContext>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(token) = ctx.host.webhook_token(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+        .unwrap_or_else(|| ctx.host.config().api.bind.clone());
+    Json(WebhookUrlResponse {
+        url: format!("http://{host}/api/webhook/{token}"),
+    })
+    .into_response()
 }
 
 async fn ws_upgrade(State(ctx): State<ApiContext>, upgrade: WebSocketUpgrade) -> Response {
@@ -1163,5 +1222,403 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             query_param(Some("api_key=sek+ret%2B1"), "api_key").as_deref(),
             Some("sek ret+1")
         );
+    }
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const OTHER_TOKEN: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+    const CONFIG_WEBHOOK: &str = r#"
+active_profile = "p"
+
+[profiles.p.curves.flat]
+type = "flat"
+duty = 42.0
+
+[profiles.quiet.curves.flat]
+type = "flat"
+duty = 10.0
+
+[profiles.p.sensors.cpu_hot]
+type = "max"
+inputs = ["t1", "t2"]
+
+[profiles.p.sensors.hook]
+type = "webhook"
+token = "{TOKEN}"
+timeout_s = 0.05
+
+[profiles.p.sensors.forever]
+type = "webhook"
+token = "{OTHER_TOKEN}"
+
+[profiles.p.curves.remote]
+type = "point"
+sensor = "virtual/hook"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.assignments]
+"pwm1" = "flat"
+"pwm2" = "remote"
+"#;
+
+    fn webhook_config() -> String {
+        CONFIG_WEBHOOK
+            .replace("{TOKEN}", TOKEN)
+            .replace("{OTHER_TOKEN}", OTHER_TOKEN)
+    }
+
+    fn post_webhook_request(token: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/webhook/{token}"))
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn status_json(router: &axum::Router, host: &EngineHost) -> serde_json::Value {
+        host.tick(1.0).await;
+        let response = router
+            .clone()
+            .oneshot(Request::get("/api/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        body_json(response).await
+    }
+
+    #[tokio::test]
+    async fn webhook_post_returns_204_and_status_reflects_the_value() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        let json = status_json(&router, &host).await;
+        assert!(json["sensors"]["virtual/hook"].is_null());
+        assert_eq!(json["duties"]["pwm2"], 100.0);
+
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(TOKEN, r#"{"value": 51.5}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let json = status_json(&router, &host).await;
+        assert_eq!(json["sensors"]["virtual/hook"], 51.5);
+        assert_eq!(json["duties"]["pwm2"], 63.0);
+    }
+
+    #[tokio::test]
+    async fn webhook_post_maps_booleans_to_one_and_zero() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(OTHER_TOKEN, r#"{"value": true}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let json = status_json(&router, &host).await;
+        assert_eq!(json["sensors"]["virtual/forever"], 1.0);
+
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(OTHER_TOKEN, r#"{"value": false}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let json = status_json(&router, &host).await;
+        assert_eq!(json["sensors"]["virtual/forever"], 0.0);
+    }
+
+    #[tokio::test]
+    async fn webhook_post_unknown_token_is_404() {
+        let (router, _host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(&"f".repeat(64), r#"{"value": 1.0}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = router
+            .oneshot(post_webhook_request("short", r#"{"value": 1.0}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn webhook_post_rejects_malformed_bodies_with_400() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        for body in [
+            r#"{"value": "41"}"#,
+            r#"{"value": null}"#,
+            "[41]",
+            "41",
+            "not json",
+            "{}",
+            r#"{"value": 1e999}"#,
+        ] {
+            let response = router
+                .clone()
+                .oneshot(post_webhook_request(TOKEN, body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{body}");
+            let response = router
+                .clone()
+                .oneshot(post_webhook_request(&"f".repeat(64), body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{body}");
+        }
+        let json = status_json(&router, &host).await;
+        assert!(json["sensors"]["virtual/hook"].is_null());
+    }
+
+    #[tokio::test]
+    async fn webhook_post_bypasses_api_key_but_webhook_url_does_not() {
+        let (router, _host) = make_router_with(&webhook_config(), Some("secret".into()));
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(TOKEN, r#"{"value": 2.0}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let denied = router
+            .clone()
+            .oneshot(
+                Request::get("/api/webhook-url/hook")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        let allowed = router
+            .oneshot(
+                Request::get("/api/webhook-url/hook")
+                    .header("X-Api-Key", "secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn webhook_exemption_never_reaches_other_endpoints() {
+        let (router, _host) = make_router_with(&webhook_config(), Some("secret".into()));
+        for (uri, expected) in [
+            ("/api/webhook/../status".to_string(), StatusCode::NOT_FOUND),
+            (
+                format!("/api/webhook/{TOKEN}/../status"),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                "/api/webhook/..%2Fstatus".to_string(),
+                StatusCode::METHOD_NOT_ALLOWED,
+            ),
+            ("/api/webhook".to_string(), StatusCode::UNAUTHORIZED),
+            ("/api/webhook/".to_string(), StatusCode::NOT_FOUND),
+            ("/api/webhookstatus".to_string(), StatusCode::UNAUTHORIZED),
+            (
+                "/api/webhook-url/hook".to_string(),
+                StatusCode::UNAUTHORIZED,
+            ),
+            ("/api/status".to_string(), StatusCode::UNAUTHORIZED),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(Request::get(&uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn webhook_url_uses_host_header_and_falls_back_to_bind() {
+        let (router, _host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .clone()
+            .oneshot(
+                Request::get("/api/webhook-url/hook")
+                    .header(header::HOST, "gale.local:5250")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(
+            json["url"],
+            format!("http://gale.local:5250/api/webhook/{TOKEN}")
+        );
+
+        let response = router
+            .oneshot(
+                Request::get("/api/webhook-url/hook")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(
+            json["url"],
+            format!("http://127.0.0.1:5250/api/webhook/{TOKEN}")
+        );
+    }
+
+    #[tokio::test]
+    async fn webhook_url_is_404_for_non_webhook_and_unknown_names() {
+        let (router, _host) = make_router_with(&webhook_config(), None);
+        for name in ["cpu_hot", "ghost"] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::get(format!("/api/webhook-url/{name}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn webhook_value_goes_stale_between_ticks_without_a_new_post() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(TOKEN, r#"{"value": 51.5}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = router
+            .clone()
+            .oneshot(post_webhook_request(OTHER_TOKEN, r#"{"value": 30.0}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let json = status_json(&router, &host).await;
+        assert_eq!(json["sensors"]["virtual/hook"], 51.5);
+
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let json = status_json(&router, &host).await;
+        assert!(json["sensors"]["virtual/hook"].is_null());
+        assert_eq!(json["duties"]["pwm2"], 100.0);
+        assert_eq!(json["sensors"]["virtual/forever"], 30.0);
+    }
+
+    #[tokio::test]
+    async fn inventory_lists_webhook_sensor_with_empty_inputs() {
+        let (router, _host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(
+            json["virtual"],
+            serde_json::json!([
+                {"id": "virtual/cpu_hot", "type": "max", "inputs": ["t1", "t2"]},
+                {"id": "virtual/forever", "type": "webhook", "inputs": []},
+                {"id": "virtual/hook", "type": "webhook", "inputs": []}
+            ])
+        );
+    }
+
+    fn webhook_token_of(config: &GaleConfig, name: &str) -> String {
+        match &config.profiles["p"].sensors[name] {
+            gale_core::config::VirtualSensorConfig::Webhook { token, .. } => token.clone(),
+            other => panic!("expected webhook, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn config_put_generates_tokens_for_empty_webhook_tokens_and_reuses_on_resave() {
+        let (router, host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        config.profiles.get_mut("p").unwrap().sensors.insert(
+            "fresh".to_string(),
+            gale_core::config::VirtualSensorConfig::Webhook {
+                token: String::new(),
+                timeout_s: None,
+            },
+        );
+        let response = router
+            .clone()
+            .oneshot(put_config_request(&config))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let first = webhook_token_of(&host.config(), "fresh");
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+
+        let response = router
+            .clone()
+            .oneshot(put_config_request(&config))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(webhook_token_of(&host.config(), "fresh"), first);
+
+        let response = router
+            .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let json = body_json(response).await;
+        let fresh = &json["profiles"]["p"]["sensors"]["fresh"];
+        assert_eq!(fresh["token"], first);
+        assert!(fresh.get("timeout_s").is_none());
+    }
+
+    #[tokio::test]
+    async fn config_put_rejects_non_positive_timeout_with_422() {
+        let (router, _host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        config.profiles.get_mut("p").unwrap().sensors.insert(
+            "bad".to_string(),
+            gale_core::config::VirtualSensorConfig::Webhook {
+                token: TOKEN.to_string(),
+                timeout_s: Some(0.0),
+            },
+        );
+        let response = router.oneshot(put_config_request(&config)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_text(response).await;
+        assert!(
+            body.contains("virtual sensor 'bad' timeout_s must be a positive number"),
+            "{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn config_put_renaming_a_webhook_keeps_the_token_it_carries() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        let mut config = host.config();
+        let profile = config.profiles.get_mut("p").unwrap();
+        profile.sensors.remove("hook").unwrap();
+        profile.sensors.insert(
+            "hook2".to_string(),
+            gale_core::config::VirtualSensorConfig::Webhook {
+                token: TOKEN.to_string(),
+                timeout_s: Some(0.05),
+            },
+        );
+        match profile.curves.get_mut("remote").unwrap() {
+            gale_core::config::CurveConfig::Point { sensor, .. } => {
+                *sensor = "virtual/hook2".to_string();
+            }
+            other => panic!("expected point curve, got {other:?}"),
+        }
+        let response = router.oneshot(put_config_request(&config)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.webhook_token("hook2"), Some(TOKEN.to_string()));
+        assert_eq!(host.webhook_token("hook"), None);
     }
 }
