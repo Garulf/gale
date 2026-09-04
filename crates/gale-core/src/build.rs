@@ -430,6 +430,57 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         );
     }
 
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn builds_engine_with_webhook_sensor_from_toml() {
+        let (before_assignments, assignments_and_after) = VALID
+            .split_once("[profiles.quiet.assignments]")
+            .expect("VALID has an assignments table");
+        let with_webhook = format!(
+            r#"{before_assignments}
+[profiles.quiet.sensors.hook]
+type = "webhook"
+token = "{TOKEN}"
+timeout_s = 60.0
+
+[profiles.quiet.curves.remote]
+type = "point"
+sensor = "virtual/hook"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.quiet.assignments]{assignments_and_after}
+"hwmon/nct6798/pwm2" = "remote"
+"#
+        );
+        let mut engine = build_engine(&config(&with_webhook)).unwrap();
+        let mut sensors: HashMap<String, Option<f64>> = [
+            ("hwmon/nct6798/temp1".to_string(), Some(50.0)),
+            ("virtual/hook".to_string(), Some(50.0)),
+        ]
+        .into();
+        let duties = engine.tick(&mut sensors, 1.0);
+        assert_eq!(duties["hwmon/nct6798/pwm2"], 60.0);
+        assert_eq!(
+            engine.virtual_sensor_ids(),
+            vec!["virtual/hook".to_string()]
+        );
+    }
+
+    #[test]
+    fn webhook_with_empty_token_is_invalid_at_build() {
+        let bad = format!(
+            r#"{VALID}
+[profiles.quiet.sensors.hook]
+type = "webhook"
+"#
+        );
+        let err = build_engine(&config(&bad)).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("profile 'quiet'"), "{msg}");
+        assert!(msg.contains("has an empty token"), "{msg}");
+    }
+
     #[test]
     fn virtual_sensor_cycle_is_invalid() {
         let bad = r#"

@@ -102,7 +102,7 @@ enum NodeKind {
         input: Id,
         window: Window,
     },
-    Unimplemented,
+    Webhook,
 }
 
 #[derive(Debug)]
@@ -141,7 +141,7 @@ impl VirtualSensors {
                     input: input.clone(),
                     window: Window::new(*window_s),
                 },
-                VirtualSensorConfig::Webhook { .. } => NodeKind::Unimplemented,
+                VirtualSensorConfig::Webhook { .. } => NodeKind::Webhook,
             };
             nodes.push(Node {
                 id: virtual_id(&name),
@@ -206,7 +206,7 @@ impl VirtualSensors {
                         None => None,
                     }
                 }
-                NodeKind::Unimplemented => None,
+                NodeKind::Webhook => read(sensors, &node.id),
             };
             sensors.insert(node.id.clone(), output.and_then(finite));
         }
@@ -628,20 +628,80 @@ mod tests {
         assert_eq!(map, before);
     }
 
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     #[test]
-    fn webhook_sensor_builds_without_panicking_and_evaluates_to_unavailable() {
-        let profile = parse_profile(
+    fn webhook_passes_through_a_seeded_value() {
+        let profile = parse_profile(&format!(
             r#"
-            [sensors.w]
+            [sensors.hook]
             type = "webhook"
-            token = "secret"
+            token = "{TOKEN}"
             "#,
-        );
+        ));
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+
+        let mut map = sensors(&[("virtual/hook", Some(41.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("hook")], Some(41.0));
+    }
+
+    #[test]
+    fn webhook_with_nothing_seeded_evaluates_to_none() {
+        let profile = parse_profile(&format!(
+            r#"
+            [sensors.hook]
+            type = "webhook"
+            token = "{TOKEN}"
+            "#,
+        ));
         let mut vs = VirtualSensors::build(&profile).unwrap();
 
         let mut map = sensors(&[]);
         vs.evaluate(&mut map, 1.0);
-        assert_eq!(map[&virtual_id("w")], None);
+        assert_eq!(map.get(&virtual_id("hook")), Some(&None));
+    }
+
+    #[test]
+    fn webhook_seeded_non_finite_becomes_none() {
+        let profile = parse_profile(&format!(
+            r#"
+            [sensors.hook]
+            type = "webhook"
+            token = "{TOKEN}"
+            "#,
+        ));
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+
+        let mut map = sensors(&[("virtual/hook", Some(f64::NAN))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("hook")], None);
+    }
+
+    #[test]
+    fn webhook_feeds_downstream_max() {
+        let profile = parse_profile(&format!(
+            r#"
+            [sensors.hook]
+            type = "webhook"
+            token = "{TOKEN}"
+
+            [sensors.agg]
+            type = "max"
+            inputs = ["virtual/hook", "t"]
+            "#,
+        ));
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+        assert_eq!(vs.ids(), vec![virtual_id("hook"), virtual_id("agg")]);
+
+        let mut map = sensors(&[("virtual/hook", Some(55.0)), ("t", Some(50.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("agg")], Some(55.0));
+
+        let mut map = sensors(&[("t", Some(50.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("agg")], Some(50.0));
+        assert_eq!(map[&virtual_id("hook")], None);
     }
 
     #[test]

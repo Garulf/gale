@@ -204,6 +204,42 @@ mod tests {
         assert_eq!(duties["pwm1"], 50.0);
     }
 
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn webhook_seed_drives_point_curve_and_fails_safe_when_missing() {
+        let profile: ProfileConfig = toml::from_str(&format!(
+            r#"
+            [sensors.hook]
+            type = "webhook"
+            token = "{TOKEN}"
+            "#,
+        ))
+        .unwrap();
+        let virtual_sensors = crate::r#virtual::VirtualSensors::build(&profile).unwrap();
+
+        let mut set = CurveSet::new();
+        set.insert(
+            "remote".into(),
+            Box::new(PointCurve::new(
+                "virtual/hook".into(),
+                vec![(30.0, 20.0), (70.0, 100.0)],
+            )),
+        );
+        let assignments: HashMap<String, String> =
+            [("pwm1".to_string(), "remote".to_string())].into();
+        let mut engine = FanEngine::new(set, assignments).with_virtual_sensors(virtual_sensors);
+
+        let duties = engine.tick(&mut sensors(&[("virtual/hook", Some(50.0))]), 1.0);
+        assert_eq!(duties["pwm1"], 60.0);
+
+        let duties = engine.tick(&mut sensors(&[("virtual/hook", None)]), 1.0);
+        assert_eq!(duties["pwm1"], FAIL_SAFE_PCT);
+
+        let duties = engine.tick(&mut sensors(&[]), 1.0);
+        assert_eq!(duties["pwm1"], FAIL_SAFE_PCT);
+    }
+
     #[test]
     fn engine_is_send() {
         fn assert_send<T: Send>() {}
