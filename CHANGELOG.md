@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.0](https://github.com/Garulf/gale/compare/gale-v0.2.0...gale-v0.3.0) (2026-09-04)
+
+
+### Features
+
+* **core:** evaluate virtual sensors before curves and warn on their hardware inputs ([8092952](https://github.com/Garulf/gale/commit/8092952c64d71ccacb689ac914ddfb53d3619a74))
+* **core:** evaluate virtual sensors in dependency order with windowed state ([2397198](https://github.com/Garulf/gale/commit/23971989765f426db090d578246e674944be345d))
+* **core:** tolerate and echo a ui.graph layout table in config ([5dcaa78](https://github.com/Garulf/gale/commit/5dcaa788e38310c02a3272f1b51367915ebc83b0))
+* **core:** validate every profile on config save, not only the active one ([df029f4](https://github.com/Garulf/gale/commit/df029f4b47fb41dfdbb2687fe8e64e7abd95ccbe))
+* **core:** virtual sensor config model with validation and hardware resolution ([52034b7](https://github.com/Garulf/gale/commit/52034b76293306aafed841b4bc7821f60291864a))
+* **galed:** expose virtual sensors in inventory and confirm they flow through status ([cc285ea](https://github.com/Garulf/gale/commit/cc285eaec8bb6ae628219485e33e50297aadafcb))
+* **ui:** edge-based assignment, single-input replace confirmation and device node hiding ([250643e](https://github.com/Garulf/gale/commit/250643efd106147d112329601e318a7912c6cf34))
+* **ui:** grey missing sensor/control values and attach warnings to the nodes they concern ([c0b04ed](https://github.com/Garulf/gale/commit/c0b04ed448765ca3f829167d81b4552705d8d943))
+* **ui:** pure graph model converting profiles to nodes and edges and back ([b655199](https://github.com/Garulf/gale/commit/b6551996865ec0e2d08143b060c107118d5b180b))
+* **ui:** Svelte Flow canvas replacing the Curves page as the profile editor ([61f5653](https://github.com/Garulf/gale/commit/61f5653cb9f775f5b9904d770df400b691c19523))
+* **ui:** virtual sensor forms on the Curves page and virtual ids in every sensor picker ([b6e9730](https://github.com/Garulf/gale/commit/b6e973071baa6acfd445a2cfadcc55c63757281a))
+
+
+### Bug Fixes
+
+* **core:** finite-guard all virtual sensor outputs, warn on short windows, and harden the topo sort ([3dd9983](https://github.com/Garulf/gale/commit/3dd9983980283bf21900d3800c1bfc3cad058f53))
+* **corsair:** compare decoded discovery data when checking agreement ([bf8d2e9](https://github.com/Garulf/gale/commit/bf8d2e9472f2630561485630bad56bd240d31e12))
+* **corsair:** require two agreeing discovery reads and document device sharing ([bb2efac](https://github.com/Garulf/gale/commit/bb2efac19d02b30791b1d6d5f0a0049f35eeea70))
+* **galed:** warn only for sensors used by assigned curves ([982e9ad](https://github.com/Garulf/gale/commit/982e9ad2534bbaabb4ba259f70563e8c9b44a491))
+* **ui:** dashboard prefix reuse, kind-aware units, client-side cycle check, node placement and undo polish ([1993a38](https://github.com/Garulf/gale/commit/1993a385eb15cf40f6901e0eb16ff22d71220aca))
+* **ui:** fold device handles by connection, not position, and label sensor kind correctly ([822c304](https://github.com/Garulf/gale/commit/822c3049cee9dff8aff9c994618b88d1f5518a19))
+* **ui:** node type/name creation, global canvas styling, undo point-sync and pre-save validation ([e127a53](https://github.com/Garulf/gale/commit/e127a533b190f760e9b8a59fdadfa3e5287bb251))
+* **ui:** pin dagre to the planned version and fix single-input virtual sensor handle naming ([dc9f698](https://github.com/Garulf/gale/commit/dc9f698041cad09a10e79b3459df3b653f2ef281))
+* **ui:** prefer temperature rows over unwirable rpm rows when filling the device fold ([dd550bc](https://github.com/Garulf/gale/commit/dd550bc4eaff11c054eb3cdd82fd0eff92b285b6))
+* **ui:** treat an absent virtual sensor window_s the same as null ([cbb26e6](https://github.com/Garulf/gale/commit/cbb26e69aa497b2e416a364b827b82b7188da63a))
+
 ## [0.2.0](https://github.com/Garulf/gale/compare/gale-v0.1.0...gale-v0.2.0) (2026-09-03)
 
 
