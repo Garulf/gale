@@ -48,7 +48,8 @@ the next release. Corsair and NVIDIA GPU control work today.
   frontend to install
 - Curve types: point, trigger, target, flat, mix, and sync
 - Virtual sensors: max, min, mean (optionally smoothed over a window), offset and
-  delta nodes that combine or transform sensors before a curve reads them
+  delta nodes that combine or transform sensors before a curve reads them, plus
+  webhook nodes that take their value from an HTTP POST
 - Graph editor: one canvas per profile wiring device sensors, virtual sensors, curves
   and device controls together, with live values on every port and edge
 - Journaled claims so a killed daemon restores prior fan state on the next start
@@ -132,6 +133,7 @@ points = [[35.0, 25.0], [75.0, 100.0]]
 | `mean` | one or more ids, optional `window_s` | the mean of the available inputs, smoothed over `window_s` seconds when set |
 | `offset` | one id, `add`, `scale` | `input * scale + add` |
 | `delta` | one id, `window_s` | change in degrees per minute over the window, positive when rising |
+| `webhook` | none; `token`, optional `timeout_s` | the last value received by `POST /api/webhook/<token>`; unavailable until the first POST and, when `timeout_s` is set, after that many seconds without one |
 
 A virtual sensor with no value behaves like an unplugged probe: the curve reading it
 has no input and its fan falls back to 100 percent. Cycles between virtual sensors
@@ -139,10 +141,44 @@ and references to undefined ones are rejected when the config is loaded. Missing
 hardware behind a virtual sensor is reported in `GET /api/warnings` by its hardware
 id.
 
+### Webhook sensors
+
+A `webhook` sensor is a virtual sensor with no upstream inputs: a script, Home
+Assistant, or any other service pushes a reading into it over HTTP and it behaves
+like a hardware probe from then on.
+
+```toml
+[profiles.default.sensors.room]
+type = "webhook"
+token = "replace-me-with-the-output-of-openssl-rand-hex-32"
+timeout_s = 120.0
+```
+
+```sh
+curl -X POST http://127.0.0.1:5250/api/webhook/replace-me-with-the-output-of-openssl-rand-hex-32 \
+  -H 'Content-Type: application/json' -d '{"value": 23.5}'
+```
+
+The body is `{"value": <number>}` or `{"value": <bool>}`; `true` maps to `1.0` and
+`false` to `0.0`, so a boolean feeding a 0 to 100 duty range goes through an
+`offset` node with `scale = 100.0`. The token in the URL is the only credential, the
+same model Discord and GitHub use for incoming webhooks: the endpoint ignores
+`[api] api_key`, an unknown token answers 404, and the daemon binds to
+`127.0.0.1` by default so the URL is only reachable from the machine unless you
+change `[api] bind`. Creating the node in the graph editor generates a 64
+character token on the first save and shows the full URL with a copy button in the
+node's panel (`GET /api/webhook-url/<name>` behind the API key). When writing the
+config by hand, put any long random string in `token`, for example the output of
+`openssl rand -hex 32`. Without `timeout_s` the last value never expires; with it,
+the sensor reads as unavailable once that many seconds pass without a POST, and
+any curve reading it falls back to 100 percent through the usual path. Values are
+not kept across a daemon restart.
+
 ### API
 
 The daemon exposes REST and WebSocket endpoints under `/api`, all guarded by
-an optional API key set in `[api] api_key`:
+an optional API key set in `[api] api_key`, except the webhook endpoint, which
+is guarded by its own token:
 
 | Method | Path                      | Description                          |
 | ------ | ------------------------- | ------------------------------------ |
@@ -154,6 +190,8 @@ an optional API key set in `[api] api_key`:
 | POST   | `/api/profiles/:name/activate` | Switch the active profile       |
 | PUT    | `/api/controls/*id`       | Set a manual override duty           |
 | DELETE | `/api/controls/*id`       | Clear a manual override              |
+| POST   | `/api/webhook/:token`     | Push `{"value": <number or bool>}` into a webhook sensor; the token is the credential, no API key |
+| GET    | `/api/webhook-url/:name`  | Full POST URL for a webhook sensor, built from the request's Host header |
 | GET    | `/api/ws`                 | WebSocket stream of live sensor/control state |
 {% endblock %}
 

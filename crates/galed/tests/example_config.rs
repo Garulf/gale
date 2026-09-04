@@ -10,10 +10,17 @@ fn packaged_example_config_parses() {
     assert!(profile.assignments.is_empty());
     assert!(!profile.curves.is_empty());
     assert!(profile.assigned_sensors().is_empty());
-    assert_eq!(profile.sensors.len(), 1);
+    assert_eq!(profile.sensors.len(), 2);
     assert!(matches!(
         profile.sensors["cpu_hot"],
         VirtualSensorConfig::Max { .. }
+    ));
+    assert!(matches!(
+        profile.sensors["room"],
+        VirtualSensorConfig::Webhook {
+            timeout_s: Some(timeout_s),
+            ..
+        } if timeout_s == 120.0
     ));
     assert!(profile.hardware_sensors_used().is_empty());
     gale_core::build::build_engine(&config).unwrap();
