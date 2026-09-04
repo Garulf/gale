@@ -94,6 +94,8 @@ mkdir -p "$CHIP_DIR"
 echo "nct6798" >"$CHIP_DIR/name"
 echo "45000" >"$CHIP_DIR/temp1_input"
 echo "CPUTIN" >"$CHIP_DIR/temp1_label"
+echo "50000" >"$CHIP_DIR/temp2_input"
+echo "SYSTIN" >"$CHIP_DIR/temp2_label"
 echo "1200" >"$CHIP_DIR/fan1_input"
 echo "128" >"$CHIP_DIR/pwm1"
 echo "5" >"$CHIP_DIR/pwm1_enable"
@@ -115,6 +117,10 @@ active_profile = "default"
 
 [api]
 bind = "$BIND"
+
+[profiles.default.sensors.combined]
+type = "max"
+inputs = ["hwmon/nct6798/temp1", "hwmon/nct6798/temp2"]
 
 [profiles.default.curves.cpu]
 type = "point"
