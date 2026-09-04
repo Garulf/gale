@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { curveValidationError, configValidationError } from '../../src/lib/graph/configValidation.js';
+import {
+  curveValidationError,
+  configValidationError,
+  virtualSensorCycleError,
+  undefinedVirtualReferenceError,
+} from '../../src/lib/graph/configValidation.js';
 
 function config(curves, sensors = {}) {
   return { profiles: { default: { curves, assignments: {}, sensors } } };
@@ -59,4 +64,76 @@ test('configValidationError falls through to virtual sensor validation', () => {
 test('configValidationError reports the first curve problem before sensors', () => {
   const cfg = config({ flat: { type: 'flat', duty: null } }, { hot: { type: 'max', inputs: [] } });
   assert.equal(configValidationError(cfg), 'Curve "flat": duty must be a number');
+});
+
+test('virtualSensorCycleError finds no cycle in an acyclic graph', () => {
+  const sensors = {
+    a: { type: 'max', inputs: ['hwmon/x/temp1'] },
+    b: { type: 'offset', input: 'virtual/a', add: 0, scale: 1 },
+  };
+  assert.equal(virtualSensorCycleError(sensors), '');
+});
+
+test('virtualSensorCycleError matches the daemon message for a two-sensor cycle', () => {
+  const sensors = {
+    a: { type: 'max', inputs: ['virtual/b'] },
+    b: { type: 'offset', input: 'virtual/a', add: 0, scale: 1 },
+  };
+  assert.equal(virtualSensorCycleError(sensors), 'virtual sensor cycle: a -> b -> a');
+});
+
+test('virtualSensorCycleError matches the daemon message for a self reference', () => {
+  const sensors = {
+    s: { type: 'min', inputs: ['virtual/s'] },
+  };
+  assert.equal(virtualSensorCycleError(sensors), 'virtual sensor cycle: s -> s');
+});
+
+test('undefinedVirtualReferenceError matches the daemon message for an undefined sensor input', () => {
+  const sensors = {
+    x: { type: 'max', inputs: ['virtual/other'] },
+  };
+  assert.equal(
+    undefinedVirtualReferenceError({}, sensors),
+    "virtual sensor 'x' references undefined virtual sensor 'virtual/other'"
+  );
+});
+
+test('undefinedVirtualReferenceError catches a curve referencing an undefined virtual id', () => {
+  const curves = {
+    cpu: { type: 'point', sensor: 'virtual/missing', points: [], hysteresis: null, response: null },
+  };
+  assert.equal(
+    undefinedVirtualReferenceError(curves, {}),
+    "curve 'cpu' references undefined virtual sensor 'virtual/missing'"
+  );
+});
+
+test('undefinedVirtualReferenceError passes when every virtual reference resolves', () => {
+  const curves = {
+    cpu: { type: 'point', sensor: 'virtual/a', points: [], hysteresis: null, response: null },
+  };
+  const sensors = { a: { type: 'max', inputs: ['hwmon/x/temp1'] } };
+  assert.equal(undefinedVirtualReferenceError(curves, sensors), '');
+});
+
+test('configValidationError reports a virtual sensor cycle', () => {
+  const cfg = config(
+    {},
+    {
+      a: { type: 'max', inputs: ['virtual/b'] },
+      b: { type: 'offset', input: 'virtual/a', add: 0, scale: 1 },
+    }
+  );
+  assert.equal(configValidationError(cfg), 'virtual sensor cycle: a -> b -> a');
+});
+
+test('configValidationError reports an undefined virtual reference from a curve', () => {
+  const cfg = config({
+    cpu: { type: 'point', sensor: 'virtual/missing', points: [], hysteresis: null, response: null },
+  });
+  assert.equal(
+    configValidationError(cfg),
+    "curve 'cpu' references undefined virtual sensor 'virtual/missing'"
+  );
 });

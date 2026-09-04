@@ -2,7 +2,7 @@
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { virtualInputHandles, numberedInputCount } from '../ids.js';
-  import { tempValue, formatTemp } from '../liveValues.js';
+  import { tempValue, formatTemp, formatDeltaRate } from '../liveValues.js';
 
   let { id, data, selected } = $props();
 
@@ -19,6 +19,7 @@
   }
 
   let outputValue = $derived(tempValue($snapshot, id, 'out'));
+  let formatOutput = $derived(config.type === 'delta' ? formatDeltaRate : formatTemp);
 </script>
 
 <div class="node" class:sel={selected} data-node-id={id}>
@@ -36,7 +37,7 @@
     {/each}
     <div class="row out">
       <span>out</span>
-      <span class="val temp">{formatTemp(outputValue)}</span>
+      <span class="val temp">{formatOutput(outputValue)}</span>
       <Handle type="source" position={Position.Right} id="out" class="port out" />
     </div>
   </div>

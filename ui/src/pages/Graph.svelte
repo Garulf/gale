@@ -134,6 +134,12 @@
     history = [...history, cloneGraph(nodes, edges)];
   }
 
+  function pruneStaleSelection() {
+    if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+      selectedNodeId = '';
+    }
+  }
+
   function undo() {
     if (history.length === 0) return;
     future = [cloneGraph(nodes, edges), ...future];
@@ -142,6 +148,7 @@
     nodes = previous.nodes;
     edges = previous.edges;
     dirty = true;
+    pruneStaleSelection();
   }
 
   function redo() {
@@ -152,6 +159,7 @@
     nodes = next.nodes;
     edges = next.edges;
     dirty = true;
+    pruneStaleSelection();
   }
 
   function onNodeDragStart() {
@@ -230,8 +238,8 @@
     selectedNodeId = '';
   }
 
-  function updateNodeData(id, updater) {
-    snapshotHistory();
+  function updateNodeData(id, updater, shouldSnapshot = true) {
+    if (shouldSnapshot) snapshotHistory();
     nodes = nodes.map((node) => (node.id === id ? { ...node, data: updater(node.data) } : node));
     dirty = true;
     future = [];
@@ -295,6 +303,16 @@
     return `sensor_${n}`;
   }
 
+  let nodeAddCount = 0;
+  const NODE_ADD_OFFSET = 24;
+  const NODE_ADD_OFFSET_CYCLE = 10;
+
+  function cascadePosition(position) {
+    const step = (nodeAddCount % NODE_ADD_OFFSET_CYCLE) * NODE_ADD_OFFSET;
+    nodeAddCount += 1;
+    return { x: position.x + step, y: position.y + step };
+  }
+
   function appendNode(node) {
     snapshotHistory();
     nodes = [...nodes, node];
@@ -308,7 +326,7 @@
     appendNode({
       id: `virtual:${name}`,
       type: 'virtual',
-      position,
+      position: cascadePosition(position),
       hidden: false,
       data: { virtual: { name, config: defaultVirtualSensor('max') } },
     });
@@ -319,7 +337,7 @@
     appendNode({
       id: `curve:${id}`,
       type: 'curve',
-      position,
+      position: cascadePosition(position),
       hidden: false,
       data: { curve: { id, config: defaultCurve('point') } },
     });
@@ -330,7 +348,7 @@
     appendNode({
       id: `combine:${id}`,
       type: 'combine',
-      position,
+      position: cascadePosition(position),
       hidden: false,
       data: { combine: { id, config: defaultCurve('mix') } },
     });

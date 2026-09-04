@@ -1,4 +1,4 @@
-import { virtualSensorValidationError } from '../sensors.js';
+import { virtualSensorValidationError, VIRTUAL_PREFIX, virtualName } from '../sensors.js';
 
 function isBadNumber(value) {
   return value === null || value === undefined || typeof value !== 'number' || Number.isNaN(value);
@@ -36,6 +36,72 @@ export function curveValidationError(curveId, curve) {
   return '';
 }
 
+function sensorInputs(sensor) {
+  if (Array.isArray(sensor.inputs)) return sensor.inputs;
+  return sensor.input !== undefined ? [sensor.input] : [];
+}
+
+function virtualDependencies(sensors, name) {
+  return sensorInputs(sensors[name] || {})
+    .filter((input) => typeof input === 'string' && input.startsWith(VIRTUAL_PREFIX))
+    .map(virtualName);
+}
+
+export function virtualSensorCycleError(sensors) {
+  const visited = new Set();
+
+  function visit(startName) {
+    if (visited.has(startName)) return '';
+    const stack = [{ name: startName, children: virtualDependencies(sensors, startName), next: 0 }];
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top.next < top.children.length) {
+        const child = top.children[top.next];
+        top.next += 1;
+        if (visited.has(child)) continue;
+        const pos = stack.findIndex((frame) => frame.name === child);
+        if (pos !== -1) {
+          const cycle = stack.slice(pos).map((frame) => frame.name);
+          cycle.push(child);
+          return `virtual sensor cycle: ${cycle.join(' -> ')}`;
+        }
+        stack.push({ name: child, children: virtualDependencies(sensors, child), next: 0 });
+      } else {
+        const done = stack.pop();
+        visited.add(done.name);
+      }
+    }
+    return '';
+  }
+
+  for (const name of Object.keys(sensors).sort()) {
+    const error = visit(name);
+    if (error) return error;
+  }
+  return '';
+}
+
+export function undefinedVirtualReferenceError(curves, sensors) {
+  for (const [name, sensor] of Object.entries(sensors)) {
+    for (const input of sensorInputs(sensor)) {
+      if (typeof input === 'string' && input.startsWith(VIRTUAL_PREFIX) && !(virtualName(input) in sensors)) {
+        return `virtual sensor '${name}' references undefined virtual sensor '${input}'`;
+      }
+    }
+  }
+  for (const [curveId, curve] of Object.entries(curves)) {
+    const sensorRef = curve.sensor;
+    if (
+      typeof sensorRef === 'string' &&
+      sensorRef.startsWith(VIRTUAL_PREFIX) &&
+      !(virtualName(sensorRef) in sensors)
+    ) {
+      return `curve '${curveId}' references undefined virtual sensor '${sensorRef}'`;
+    }
+  }
+  return '';
+}
+
 export function configValidationError(wireConfig) {
   for (const profileConfig of Object.values(wireConfig.profiles || {})) {
     for (const [curveId, curve] of Object.entries(profileConfig.curves || {})) {
@@ -46,6 +112,13 @@ export function configValidationError(wireConfig) {
       const invalid = virtualSensorValidationError(name, sensor);
       if (invalid) return invalid;
     }
+    const cycleError = virtualSensorCycleError(profileConfig.sensors || {});
+    if (cycleError) return cycleError;
+    const referenceError = undefinedVirtualReferenceError(
+      profileConfig.curves || {},
+      profileConfig.sensors || {}
+    );
+    if (referenceError) return referenceError;
   }
   return '';
 }

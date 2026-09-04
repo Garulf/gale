@@ -92,7 +92,7 @@
   padding: 0;
 }
 
-.node {
+.gale-canvas .node {
   background: var(--node);
   border: 1px solid var(--node-edge);
   border-radius: 8px;
@@ -103,12 +103,12 @@
   color: var(--ink);
 }
 
-.node.sel {
+.gale-canvas .node.sel {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px #4c9ff055, 0 6px 18px #0006;
 }
 
-.node h4 {
+.gale-canvas .node h4 {
   margin: 0;
   padding: 7px 10px;
   font-size: 12px;
@@ -120,12 +120,12 @@
   gap: 8px;
 }
 
-.node h4 small {
+.gale-canvas .node h4 small {
   color: var(--muted);
   font-weight: 500;
 }
 
-.node h4 button {
+.gale-canvas .node h4 button {
   background: none;
   border: 1px solid var(--node-edge);
   border-radius: 4px;
@@ -135,11 +135,11 @@
   cursor: pointer;
 }
 
-.node .rows {
+.gale-canvas .node .rows {
   padding: 6px 0;
 }
 
-.row {
+.gale-canvas .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -149,35 +149,35 @@
   position: relative;
 }
 
-.row .val {
+.gale-canvas .row .val {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
   color: var(--muted);
 }
 
-.row .val.temp {
+.gale-canvas .row .val.temp {
   color: var(--temp);
 }
 
-.row .val.duty {
+.gale-canvas .row .val.duty {
   color: var(--duty);
 }
 
-.row.in {
+.gale-canvas .row.in {
   padding-left: 14px;
 }
 
-.row.out {
+.gale-canvas .row.out {
   padding-right: 14px;
   justify-content: flex-end;
 }
 
-.row.io {
+.gale-canvas .row.io {
   padding-left: 14px;
   padding-right: 14px;
 }
 
-.fold {
+.gale-canvas .fold {
   color: var(--muted);
   font-size: 11px;
   padding: 2px 10px 6px;
@@ -188,14 +188,14 @@
   width: 100%;
 }
 
-.spark {
+.gale-canvas .spark {
   margin: 6px 10px 4px;
   height: 44px;
   background: #0f151c;
   border-radius: 4px;
 }
 
-.port {
+.gale-canvas .port {
   width: 10px !important;
   height: 10px !important;
   border-radius: 50% !important;
@@ -203,7 +203,7 @@
   background: var(--temp) !important;
 }
 
-.port.duty {
+.gale-canvas .port.duty {
   background: var(--duty) !important;
 }
 
@@ -219,7 +219,7 @@
   stroke: var(--duty);
 }
 
-.elabel {
+.gale-canvas .elabel {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   padding: 1px 5px;
@@ -228,11 +228,11 @@
   border: 1px solid var(--node-edge);
 }
 
-.elabel.temp {
+.gale-canvas .elabel.temp {
   color: var(--temp);
 }
 
-.elabel.duty {
+.gale-canvas .elabel.duty {
   color: var(--duty);
 }
 

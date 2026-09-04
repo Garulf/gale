@@ -3,6 +3,7 @@
   import { snapshot } from '../lib/store.js';
   import { getInventory, setControl, releaseControl } from '../lib/api.js';
   import { refreshWarnings } from '../lib/warnings.js';
+  import { virtualName } from '../lib/sensors.js';
 
   let inventory = $state(null);
   let error = $state('');
@@ -51,7 +52,7 @@
       if (!byGroup.has('virtual')) byGroup.set('virtual', []);
       byGroup.get('virtual').push({
         id: entry.id,
-        label: entry.id.slice('virtual/'.length),
+        label: virtualName(entry.id),
         kind: 'temp',
         value: values[entry.id] ?? null,
       });

@@ -17,6 +17,10 @@ export function formatTemp(value) {
   return value === null || value === undefined ? 'n/a' : `${value.toFixed(1)} C`;
 }
 
+export function formatDeltaRate(value) {
+  return value === null || value === undefined ? 'n/a' : `${value.toFixed(1)} C/min`;
+}
+
 export function formatDuty(value) {
   return value === null || value === undefined ? 'n/a' : `${Math.round(value)}%`;
 }

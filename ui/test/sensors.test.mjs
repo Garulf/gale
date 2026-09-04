@@ -4,6 +4,7 @@ import {
   VIRTUAL_PREFIX,
   SENSOR_TYPES,
   virtualId,
+  virtualName,
   isVirtualId,
   sensorOptions,
   defaultVirtualSensor,
@@ -15,6 +16,10 @@ import {
 test('virtualId prefixes the name', () => {
   assert.equal(virtualId('a'), 'virtual/a');
   assert.equal(VIRTUAL_PREFIX, 'virtual/');
+});
+
+test('virtualName strips the prefix off a virtual id', () => {
+  assert.equal(virtualName('virtual/cpu_hot'), 'cpu_hot');
 });
 
 test('isVirtualId recognizes virtual ids', () => {

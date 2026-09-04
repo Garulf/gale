@@ -4,9 +4,20 @@
   import { snapshot } from '../../store.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
-  import { tempValue, dutyValue, formatTemp, formatDuty } from '../liveValues.js';
+  import { tempValue, dutyValue, formatTemp, formatDuty, formatDeltaRate } from '../liveValues.js';
+  import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
   let { node, edges, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode } = $props();
+
+  const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
+  let lastFieldEditAt = null;
+
+  function updateNodeField(id, updater) {
+    const now = Date.now();
+    const takeSnapshot = shouldSnapshotEdit(lastFieldEditAt, now, FIELD_SNAPSHOT_DEBOUNCE_MS);
+    lastFieldEditAt = now;
+    onUpdateData(id, updater, takeSnapshot);
+  }
 
   const MIX_MODES = ['max', 'min', 'avg'];
 
@@ -102,7 +113,7 @@
   });
 
   function updateCurveField(field, value) {
-    onUpdateData(node.id, (data) => ({
+    updateNodeField(node.id, (data) => ({
       ...data,
       curve: { ...data.curve, config: { ...data.curve.config, [field]: value } },
     }));
@@ -130,14 +141,14 @@
   }
 
   function updateCombineField(field, value) {
-    onUpdateData(node.id, (data) => ({
+    updateNodeField(node.id, (data) => ({
       ...data,
       combine: { ...data.combine, config: { ...data.combine.config, [field]: value } },
     }));
   }
 
   function updateVirtualField(field, value) {
-    onUpdateData(node.id, (data) => ({
+    updateNodeField(node.id, (data) => ({
       ...data,
       virtual: { ...data.virtual, config: { ...data.virtual.config, [field]: value } },
     }));
@@ -245,7 +256,11 @@
     </fieldset>
   {/if}
 
-  <p class="mini">Live: {liveVirtualValue === null ? 'n/a' : formatTemp(liveVirtualValue)}</p>
+  <p class="mini">
+    Live: {liveVirtualValue === null
+      ? 'n/a'
+      : (config.type === 'delta' ? formatDeltaRate : formatTemp)(liveVirtualValue)}
+  </p>
   <div class="btns">
     <button type="button" onclick={() => onDeleteNode(node.id)}>Delete node</button>
   </div>

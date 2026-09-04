@@ -5,6 +5,10 @@ export function virtualId(name) {
   return `${VIRTUAL_PREFIX}${name}`;
 }
 
+export function virtualName(id) {
+  return id.slice(VIRTUAL_PREFIX.length);
+}
+
 export function isVirtualId(id) {
   return typeof id === 'string' && id.startsWith(VIRTUAL_PREFIX);
 }
