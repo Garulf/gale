@@ -49,6 +49,8 @@ the next release. Corsair and NVIDIA GPU control work today.
 - Curve types: point, trigger, target, flat, mix, and sync
 - Virtual sensors: max, min, mean (optionally smoothed over a window), offset and
   delta nodes that combine or transform sensors before a curve reads them
+- Graph editor: one canvas per profile wiring device sensors, virtual sensors, curves
+  and device controls together, with live values on every port and edge
 - Journaled claims so a killed daemon restores prior fan state on the next start
 
 ### Quick start
@@ -74,8 +76,21 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 ```
 
 Start the daemon (or `systemctl start galed` once installed) and open
-`http://127.0.0.1:5250` for the dashboard and curve editor, or drive it with
+`http://127.0.0.1:5250` for the dashboard and graph editor, or drive it with
 the `gale` CLI.
+
+### Graph editor
+
+The Graph page is the primary way to build a profile. Every hardware sensor and
+control shows up automatically as a node with one handle per channel; dragging an
+edge from a sensor into a curve or virtual sensor wires it, and dragging an edge
+into a control handle is the assignment, replacing the old assignment table.
+Curves, virtual sensors and mix or sync nodes sit between the two, so a max of two
+temperature probes feeding a point curve that drives three fans is a handful of
+drags rather than three separate forms. Node positions are saved with the profile
+under `[ui.graph.<profile>]` so a layout survives a reinstall. Saving applies the
+whole profile through the same validation the API always enforced, and any warning
+comes back attached to the node it concerns.
 
 ### Virtual sensors
 
