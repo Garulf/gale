@@ -1,4 +1,6 @@
-use crate::config::{virtual_name, ConfigError, CorsairReleaseMode, CurveConfig, GaleConfig};
+use crate::config::{
+    virtual_name, ConfigError, CorsairReleaseMode, CurveConfig, GaleConfig, ProfileConfig,
+};
 use crate::curve::flat::FlatCurve;
 use crate::curve::mix::MixCurve;
 use crate::curve::point::PointCurve;
@@ -11,13 +13,7 @@ use crate::r#virtual::VirtualSensors;
 use crate::Id;
 
 pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
-    if let CorsairReleaseMode::Fixed { percent } = config.hardware.corsair.on_release {
-        if percent > 100 {
-            return Err(ConfigError::Invalid(format!(
-                "hardware.corsair.on_release fixed percent {percent} must be between 0 and 100"
-            )));
-        }
-    }
+    validate_hardware(config)?;
 
     let profile = config.profiles.get(&config.active_profile).ok_or_else(|| {
         ConfigError::Invalid(format!(
@@ -26,6 +22,53 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
         ))
     })?;
 
+    let virtual_sensors = validate_profile(&config.active_profile, profile)?;
+
+    let mut set = CurveSet::new();
+    for (id, curve) in &profile.curves {
+        set.insert(id.clone(), instantiate(curve));
+    }
+    Ok(
+        FanEngine::new(set, profile.assignments.clone().into_iter().collect())
+            .with_virtual_sensors(virtual_sensors),
+    )
+}
+
+pub fn validate_profiles(config: &GaleConfig) -> Result<(), ConfigError> {
+    validate_hardware(config)?;
+    if !config.profiles.contains_key(&config.active_profile) {
+        return Err(ConfigError::Invalid(format!(
+            "active_profile '{}' is not defined",
+            config.active_profile
+        )));
+    }
+    for (name, profile) in &config.profiles {
+        validate_profile(name, profile)?;
+    }
+    Ok(())
+}
+
+fn validate_hardware(config: &GaleConfig) -> Result<(), ConfigError> {
+    if let CorsairReleaseMode::Fixed { percent } = config.hardware.corsair.on_release {
+        if percent > 100 {
+            return Err(ConfigError::Invalid(format!(
+                "hardware.corsair.on_release fixed percent {percent} must be between 0 and 100"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_profile(name: &str, profile: &ProfileConfig) -> Result<VirtualSensors, ConfigError> {
+    check_profile(profile).map_err(|error| match error {
+        ConfigError::Invalid(message) => {
+            ConfigError::Invalid(format!("profile '{name}': {message}"))
+        }
+        other => other,
+    })
+}
+
+fn check_profile(profile: &ProfileConfig) -> Result<VirtualSensors, ConfigError> {
     for (id, curve) in &profile.curves {
         for source in curve_references(curve) {
             if !profile.curves.contains_key(source) {
@@ -42,7 +85,6 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
             )));
         }
     }
-
     for (curve_id, curve) in &profile.curves {
         if let Some(sensor) = curve_sensor(curve) {
             if let Some(name) = virtual_name(sensor) {
@@ -54,17 +96,7 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
             }
         }
     }
-
-    let virtual_sensors = VirtualSensors::build(profile)?;
-
-    let mut set = CurveSet::new();
-    for (id, curve) in &profile.curves {
-        set.insert(id.clone(), instantiate(curve));
-    }
-    Ok(
-        FanEngine::new(set, profile.assignments.clone().into_iter().collect())
-            .with_virtual_sensors(virtual_sensors),
-    )
+    VirtualSensors::build(profile)
 }
 
 fn curve_references(curve: &CurveConfig) -> Vec<&str> {
@@ -321,6 +353,81 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let err = build_engine(&config(bad)).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("virtual/ghost"), "{msg}");
+    }
+
+    #[test]
+    fn validate_profiles_names_the_broken_profile() {
+        let cfg = config(&format!(
+            r#"{VALID}
+[profiles.loud.sensors.a]
+type = "max"
+inputs = ["virtual/b"]
+
+[profiles.loud.sensors.b]
+type = "min"
+inputs = ["virtual/a"]
+
+[profiles.silent.curves.c]
+type = "flat"
+duty = 10.0
+"#
+        ));
+        build_engine(&cfg).expect("active profile alone still builds");
+        let err = validate_profiles(&cfg).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("profile 'loud'"), "{msg}");
+        assert!(msg.contains("cycle"), "{msg}");
+        assert!(!msg.contains("quiet") && !msg.contains("silent"), "{msg}");
+    }
+
+    #[test]
+    fn validate_profiles_accepts_config_where_every_profile_is_valid() {
+        let cfg = config(&format!(
+            r#"{VALID}
+[profiles.loud.sensors.hot]
+type = "max"
+inputs = ["nvidia/0/temp"]
+
+[profiles.loud.curves.c]
+type = "point"
+sensor = "virtual/hot"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.loud.assignments]
+"pwm1" = "c"
+"#
+        ));
+        assert_eq!(validate_profiles(&cfg), Ok(()));
+    }
+
+    #[test]
+    fn validate_profiles_catches_undefined_references_in_inactive_profile() {
+        let dangling_curve = config(&format!(
+            r#"{VALID}
+[profiles.loud.curves.m]
+type = "sync"
+source = "missing"
+"#
+        ));
+        let msg = validate_profiles(&dangling_curve).unwrap_err().to_string();
+        assert!(
+            msg.contains("profile 'loud'") && msg.contains("missing"),
+            "{msg}"
+        );
+
+        let ghost_virtual = config(&format!(
+            r#"{VALID}
+[profiles.loud.curves.c]
+type = "point"
+sensor = "virtual/ghost"
+points = [[30.0, 20.0], [70.0, 100.0]]
+"#
+        ));
+        let msg = validate_profiles(&ghost_virtual).unwrap_err().to_string();
+        assert!(
+            msg.contains("profile 'loud'") && msg.contains("virtual/ghost"),
+            "{msg}"
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use gale_core::build::validate_profiles;
 use gale_core::config::{virtual_id, ConfigError, GaleConfig};
 use gale_hw::{Id, Inventory};
 use serde::{Deserialize, Serialize};
@@ -198,6 +199,9 @@ fn merge_api_key(existing: Option<String>, incoming: Option<String>) -> Option<S
 async fn put_config(State(ctx): State<ApiContext>, Json(mut config): Json<GaleConfig>) -> Response {
     let existing_key = ctx.host.config().api.api_key;
     config.api.api_key = merge_api_key(existing_key, config.api.api_key.clone());
+    if let Err(error) = validate_profiles(&config) {
+        return config_error_response(error);
+    }
     match apply_and_persist(&ctx, config.clone()).await {
         Ok(()) => {
             let warnings = ctx.host.config_warnings(&config);
@@ -950,6 +954,133 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(body.contains("cycle"));
+    }
+
+    fn put_config_request(config: &GaleConfig) -> Request<Body> {
+        Request::builder()
+            .method(Method::PUT)
+            .uri("/api/config")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_string(config).unwrap()))
+            .unwrap()
+    }
+
+    async fn body_text(response: axum::response::Response) -> String {
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn config_put_rejects_cycle_in_inactive_profile_with_422() {
+        let (router, host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        let quiet = config.profiles.get_mut("quiet").unwrap();
+        quiet.sensors.insert(
+            "a".to_string(),
+            gale_core::config::VirtualSensorConfig::Max {
+                inputs: vec!["virtual/b".to_string()],
+            },
+        );
+        quiet.sensors.insert(
+            "b".to_string(),
+            gale_core::config::VirtualSensorConfig::Min {
+                inputs: vec!["virtual/a".to_string()],
+            },
+        );
+        let response = router.oneshot(put_config_request(&config)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_text(response).await;
+        assert!(body.contains("profile 'quiet'"), "{body}");
+        assert!(body.contains("cycle"), "{body}");
+        assert!(host.config().profiles["quiet"].sensors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn config_put_rejects_undefined_virtual_reference_in_inactive_profile() {
+        let (router, _host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        let quiet = config.profiles.get_mut("quiet").unwrap();
+        quiet.sensors.insert(
+            "a".to_string(),
+            gale_core::config::VirtualSensorConfig::Max {
+                inputs: vec!["virtual/ghost".to_string()],
+            },
+        );
+        let response = router
+            .clone()
+            .oneshot(put_config_request(&config))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_text(response).await;
+        assert!(body.contains("profile 'quiet'"), "{body}");
+        assert!(body.contains("virtual/ghost"), "{body}");
+
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        let quiet = config.profiles.get_mut("quiet").unwrap();
+        quiet.curves.insert(
+            "hot".to_string(),
+            gale_core::config::CurveConfig::Point {
+                sensor: "virtual/ghost".to_string(),
+                points: vec![[30.0, 20.0], [70.0, 100.0]],
+                hysteresis: None,
+                response: None,
+            },
+        );
+        let response = router.oneshot(put_config_request(&config)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_text(response).await;
+        assert!(body.contains("profile 'quiet'"), "{body}");
+        assert!(body.contains("virtual/ghost"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn config_put_rejects_dangling_curve_reference_in_inactive_profile() {
+        let (router, _host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        let quiet = config.profiles.get_mut("quiet").unwrap();
+        quiet.curves.insert(
+            "mirror".to_string(),
+            gale_core::config::CurveConfig::Sync {
+                source: "missing".to_string(),
+            },
+        );
+        quiet
+            .assignments
+            .insert("pwm1".to_string(), "ghost".to_string());
+        let response = router.oneshot(put_config_request(&config)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_text(response).await;
+        assert!(body.contains("profile 'quiet'"), "{body}");
+        assert!(body.contains("missing"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn config_put_accepts_valid_virtual_sensors_in_inactive_profile() {
+        let (router, host) = make_router(None);
+        let mut config = GaleConfig::from_toml(CONFIG).unwrap();
+        let quiet = config.profiles.get_mut("quiet").unwrap();
+        quiet.sensors.insert(
+            "hot".to_string(),
+            gale_core::config::VirtualSensorConfig::Max {
+                inputs: vec!["t1".to_string()],
+            },
+        );
+        quiet.curves.insert(
+            "cpu".to_string(),
+            gale_core::config::CurveConfig::Point {
+                sensor: "virtual/hot".to_string(),
+                points: vec![[30.0, 20.0], [70.0, 100.0]],
+                hysteresis: None,
+                response: None,
+            },
+        );
+        quiet
+            .assignments
+            .insert("pwm1".to_string(), "cpu".to_string());
+        let response = router.oneshot(put_config_request(&config)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.config().profiles["quiet"].sensors.len(), 1);
     }
 
     #[tokio::test]
