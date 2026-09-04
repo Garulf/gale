@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/Garulf/gale/compare/gale-v0.3.0...gale-v0.4.0) (2026-09-04)
+
+
+### Features
+
+* **core:** evaluate webhook sensors as a pass-through of the seeded value ([8f82d14](https://github.com/Garulf/gale/commit/8f82d146d06152edc72abd4225f7814ee5d2ef31))
+* **core:** webhook virtual sensor config variant with token and timeout validation ([0769fe2](https://github.com/Garulf/gale/commit/0769fe2770927e1b6596015759c3df2cc8e6595e))
+* **galed:** webhook POST endpoint, webhook-url lookup and token generation on save ([5666f36](https://github.com/Garulf/gale/commit/5666f3696dad567fad52c152da19ab0589c15ace))
+* **galed:** webhook sensor state seeded into each tick with staleness and token generation ([89db446](https://github.com/Garulf/gale/commit/89db4468dc7951f7837a068a3179c7a809912db4))
+* show a manual-override badge on control nodes ([2a201d6](https://github.com/Garulf/gale/commit/2a201d65672211cae2d6020536ed212609a291c6))
+* **ui:** webhook sensor panel with expiry toggle and copyable URL ([e8ab187](https://github.com/Garulf/gale/commit/e8ab1875c302ed94b0d10ffd4032f61bd4629bd9))
+* **ui:** webhook virtual sensor model with zero input handles and saved-token adoption ([c9abd13](https://github.com/Garulf/gale/commit/c9abd13170ec90e12a197bcfb57a9663323f8c39))
+
+
+### Bug Fixes
+
+* **core:** webhook sensors evaluate to unavailable instead of panicking before task 2 lands ([7f1c812](https://github.com/Garulf/gale/commit/7f1c812921976159fefa92868e85d0382be34f49))
+* **galed:** compare webhook tokens and the api key in constant time ([7317638](https://github.com/Garulf/gale/commit/731763818ac72bdd1334495edac956f2dde6424a))
+* **galed:** redact webhook tokens from GET /api/config responses ([4f197b7](https://github.com/Garulf/gale/commit/4f197b7eb0a26b3093cfc4bba15aa7a67f6d7c12))
+
 ## [0.3.0](https://github.com/Garulf/gale/compare/gale-v0.2.0...gale-v0.3.0) (2026-09-04)
 
 
