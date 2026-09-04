@@ -31,3 +31,27 @@ test('a device with three or fewer rows never folds', () => {
   assert.equal(visible.length, 3);
   assert.equal(hidden.length, 0);
 });
+
+test('unwirable rpm rows are folded before temperature rows they can never be wired to', () => {
+  const deviceRows = [
+    { handle: 'fan1', wired: false, kind: 'rpm' },
+    { handle: 'fan2', wired: false, kind: 'rpm' },
+    { handle: 'temp1', wired: false, kind: 'temp' },
+    { handle: 'temp2', wired: false, kind: 'temp' },
+  ];
+  const { visible, hidden } = foldRows(deviceRows, 2);
+  assert.deepEqual(handles(visible), ['temp1', 'temp2']);
+  assert.deepEqual(handles(hidden), ['fan1', 'fan2']);
+});
+
+test('a wired rpm row still counts against the visible budget, and remaining slots prefer temperature rows', () => {
+  const deviceRows = [
+    { handle: 'fan1', wired: false, kind: 'rpm' },
+    { handle: 'fan2', wired: false, kind: 'rpm' },
+    { handle: 'temp1', wired: true, kind: 'temp' },
+    { handle: 'temp2', wired: false, kind: 'temp' },
+  ];
+  const { visible, hidden } = foldRows(deviceRows);
+  assert.deepEqual(handles(visible), ['fan1', 'temp1', 'temp2']);
+  assert.deepEqual(handles(hidden), ['fan2']);
+});
