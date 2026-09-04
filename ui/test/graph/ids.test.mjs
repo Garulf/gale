@@ -64,7 +64,14 @@ test('edgeId formats source and target with handles', () => {
   );
 });
 
-test('virtualInputHandles is a single "in" for count 1, else numbered', () => {
-  assert.deepEqual(virtualInputHandles(1), ['in']);
-  assert.deepEqual(virtualInputHandles(3), ['in-0', 'in-1', 'in-2']);
+test('virtualInputHandles is a single "in" for offset and delta regardless of count', () => {
+  assert.deepEqual(virtualInputHandles('offset', 1), ['in']);
+  assert.deepEqual(virtualInputHandles('delta', 1), ['in']);
+});
+
+test('virtualInputHandles is always numbered for max/min/mean, even with a single input', () => {
+  assert.deepEqual(virtualInputHandles('max', 1), ['in-0']);
+  assert.deepEqual(virtualInputHandles('min', 1), ['in-0']);
+  assert.deepEqual(virtualInputHandles('mean', 1), ['in-0']);
+  assert.deepEqual(virtualInputHandles('max', 3), ['in-0', 'in-1', 'in-2']);
 });

@@ -114,7 +114,7 @@ export function configToGraph(config, inventory, profileName) {
     });
 
     const inputs = virtualSensorInputs(sensorConfig);
-    const handles = virtualInputHandles(inputs.length);
+    const handles = virtualInputHandles(sensorConfig.type, inputs.length);
     inputs.forEach((input, index) => {
       const { source, sourceHandle } = resolveSensorSource(input);
       edges.push(makeEdge(source, sourceHandle, virtualNodeId(name), handles[index], 'temp'));

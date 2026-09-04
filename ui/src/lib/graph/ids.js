@@ -46,6 +46,13 @@ export function edgeId(source, sourceHandle, target, targetHandle) {
   return `${source}:${sourceHandle}->${target}:${targetHandle}`;
 }
 
-export function virtualInputHandles(count) {
-  return count === 1 ? ['in'] : Array.from({ length: count }, (_, i) => `in-${i}`);
+export const SINGLE_INPUT_VIRTUAL_TYPES = ['offset', 'delta'];
+
+export function isSingleInputVirtualType(type) {
+  return SINGLE_INPUT_VIRTUAL_TYPES.includes(type);
+}
+
+export function virtualInputHandles(type, count) {
+  if (isSingleInputVirtualType(type)) return ['in'];
+  return Array.from({ length: count }, (_, i) => `in-${i}`);
 }

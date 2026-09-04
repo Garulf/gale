@@ -147,6 +147,58 @@ test('graphToConfig_preserves_position_of_hidden_nodes', () => {
   assert.ok(result.ui.hidden.default.includes('sensor:hwmon/chipA'));
 });
 
+test('configToGraph wires a single-input max virtual sensor to in-0, not in', () => {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {
+          hot: { type: 'max', inputs: ['hwmon/chipA/temp1'] },
+        },
+        curves: {},
+        assignments: {},
+      },
+    },
+  };
+  const inventory = {
+    sensors: [{ id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' }],
+    controls: [],
+  };
+
+  const { edges } = configToGraph(config, inventory, 'default');
+  const incoming = edges.filter((edge) => edge.target === 'virtual:hot');
+  assert.equal(incoming.length, 1);
+  assert.equal(incoming[0].targetHandle, 'in-0');
+});
+
+test('configToGraph still wires single-input offset and delta sensors to in', () => {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {
+          off: { type: 'offset', input: 'hwmon/chipA/temp1', add: 0, scale: 1 },
+          delt: { type: 'delta', input: 'hwmon/chipA/temp1', window_s: 30 },
+        },
+        curves: {},
+        assignments: {},
+      },
+    },
+  };
+  const inventory = {
+    sensors: [{ id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' }],
+    controls: [],
+  };
+
+  const { edges } = configToGraph(config, inventory, 'default');
+  const offEdge = edges.find((edge) => edge.target === 'virtual:off');
+  const deltEdge = edges.find((edge) => edge.target === 'virtual:delt');
+  assert.equal(offEdge.targetHandle, 'in');
+  assert.equal(deltEdge.targetHandle, 'in');
+});
+
 test('graphToConfig_only_persists_hidden_for_device_nodes', () => {
   const config = fixtureBConfig();
   const { nodes, edges } = configToGraph(config, fixtureBInventory(), 'default');
