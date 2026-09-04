@@ -64,7 +64,7 @@ export function virtualSensorValidationError(name, sensor) {
   if (name.includes('/')) return `${label}: name must not contain "/"`;
   if (sensor.type === 'max' || sensor.type === 'min' || sensor.type === 'mean') {
     if (sensor.inputs.length === 0) return `${label}: at least one input is required`;
-    if (sensor.type === 'mean' && sensor.window_s !== null) {
+    if (sensor.type === 'mean' && sensor.window_s != null) {
       if (isBadNumber(sensor.window_s) || sensor.window_s <= 0) {
         return `${label}: window_s must be a positive number`;
       }

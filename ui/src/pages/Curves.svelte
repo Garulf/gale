@@ -775,13 +775,13 @@
                   <label>
                     <input
                       type="checkbox"
-                      checked={selectedSensor.window_s !== null}
+                      checked={selectedSensor.window_s != null}
                       on:change={(e) => toggleSensorWindow(e.target.checked)}
                     />
                     Moving average window
                   </label>
                 </legend>
-                {#if selectedSensor.window_s !== null}
+                {#if selectedSensor.window_s != null}
                   <label class="inline">
                     window_s
                     <input

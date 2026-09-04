@@ -166,3 +166,7 @@ test('virtualSensorValidationError allows a positive window_s for mean', () => {
     ''
   );
 });
+
+test('virtualSensorValidationError allows an absent window_s for mean', () => {
+  assert.equal(virtualSensorValidationError('m', { type: 'mean', inputs: ['t'] }), '');
+});
