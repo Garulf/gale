@@ -6,6 +6,7 @@
     canUndo,
     canRedo,
     saving,
+    dirty,
     onAutoLayout,
     onUndo,
     onRedo,
@@ -42,42 +43,30 @@
 </script>
 
 <div class="gale-toolbar">
-  <div class="add-node-menu">
-    <button type="button" class="primary" onclick={() => (addMenuOpen = !addMenuOpen)}>+ Node</button>
-    {#if addMenuOpen}
-      <div class="add-node-options">
-        <button type="button" data-testid="add-node-virtual" onclick={addVirtual}>Virtual sensor</button>
-        <button type="button" onclick={addCurve}>Curve</button>
-        <button type="button" onclick={addCombine}>Combine</button>
-      </div>
-    {/if}
+  <div>
+    <div class="add-node-menu">
+      <button type="button" onclick={() => (addMenuOpen = !addMenuOpen)}>+ Node</button>
+      {#if addMenuOpen}
+        <div class="add-node-options">
+          <button type="button" data-testid="add-node-virtual" onclick={addVirtual}><strong>Virtual sensor</strong><small>max · min · mean · offset · delta · webhook</small></button>
+          <button type="button" onclick={addCurve}><strong>Curve</strong><small>point · trigger · target · flat</small></button>
+          <button type="button" onclick={addCombine}><strong>Combine</strong><small>mix · sync</small></button>
+        </div>
+      {/if}
+    </div>
+    <div class="group">
+      <button type="button" onclick={onAutoLayout}>Auto layout</button>
+      <button type="button" onclick={() => fitView()}>Fit view</button>
+      <button type="button" disabled={!canUndo} onclick={onUndo}>Undo</button>
+      <button type="button" disabled={!canRedo} onclick={onRedo}>Redo</button>
+      <button type="button" onclick={onToggleLabels}>Labels {showEdgeLabels ? 'on' : 'off'}</button>
+    </div>
   </div>
-  <button type="button" onclick={onAutoLayout}>Auto layout</button>
-  <button type="button" onclick={() => fitView()}>Fit view</button>
-  <button type="button" disabled={!canUndo} onclick={onUndo}>Undo</button>
-  <button type="button" disabled={!canRedo} onclick={onRedo}>Redo</button>
-  <button type="button" data-testid="graph-save" disabled={saving} onclick={onSave}>Save</button>
-  <button type="button" disabled={saving} onclick={onDiscard}>Discard</button>
-  <button type="button" onclick={onToggleLabels}>Edge labels: {showEdgeLabels ? 'on' : 'off'}</button>
+  <div>
+    {#if dirty}
+      <span class="unsaved">unsaved changes</span>
+      <button type="button" class="discard" disabled={saving} onclick={onDiscard}>Discard</button>
+    {/if}
+    <button type="button" class="save" class:dirty data-testid="graph-save" disabled={saving} onclick={onSave}>Save profile</button>
+  </div>
 </div>
-
-<style>
-  .add-node-menu {
-    position: relative;
-  }
-
-  .add-node-options {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    background: var(--panel);
-    border: 1px solid var(--node-edge);
-    border-radius: 6px;
-    padding: 4px;
-    z-index: 10;
-  }
-</style>

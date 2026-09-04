@@ -1,13 +1,18 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { connect, connected, snapshot } from './lib/store.js';
+  import { connect, connected } from './lib/store.js';
   import { page } from './lib/page.js';
   import { refreshWarnings } from './lib/warnings.js';
+  import { daemonConfig, refreshConfig } from './lib/config.js';
+  import { theme, toggleTheme } from './lib/theme.js';
   import { unauthorized, saveApiKey } from './lib/auth.js';
+  import './lib/sensorHistory.js';
+  import ProfileSwitcher from './lib/components/ProfileSwitcher.svelte';
   import WarningsBanner from './lib/components/WarningsBanner.svelte';
   import Dashboard from './pages/Dashboard.svelte';
   import Graph from './pages/Graph.svelte';
   import Config from './pages/Config.svelte';
+  import logo from './assets/gale.svg';
 
   const disconnect = connect();
   onDestroy(disconnect);
@@ -22,156 +27,308 @@
   }
 
   const pages = { dashboard: Dashboard, graph: Graph, config: Config };
+  const navItems = [
+    ['dashboard', 'Dashboard'],
+    ['graph', 'Graph'],
+    ['config', 'Config'],
+  ];
 
-  let activeProfile = $derived($snapshot ? $snapshot.active_profile : null);
   let Current = $derived(pages[$page]);
+  let tick = $derived($daemonConfig ? `${$daemonConfig.tick_interval_ms} ms` : '—');
+  let bind = $derived($daemonConfig ? $daemonConfig.api.bind : '—');
 
   refreshWarnings();
+  refreshConfig();
 
   let wasConnected = false;
   $effect(() => {
     if ($connected && !wasConnected) {
       refreshWarnings();
+      refreshConfig();
     }
     wasConnected = $connected;
   });
 </script>
 
 <div class="shell">
-  <nav>
-    <h1>gale</h1>
-    <button class:active={$page === 'dashboard'} onclick={() => page.set('dashboard')}>
-      Dashboard
-    </button>
-    <button class:active={$page === 'graph'} onclick={() => page.set('graph')}>
-      Graph
-    </button>
-    <button class:active={$page === 'config'} onclick={() => page.set('config')}>
-      Config
-    </button>
+  <nav class="sidebar">
+    <div class="brand">
+      <img src={logo} alt="" class="logo" />
+      <span class="wordmark">gale</span>
+      <span class="version mono">v{__APP_VERSION__}</span>
+    </div>
+    <ProfileSwitcher />
+    <div class="nav-gap"></div>
+    {#each navItems as [key, label]}
+      <button type="button" class="nav-item" class:active={$page === key} onclick={() => page.set(key)}>
+        <span class="nav-dot"></span>{label}
+      </button>
+    {/each}
+    <div class="sidebar-foot">
+      <div class="health">
+        <div><span>daemon</span><span class="status" class:live={$connected}><span class="dot" class:live={$connected} class:reconnecting={!$connected}></span>{$connected ? 'live' : 'reconnecting'}</span></div>
+        <div><span>tick</span><span class="mono value">{tick}</span></div>
+        <div><span>bind</span><span class="mono value">{bind}</span></div>
+      </div>
+      <button type="button" class="btn theme" onclick={toggleTheme}>{$theme === 'dark' ? '☾ Dark' : '☀ Light'}</button>
+    </div>
   </nav>
+
   <div class="main">
-    <header>
-      <span class="dot" class:live={$connected} class:reconnecting={!$connected}></span>
-      <span class="conn-label">{$connected ? 'live' : 'reconnecting'}</span>
-      {#if activeProfile}
-        <span class="profile">profile: {activeProfile}</span>
-      {/if}
-      {#if $unauthorized}
-        <form class="key-form" onsubmit={(e) => { e.preventDefault(); submitKey(e); }}>
-          <input type="password" placeholder="api key" bind:value={keyDraft} />
-          <button type="submit">Save</button>
-        </form>
-      {/if}
+    <header class="topbar">
+      <img src={logo} alt="" class="logo" />
+      <span class="wordmark">gale</span>
+      <span class="spacer"></span>
+      <ProfileSwitcher compact />
     </header>
+    {#if $unauthorized}
+      <form class="key-form" onsubmit={(e) => { e.preventDefault(); submitKey(); }}>
+        <span>This daemon requires an API key.</span>
+        <input type="password" placeholder="api key" bind:value={keyDraft} />
+        <button type="submit" class="btn primary">Save</button>
+      </form>
+    {/if}
     <WarningsBanner />
-    <main>
-      <Current />
-    </main>
+    <Current />
   </div>
+
+  <nav class="tabbar">
+    {#each navItems as [key, label]}
+      <button type="button" class:active={$page === key} onclick={() => page.set(key)}>
+        <span class="nav-dot"></span>{label}
+      </button>
+    {/each}
+  </nav>
 </div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    background: #14161a;
-    color: #e5e7eb;
-    font-family: system-ui, sans-serif;
-  }
-
   .shell {
     display: flex;
-    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
   }
 
-  nav {
-    width: 180px;
-    background: #1b1e24;
-    padding: 1rem;
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    padding: 20px 14px;
+    gap: 6px;
+    background: var(--surface);
   }
 
-  nav h1 {
-    font-size: 1.1rem;
-    margin: 0 0 1rem;
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 22px;
   }
 
-  nav button {
-    background: none;
+  .logo {
+    width: 26px;
+    height: 26px;
+    filter: hue-rotate(-170deg) saturate(1.3) brightness(1.15);
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: -0.02em;
+  }
+
+  .version {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--faint);
+  }
+
+  .nav-gap {
+    height: 14px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
     border: none;
-    color: inherit;
+    border-radius: var(--r);
+    background: none;
+    color: var(--muted);
     text-align: left;
-    padding: 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
+    font-weight: 500;
+    font-size: 13.5px;
   }
 
-  nav button.active {
-    background: #2a2f38;
+  .nav-item:hover {
+    background: var(--surface2);
+  }
+
+  .nav-item.active {
+    background: var(--surface2);
+    color: var(--ink);
+  }
+
+  .nav-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: transparent;
+  }
+
+  .active .nav-dot {
+    background: var(--accent);
+  }
+
+  .sidebar-foot {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .health {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .health > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--muted);
+  }
+
+  .health .value {
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--warn);
+  }
+
+  .status.live {
+    color: var(--duty);
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+  }
+
+  .dot.live {
+    background: var(--duty);
+    animation: pulse 2s infinite;
+  }
+
+  .theme {
+    padding: 8px;
   }
 
   .main {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    min-width: 0;
+    min-height: 0;
   }
 
-  header {
-    display: flex;
+  .topbar {
+    display: none;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #2a2f38;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
   }
 
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
+  .topbar .logo {
+    width: 22px;
+    height: 22px;
   }
 
-  .dot.live {
-    background: #22c55e;
-  }
-
-  .dot.reconnecting {
-    background: #f59e0b;
-  }
-
-  .profile {
-    margin-left: auto;
-    opacity: 0.8;
+  .spacer {
+    flex: 1;
   }
 
   .key-form {
     display: flex;
-    gap: 0.4rem;
-    margin-left: auto;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
   }
 
   .key-form input {
-    background: #14161a;
-    color: inherit;
-    border: 1px solid #2a2f38;
-    border-radius: 4px;
-    padding: 0.25rem 0.4rem;
+    background: var(--surface2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 5px 8px;
   }
 
-  .key-form button {
-    background: #2a2f38;
-    color: inherit;
-    border: none;
-    border-radius: 4px;
-    padding: 0.25rem 0.6rem;
-    cursor: pointer;
+  .tabbar {
+    display: none;
   }
 
-  main {
-    padding: 1rem;
-    flex: 1;
-    min-width: 0;
+  @media (max-width: 720px) {
+    .sidebar {
+      display: none;
+    }
+
+    .topbar {
+      display: flex;
+    }
+
+    .tabbar {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      bottom: calc(12px + env(safe-area-inset-bottom));
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      height: 52px;
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      background: var(--surface);
+      z-index: 30;
+    }
+
+    .tabbar button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      border: none;
+      background: none;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tabbar button.active {
+      color: var(--ink);
+      font-weight: 600;
+      border-bottom-color: var(--accent);
+    }
   }
 </style>

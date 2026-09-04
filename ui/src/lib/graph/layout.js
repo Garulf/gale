@@ -1,12 +1,23 @@
 import dagre from '@dagrejs/dagre';
 
-const DEFAULT_SIZE = { width: 150, height: 64 };
+const NODE_WIDTH = 236;
+const HEAD_HEIGHT = 52;
+const ROW_HEIGHT = 26;
+const ROWS_PADDING = 12;
+const CHART_HEIGHT = 74;
+
+function rowCount(node) {
+  const data = node.data || {};
+  if (node.type === 'deviceSensor') return Math.min(3, data.deviceSensor.rows.length) + 1;
+  if (node.type === 'deviceControl') return Math.min(3, data.deviceControl.rows.length) + 1;
+  if (node.type === 'virtual') return (data.virtual.config.inputs ? data.virtual.config.inputs.length : 1) + 2;
+  if (node.type === 'combine') return (data.combine.config.sources ? data.combine.config.sources.length : 1) + 2;
+  return 2;
+}
 
 function measure(node) {
-  if (node.type === 'curve' && node.data && node.data.curve && node.data.curve.config.type === 'point') {
-    return { width: 152, height: 120 };
-  }
-  return DEFAULT_SIZE;
+  const chart = node.type === 'curve' && node.data && node.data.curve.config.type === 'point' ? CHART_HEIGHT : 0;
+  return { width: NODE_WIDTH, height: HEAD_HEIGHT + ROWS_PADDING + rowCount(node) * ROW_HEIGHT + chart };
 }
 
 export function autoLayout(nodes, edges) {

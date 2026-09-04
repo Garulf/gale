@@ -29,7 +29,8 @@ const WEBHOOK_SENSOR_NAME = 'remote_temp';
 const WEBHOOK_NODE = `virtual:${WEBHOOK_SENSOR_NAME}`;
 const WEBHOOK_STATUS_ID = `virtual/${WEBHOOK_SENSOR_NAME}`;
 const WEBHOOK_VALUE = 51.5;
-const WEBHOOK_VALUE_TEXT = '51.5 C';
+const WEBHOOK_VALUE_TEXT = '51.5°C';
+const NO_VALUE_TEXT = '—°C';
 const WEBHOOK_TIMEOUT_S = 0.5;
 const UNKNOWN_TOKEN = 'f'.repeat(64);
 
@@ -59,10 +60,10 @@ function assert(condition, message) {
 async function waitForSensorRow(page, label, expected, timeout) {
   await page.waitForFunction(
     (label, expected) => {
-      const rows = Array.from(document.querySelectorAll('table tbody tr'));
-      return rows.some((row) => {
-        const l = row.querySelector('td.label');
-        const v = row.querySelector('td.value');
+      const cards = Array.from(document.querySelectorAll('.temp-card'));
+      return cards.some((card) => {
+        const l = card.querySelector('.label');
+        const v = card.querySelector('.value');
         return l && v && l.textContent.trim() === label && v.textContent.includes(expected);
       });
     },
@@ -297,10 +298,10 @@ async function main() {
       await waitForSensorRow(page, SENSOR_LABEL, SENSOR_VALUE_TEXT, 5000);
     });
 
-    await record('manual override badge appears within 3s of Apply', async () => {
+    await record('manual override badge appears within 3s of Hold', async () => {
       const card = await findControlCard(page, CONTROL_LABEL);
-      const numberInput = await card.$('input[type="number"]');
-      await numberInput.evaluate((el) => {
+      const rangeInput = await card.$('input[type="range"]');
+      await rangeInput.evaluate((el) => {
         el.value = '77';
         el.dispatchEvent(new Event('input', { bubbles: true }));
       });
@@ -387,8 +388,8 @@ async function main() {
         return row ? row.textContent : null;
       }, SENSOR_NODE);
       assert(fanText !== null, 'fan1 row not found');
-      assert(fanText.includes('1200 RPM'), `fan1 row should read as RPM, got: ${fanText}`);
-      assert(!fanText.includes(' C'), `fan1 row is still formatted as a temperature: ${fanText}`);
+      assert(fanText.includes('1200rpm'), `fan1 row should read as RPM, got: ${fanText}`);
+      assert(!fanText.includes('°C'), `fan1 row is still formatted as a temperature: ${fanText}`);
     });
 
     await record('virtual node exposes one more input handle than it has connections', async () => {
@@ -520,7 +521,7 @@ async function main() {
         WEBHOOK_NODE
       );
       await page.waitForSelector('[data-testid="webhook-expires"]', { timeout: 5000 });
-      await waitForNodeOutput(page, WEBHOOK_NODE, 'n/a');
+      await waitForNodeOutput(page, WEBHOOK_NODE, NO_VALUE_TEXT);
 
       await saveGraph(page);
       const config = await fetchConfig();
@@ -610,7 +611,7 @@ async function main() {
       assert(response.status === 204, `expected 204 from the webhook, got ${response.status}`);
       await waitForStatusSensor(WEBHOOK_STATUS_ID, (v) => v === WEBHOOK_VALUE, 5000);
       await waitForStatusSensor(WEBHOOK_STATUS_ID, (v) => v === null, 5000);
-      await waitForNodeOutput(page, WEBHOOK_NODE, 'n/a');
+      await waitForNodeOutput(page, WEBHOOK_NODE, NO_VALUE_TEXT);
     });
 
     await record('Save round-trips 204', async () => {
