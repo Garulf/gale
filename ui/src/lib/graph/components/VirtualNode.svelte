@@ -1,10 +1,15 @@
 <script>
+  import { getContext } from 'svelte';
+  import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { virtualInputHandles, numberedInputCount } from '../ids.js';
   import { tempValue, formatTemp, formatDeltaRate } from '../liveValues.js';
 
   let { id, data, selected } = $props();
+
+  const nodeWarnings = getContext('galeNodeWarnings');
+  let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
 
   let config = $derived(data.virtual.config);
   const connections = useNodeConnections({ handleType: 'target' });
@@ -22,9 +27,9 @@
   let formatOutput = $derived(config.type === 'delta' ? formatDeltaRate : formatTemp);
 </script>
 
-<div class="node" class:sel={selected} data-node-id={id}>
+<div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
   <h4>
-    <span>{data.virtual.name}</span>
+    <span class="title">{data.virtual.name}<WarningBadge messages={warnings} /></span>
     <small>virtual, {config.type}</small>
   </h4>
   <div class="rows">

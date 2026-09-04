@@ -10,6 +10,7 @@
   --temp: #f59e0b;
   --duty: #22c55e;
   --panel: #171f29;
+  --warn: #fbbf24;
 }
 
 .gale-graph-page {
@@ -120,6 +121,31 @@
   gap: 8px;
 }
 
+.gale-canvas .node.warned {
+  border-color: #f59e0b88;
+}
+
+.gale-canvas .node h4 .title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gale-canvas .warn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+}
+
 .gale-canvas .node h4 small {
   color: var(--muted);
   font-weight: 500;
@@ -161,6 +187,16 @@
 
 .gale-canvas .row .val.duty {
   color: var(--duty);
+}
+
+.gale-canvas .row.missing > span {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.gale-canvas .row.missing .port {
+  background: var(--muted) !important;
+  opacity: 0.6;
 }
 
 .gale-canvas .row.in {

@@ -1,10 +1,15 @@
 <script>
+  import { getContext } from 'svelte';
+  import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, formatTemp, formatDuty } from '../liveValues.js';
   import { sparkPath } from '../sparkline.js';
 
   let { id, data, selected } = $props();
+
+  const nodeWarnings = getContext('galeNodeWarnings');
+  let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
 
   let config = $derived(data.curve.config);
   let hasSensorInput = $derived(config.type !== 'flat');
@@ -27,9 +32,9 @@
   let path = $derived(config.type === 'point' ? sparkPath(config.points, 132, 44) : '');
 </script>
 
-<div class="node" class:sel={selected} data-node-id={id}>
+<div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
   <h4>
-    <span>{data.curve.id}</span>
+    <span class="title">{data.curve.id}<WarningBadge messages={warnings} /></span>
     <small>{config.type}</small>
   </h4>
   {#if hasSensorInput}

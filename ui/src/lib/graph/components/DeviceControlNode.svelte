@@ -1,11 +1,15 @@
 <script>
   import { getContext } from 'svelte';
+  import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { formatDuty } from '../liveValues.js';
+  import { dutyValue, formatDuty } from '../liveValues.js';
   import { foldRows } from '../fold.js';
 
   let { id, data, selected } = $props();
+
+  const nodeWarnings = getContext('galeNodeWarnings');
+  let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
   let expanded = $state(false);
 
   const hideNode = getContext('galeHideNode');
@@ -15,23 +19,21 @@
   let hiddenCount = $derived(folded.hidden.length);
 
   function valueFor(handle) {
-    const snap = $snapshot;
-    const value = snap && snap.duties ? snap.duties[handle] : null;
-    return formatDuty(value === undefined ? null : value);
+    return dutyValue($snapshot, handle);
   }
 </script>
 
-<div class="node" class:sel={selected} data-node-id={id}>
+<div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
   <h4>
-    <span>{data.deviceControl.device}</span>
+    <span class="title">{data.deviceControl.device}<WarningBadge messages={warnings} /></span>
     <button type="button" onclick={() => hideNode(id)}>Hide</button>
   </h4>
   <div class="rows">
     {#each visibleRows as row (row.handle)}
-      <div class="row in">
+      <div class="row in" class:missing={valueFor(row.handle) === null}>
         <Handle type="target" position={Position.Left} id={row.handle} class="port in duty" />
         <span>{row.label}</span>
-        <span class="val duty">{valueFor(row.handle)}</span>
+        <span class="val duty">{formatDuty(valueFor(row.handle))}</span>
       </div>
     {/each}
   </div>

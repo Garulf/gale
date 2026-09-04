@@ -4,7 +4,7 @@
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
   import { getConfig, putConfig, getInventory } from '../lib/api.js';
-  import { refreshWarnings } from '../lib/warnings.js';
+  import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { page } from '../lib/page.js';
   import { configToGraph, graphToConfig, edgeInto, replaceEdge } from '../lib/graph/model.js';
   import { isValidConnection } from '../lib/graph/validate.js';
@@ -13,6 +13,7 @@
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
   import { configValidationError } from '../lib/graph/configValidation.js';
+  import { collectNodeWarnings } from '../lib/graph/nodeWarnings.js';
   import { renameNode, changeVirtualType, changeCurveType, nameInUse } from '../lib/graph/edit.js';
   import DeviceSensorNode from '../lib/graph/components/DeviceSensorNode.svelte';
   import DeviceControlNode from '../lib/graph/components/DeviceControlNode.svelte';
@@ -60,6 +61,9 @@
   }
 
   setContext('galeHideNode', hideNode);
+
+  let nodeWarnings = $derived(collectNodeWarnings(nodes, edges, [...$warnings, ...saveWarnings]));
+  setContext('galeNodeWarnings', () => nodeWarnings);
 
   let previousPage = 'graph';
   const unsubscribePage = page.subscribe((value) => {

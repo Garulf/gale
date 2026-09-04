@@ -1,10 +1,15 @@
 <script>
+  import { getContext } from 'svelte';
+  import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { dutyValue, formatDuty } from '../liveValues.js';
   import { numberedInputCount } from '../ids.js';
 
   let { id, data, selected } = $props();
+
+  const nodeWarnings = getContext('galeNodeWarnings');
+  let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
 
   let config = $derived(data.combine.config);
   const inputConnections = useNodeConnections({ handleType: 'target' });
@@ -25,9 +30,9 @@
   }
 </script>
 
-<div class="node" class:sel={selected} data-node-id={id}>
+<div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
   <h4>
-    <span>{data.combine.id}</span>
+    <span class="title">{data.combine.id}<WarningBadge messages={warnings} /></span>
     <small>{config.type}</small>
   </h4>
   <div class="rows">

@@ -225,6 +225,21 @@ async function main() {
       );
     });
 
+    await record('clean config shows live rows ungreyed and no node warning badges', async () => {
+      await page.waitForFunction(
+        (nodeId, label) => {
+          const rows = Array.from(document.querySelectorAll(`[data-node-id="${nodeId}"] .row`));
+          const row = rows.find((el) => el.textContent.includes(label));
+          return !!row && !row.classList.contains('missing');
+        },
+        { timeout: 5000 },
+        SENSOR_NODE,
+        SENSOR_LABEL
+      );
+      const badges = await page.$$eval('[data-node-warning]', (els) => els.map((el) => el.getAttribute('title')));
+      assert(badges.length === 0, `unexpected node warning badges on a clean config: ${badges.join(' | ')}`);
+    });
+
     await record('device rows wired past the fold render their edges on load', async () => {
       await page.waitForSelector(`g.svelte-flow__edge[data-id="${LATE_SENSOR_EDGE_ID}"] path`, { timeout: 5000 });
       await page.waitForSelector(`g.svelte-flow__edge[data-id="${LATE_CONTROL_EDGE_ID}"] path`, { timeout: 5000 });
@@ -344,6 +359,7 @@ async function main() {
       );
 
       await page.waitForSelector(handleSelector(newNodeId, 'in-0'), { timeout: 5000 });
+      await page.waitForSelector(`[data-node-id="${newNodeId}"] [data-node-warning]`, { timeout: 5000 });
       await fitView(page);
       assert(!(await page.$(handleSelector(newNodeId, 'in-1'))), 'in-1 should not exist before the first connection');
       await dragConnection(page, handleSelector(SENSOR_NODE, TEMP1), handleSelector(newNodeId, 'in-0'));
@@ -357,6 +373,14 @@ async function main() {
         type: 'max',
         inputs: [TEMP1, TEMP2],
       });
+    });
+
+    await record('wiring the new virtual node clears its warning badge', async () => {
+      await page.waitForFunction(
+        (nodeId) => !document.querySelector(`[data-node-id="${nodeId}"] [data-node-warning]`),
+        { timeout: 5000 },
+        `virtual:${NEW_SENSOR_NAME}`
+      );
     });
 
     await record('deleting the control edge removes the assignment', async () => {
