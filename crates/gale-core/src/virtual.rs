@@ -102,6 +102,7 @@ enum NodeKind {
         input: Id,
         window: Window,
     },
+    Unimplemented,
 }
 
 #[derive(Debug)]
@@ -140,9 +141,7 @@ impl VirtualSensors {
                     input: input.clone(),
                     window: Window::new(*window_s),
                 },
-                VirtualSensorConfig::Webhook { .. } => {
-                    unreachable!("webhook node evaluation lands in gale plan 13 task 2")
-                }
+                VirtualSensorConfig::Webhook { .. } => NodeKind::Unimplemented,
             };
             nodes.push(Node {
                 id: virtual_id(&name),
@@ -207,6 +206,7 @@ impl VirtualSensors {
                         None => None,
                     }
                 }
+                NodeKind::Unimplemented => None,
             };
             sensors.insert(node.id.clone(), output.and_then(finite));
         }
@@ -626,6 +626,22 @@ mod tests {
         let before = map.clone();
         vs.evaluate(&mut map, 1.0);
         assert_eq!(map, before);
+    }
+
+    #[test]
+    fn webhook_sensor_builds_without_panicking_and_evaluates_to_unavailable() {
+        let profile = parse_profile(
+            r#"
+            [sensors.w]
+            type = "webhook"
+            token = "secret"
+            "#,
+        );
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+
+        let mut map = sensors(&[]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("w")], None);
     }
 
     #[test]
