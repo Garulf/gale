@@ -33,6 +33,16 @@ pub struct GaleConfig {
     pub hardware: HardwareConfig,
     pub active_profile: String,
     pub profiles: BTreeMap<String, ProfileConfig>,
+    #[serde(default)]
+    pub ui: UiConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UiConfig {
+    #[serde(default)]
+    pub graph: BTreeMap<String, BTreeMap<String, [f64; 2]>>,
+    #[serde(default)]
+    pub hidden: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -452,6 +462,7 @@ impl GaleConfig {
                 },
             )]
             .into(),
+            ui: UiConfig::default(),
         }
     }
 }
@@ -1258,6 +1269,95 @@ scale = 1.0
         assert_eq!(
             profile.hardware_sensors_used(),
             BTreeSet::from(["s_cpu".to_string(), "s_gpu".to_string()])
+        );
+    }
+
+    #[test]
+    fn ui_table_round_trips() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default]
+
+[ui.graph.default]
+"sensor:hwmon/nct6798" = [40.0, 120.0]
+"curve:cpu" = [580.0, 150.0]
+
+[ui.hidden]
+default = ["sensor:corsair/commander-pro-0805009c9327"]
+"#;
+        let cfg = GaleConfig::from_toml(toml).unwrap();
+        let rendered = cfg.to_toml().unwrap();
+        assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
+        assert!(rendered.contains(r#""sensor:hwmon/nct6798""#));
+        let round_tripped = GaleConfig::from_toml(&rendered).unwrap();
+        assert_eq!(
+            round_tripped.ui.graph["default"]["sensor:hwmon/nct6798"],
+            [40.0, 120.0]
+        );
+    }
+
+    #[test]
+    fn config_without_ui_table_parses_with_empty_defaults() {
+        let cfg = GaleConfig::from_toml(SAMPLE).unwrap();
+        assert!(cfg.ui.graph.is_empty());
+        assert!(cfg.ui.hidden.is_empty());
+    }
+
+    #[test]
+    fn ui_positions_for_deleted_nodes_do_not_fail_validation() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default]
+
+[ui.graph.default]
+"curve:ghost" = [40.0, 120.0]
+
+[profiles.default.assignments]
+"pwm1" = "real"
+
+[profiles.default.curves.real]
+type = "flat"
+duty = 50.0
+"#;
+        let cfg = GaleConfig::from_toml(toml).unwrap();
+        assert_eq!(cfg.ui.graph["default"]["curve:ghost"], [40.0, 120.0]);
+        crate::build::build_engine(&cfg).unwrap();
+    }
+
+    #[test]
+    fn ui_table_is_ignored_by_build_engine() {
+        let base = r#"
+active_profile = "default"
+
+[profiles.default.curves.real]
+type = "flat"
+duty = 50.0
+
+[profiles.default.assignments]
+"pwm1" = "real"
+"#;
+        let with_ui = format!(
+            r#"{base}
+[ui.graph.default]
+"curve:real" = [40.0, 120.0]
+
+[ui.hidden]
+default = ["sensor:hwmon/nct6798"]
+"#
+        );
+
+        let without = GaleConfig::from_toml(base).unwrap();
+        let with = GaleConfig::from_toml(&with_ui).unwrap();
+
+        let without_engine = crate::build::build_engine(&without).unwrap();
+        let with_engine = crate::build::build_engine(&with).unwrap();
+
+        assert_eq!(without_engine.assignments(), with_engine.assignments());
+        assert_eq!(
+            without_engine.virtual_sensor_ids(),
+            with_engine.virtual_sensor_ids()
         );
     }
 }
