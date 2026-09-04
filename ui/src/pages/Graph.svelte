@@ -1,0 +1,408 @@
+<script>
+  import { onMount, onDestroy, setContext } from 'svelte';
+  import { SvelteFlow, Background, Controls } from '@xyflow/svelte';
+  import '@xyflow/svelte/dist/style.css';
+  import '../lib/graph/styles.css';
+  import { getConfig, putConfig, getInventory } from '../lib/api.js';
+  import { refreshWarnings } from '../lib/warnings.js';
+  import { page } from '../lib/page.js';
+  import { configToGraph, graphToConfig } from '../lib/graph/model.js';
+  import { isValidConnection } from '../lib/graph/validate.js';
+  import { autoLayout } from '../lib/graph/layout.js';
+  import { nodeKind } from '../lib/graph/ids.js';
+  import { defaultVirtualSensor } from '../lib/sensors.js';
+  import { defaultCurve } from '../lib/graph/defaults.js';
+  import DeviceSensorNode from '../lib/graph/components/DeviceSensorNode.svelte';
+  import DeviceControlNode from '../lib/graph/components/DeviceControlNode.svelte';
+  import VirtualNode from '../lib/graph/components/VirtualNode.svelte';
+  import CurveNode from '../lib/graph/components/CurveNode.svelte';
+  import CombineNode from '../lib/graph/components/CombineNode.svelte';
+  import GaleEdge from '../lib/graph/components/GaleEdge.svelte';
+  import NodePanel from '../lib/graph/components/NodePanel.svelte';
+  import GraphToolbar from '../lib/graph/components/GraphToolbar.svelte';
+
+  let config = $state.raw(null);
+  let inventory = $state.raw(null);
+  let editingProfile = $state('');
+  let nodes = $state.raw([]);
+  let edges = $state.raw([]);
+  let selectedNodeId = $state('');
+  let dirty = $state(false);
+  let history = $state([]);
+  let future = $state([]);
+  let showEdgeLabels = $state(true);
+  let error = $state('');
+  let saveWarnings = $state([]);
+  let saving = $state(false);
+  const nodeTypes = {
+    deviceSensor: DeviceSensorNode,
+    deviceControl: DeviceControlNode,
+    virtual: VirtualNode,
+    curve: CurveNode,
+    combine: CombineNode,
+  };
+  const edgeTypes = { gale: GaleEdge };
+
+  function hideNode(id) {
+    snapshotHistory();
+    nodes = nodes.map((node) => (node.id === id ? { ...node, hidden: true } : node));
+    dirty = true;
+    future = [];
+  }
+
+  function showNode(id) {
+    snapshotHistory();
+    nodes = nodes.map((node) => (node.id === id ? { ...node, hidden: false } : node));
+    dirty = true;
+    future = [];
+  }
+
+  setContext('galeHideNode', hideNode);
+
+  let previousPage = 'graph';
+  const unsubscribePage = page.subscribe((value) => {
+    if (previousPage === 'graph' && value !== 'graph' && dirty) {
+      if (!confirm('You have unsaved changes on this profile. Leave without saving?')) {
+        page.set('graph');
+        return;
+      }
+    }
+    previousPage = value;
+  });
+  onDestroy(unsubscribePage);
+
+  onMount(load);
+
+  function toFlowEdges(rawEdges, labelsOn) {
+    return rawEdges.map((edge) => ({
+      ...edge,
+      type: 'gale',
+      class: edge.data.kind,
+      data: { ...edge.data, showLabel: labelsOn },
+    }));
+  }
+
+  async function load() {
+    error = '';
+    saveWarnings = [];
+    try {
+      const [cfg, inv] = await Promise.all([getConfig(), getInventory()]);
+      config = cfg;
+      inventory = inv;
+      editingProfile = cfg.active_profile;
+      const graph = configToGraph(config, inventory, editingProfile);
+      nodes = graph.nodes;
+      edges = toFlowEdges(graph.edges, showEdgeLabels);
+      selectedNodeId = '';
+      history = [];
+      future = [];
+      dirty = false;
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  function cloneData(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function cloneGraph(rawNodes, rawEdges) {
+    return {
+      nodes: rawNodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        position: { x: node.position.x, y: node.position.y },
+        hidden: node.hidden === true,
+        data: cloneData(node.data),
+      })),
+      edges: rawEdges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        sourceHandle: edge.sourceHandle,
+        target: edge.target,
+        targetHandle: edge.targetHandle,
+        type: edge.type,
+        class: edge.class,
+        data: cloneData(edge.data),
+      })),
+    };
+  }
+
+  function snapshotHistory() {
+    history = [...history, cloneGraph(nodes, edges)];
+  }
+
+  function undo() {
+    if (history.length === 0) return;
+    future = [cloneGraph(nodes, edges), ...future];
+    const previous = history[history.length - 1];
+    history = history.slice(0, -1);
+    nodes = previous.nodes;
+    edges = previous.edges;
+    dirty = true;
+  }
+
+  function redo() {
+    if (future.length === 0) return;
+    history = [...history, cloneGraph(nodes, edges)];
+    const next = future[0];
+    future = future.slice(1);
+    nodes = next.nodes;
+    edges = next.edges;
+    dirty = true;
+  }
+
+  function onNodeDragStart() {
+    snapshotHistory();
+  }
+
+  function onNodeDragStop() {
+    dirty = true;
+    future = [];
+  }
+
+  function onConnect(connection) {
+    if (!isValidConnection(connection, nodes, edges)) return;
+    snapshotHistory();
+    const kind = nodeKind(connection.source) === 'sensor' || nodeKind(connection.source) === 'virtual' ? 'temp' : 'duty';
+    const id = `${connection.source}:${connection.sourceHandle}->${connection.target}:${connection.targetHandle}`;
+    const newEdge = {
+      id,
+      source: connection.source,
+      sourceHandle: connection.sourceHandle,
+      target: connection.target,
+      targetHandle: connection.targetHandle,
+      type: 'gale',
+      class: kind,
+      data: { kind, showLabel: showEdgeLabels },
+    };
+    edges = [...edges, newEdge];
+    dirty = true;
+    future = [];
+  }
+
+  function onBeforeDelete({ nodes: deletedNodes }) {
+    const blocksDelete = deletedNodes.some(
+      (node) => node.type === 'deviceSensor' || node.type === 'deviceControl'
+    );
+    if (blocksDelete) return false;
+    snapshotHistory();
+    dirty = true;
+    future = [];
+    return true;
+  }
+
+  function onNodeClick({ node }) {
+    selectedNodeId = node.id;
+  }
+
+  function onPaneClick() {
+    selectedNodeId = '';
+  }
+
+  function updateNodeData(id, updater) {
+    snapshotHistory();
+    nodes = nodes.map((node) => (node.id === id ? { ...node, data: updater(node.data) } : node));
+    dirty = true;
+    future = [];
+  }
+
+  function deleteNode(id) {
+    snapshotHistory();
+    edges = edges.filter((edge) => edge.source !== id && edge.target !== id);
+    nodes = nodes.filter((node) => node.id !== id);
+    if (selectedNodeId === id) selectedNodeId = '';
+    dirty = true;
+    future = [];
+  }
+
+  function runAutoLayout() {
+    snapshotHistory();
+    nodes = autoLayout(nodes, edges);
+    dirty = true;
+    future = [];
+  }
+
+  function toggleEdgeLabels() {
+    showEdgeLabels = !showEdgeLabels;
+    edges = edges.map((edge) => ({ ...edge, data: { ...edge.data, showLabel: showEdgeLabels } }));
+  }
+
+  function uniqueCurveId(prefix) {
+    let n = 1;
+    while (nodes.some((node) => node.id === `curve:${prefix}_${n}` || node.id === `combine:${prefix}_${n}`)) {
+      n += 1;
+    }
+    return `${prefix}_${n}`;
+  }
+
+  function uniqueVirtualName() {
+    let n = 1;
+    while (nodes.some((node) => node.id === `virtual:sensor_${n}`)) {
+      n += 1;
+    }
+    return `sensor_${n}`;
+  }
+
+  function addVirtualNode(position) {
+    snapshotHistory();
+    const name = uniqueVirtualName();
+    nodes = [
+      ...nodes,
+      {
+        id: `virtual:${name}`,
+        type: 'virtual',
+        position,
+        hidden: false,
+        data: { virtual: { name, config: defaultVirtualSensor('max') } },
+      },
+    ];
+    dirty = true;
+    future = [];
+  }
+
+  function addCurveNode(position) {
+    snapshotHistory();
+    const id = uniqueCurveId('curve');
+    nodes = [
+      ...nodes,
+      {
+        id: `curve:${id}`,
+        type: 'curve',
+        position,
+        hidden: false,
+        data: { curve: { id, config: defaultCurve('point') } },
+      },
+    ];
+    dirty = true;
+    future = [];
+  }
+
+  function addCombineNode(position) {
+    snapshotHistory();
+    const id = uniqueCurveId('combine');
+    nodes = [
+      ...nodes,
+      {
+        id: `combine:${id}`,
+        type: 'combine',
+        position,
+        hidden: false,
+        data: { combine: { id, config: defaultCurve('mix') } },
+      },
+    ];
+    dirty = true;
+    future = [];
+  }
+
+  async function save() {
+    saving = true;
+    error = '';
+    saveWarnings = [];
+    try {
+      const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
+      const result = await putConfig(wireConfig);
+      saveWarnings = (result && result.warnings) || [];
+      dirty = false;
+      await refreshWarnings();
+    } catch (err) {
+      error = err.message;
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function discard() {
+    await load();
+  }
+
+  let selectedNode = $derived(nodes.find((node) => node.id === selectedNodeId) || null);
+  let hiddenNodes = $derived(nodes.filter((node) => node.hidden === true));
+</script>
+
+<section class="gale-graph-page">
+  <div class="gale-canvas">
+    <SvelteFlow
+      bind:nodes
+      bind:edges
+      {nodeTypes}
+      {edgeTypes}
+      isValidConnection={(connection) => isValidConnection(connection, nodes, edges)}
+      onconnect={onConnect}
+      onnodedragstart={onNodeDragStart}
+      onnodedragstop={onNodeDragStop}
+      onbeforedelete={onBeforeDelete}
+      onnodeclick={onNodeClick}
+      onpaneclick={onPaneClick}
+      fitView
+    >
+      <Background />
+      <Controls />
+      <GraphToolbar
+        {showEdgeLabels}
+        canUndo={history.length > 0}
+        canRedo={future.length > 0}
+        {saving}
+        onAutoLayout={runAutoLayout}
+        onUndo={undo}
+        onRedo={redo}
+        onSave={save}
+        onDiscard={discard}
+        onToggleLabels={toggleEdgeLabels}
+        onAddVirtual={addVirtualNode}
+        onAddCurve={addCurveNode}
+        onAddCombine={addCombineNode}
+      />
+    </SvelteFlow>
+
+    {#if hiddenNodes.length > 0}
+      <div class="gale-hidden-strip">
+        {#each hiddenNodes as node (node.id)}
+          <div class="gale-hidden-chip">
+            <span>{node.type === 'deviceSensor' ? node.data.deviceSensor.device : node.data.deviceControl.device}</span>
+            <button type="button" onclick={() => showNode(node.id)}>Show</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <aside class="gale-panel">
+    {#if error}
+      <p class="error">{error}</p>
+    {/if}
+    <NodePanel node={selectedNode} {edges} onUpdateData={updateNodeData} onDeleteNode={deleteNode} />
+    {#if dirty}
+      <div class="warn">Unsaved changes on this profile. Saving applies them to the daemon and validates the whole graph.</div>
+    {/if}
+    {#if saveWarnings.length > 0}
+      <ul class="save-warnings">
+        {#each saveWarnings as warning}
+          <li>{warning}</li>
+        {/each}
+      </ul>
+    {/if}
+  </aside>
+</section>
+
+<style>
+  .error {
+    color: #f87171;
+  }
+
+  .warn {
+    border: 1px solid #f59e0b55;
+    background: #f59e0b12;
+    color: #f5c16b;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .save-warnings {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: #fbbf24;
+    font-size: 0.85rem;
+  }
+</style>

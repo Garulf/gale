@@ -6,7 +6,7 @@
   import { unauthorized, saveApiKey } from './lib/auth.js';
   import WarningsBanner from './lib/components/WarningsBanner.svelte';
   import Dashboard from './pages/Dashboard.svelte';
-  import Curves from './pages/Curves.svelte';
+  import Graph from './pages/Graph.svelte';
   import Config from './pages/Config.svelte';
 
   const disconnect = connect();
@@ -21,7 +21,7 @@
     window.location.reload();
   }
 
-  const pages = { dashboard: Dashboard, curves: Curves, config: Config };
+  const pages = { dashboard: Dashboard, graph: Graph, config: Config };
 
   let activeProfile = $derived($snapshot ? $snapshot.active_profile : null);
   let Current = $derived(pages[$page]);
@@ -43,8 +43,8 @@
     <button class:active={$page === 'dashboard'} onclick={() => page.set('dashboard')}>
       Dashboard
     </button>
-    <button class:active={$page === 'curves'} onclick={() => page.set('curves')}>
-      Curves
+    <button class:active={$page === 'graph'} onclick={() => page.set('graph')}>
+      Graph
     </button>
     <button class:active={$page === 'config'} onclick={() => page.set('config')}>
       Config

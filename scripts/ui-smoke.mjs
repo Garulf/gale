@@ -123,28 +123,40 @@ async function main() {
     });
 
     let pointsBeforeDrag = 0;
-    await record('navigate to Curves page', async () => {
+    await record('navigate to Graph page', async () => {
       const clicked = await page.evaluate(() => {
         const button = Array.from(document.querySelectorAll('nav button')).find(
-          (b) => b.textContent.trim() === 'Curves'
+          (b) => b.textContent.trim() === 'Graph'
         );
         if (!button) return false;
         button.click();
         return true;
       });
-      assert(clicked, 'Curves nav button not found');
+      assert(clicked, 'Graph nav button not found');
+      await page.waitForSelector('.svelte-flow', { timeout: 5000 });
+    });
+
+    await record('canvas renders the example device and curve nodes', async () => {
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[data-node-id="sensor:hwmon/nct6798"]') &&
+          document.querySelector('[data-node-id="control:hwmon/nct6798"]') &&
+          document.querySelector('[data-node-id="curve:cpu"]'),
+        { timeout: 5000 }
+      );
+    });
+
+    await record('selecting the curve node opens its point editor in the panel', async () => {
+      const clicked = await page.evaluate(() => {
+        const node = document.querySelector('[data-node-id="curve:cpu"]');
+        if (!node) return false;
+        node.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        return true;
+      });
+      assert(clicked, 'curve:cpu node not found');
       await page.waitForSelector('svg.graph', { timeout: 5000 });
       pointsBeforeDrag = await countCurvePoints(page);
       assert(pointsBeforeDrag >= 2, 'expected at least 2 curve points to start');
-    });
-
-    await record('Curves page renders the Virtual sensors section', async () => {
-      const found = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('h3')).some((h) => h.textContent.trim() === 'Virtual sensors')
-      );
-      assert(found, 'Virtual sensors heading not found');
-      const input = await page.$('.new-sensor input');
-      assert(input, 'new sensor name input not found');
     });
 
     await record('point drag via mouse events adds no stray point', async () => {
@@ -165,7 +177,7 @@ async function main() {
       );
     });
 
-    await record('unsaved-edits guard: cancel keeps edits and stays on Curves', async () => {
+    await record('unsaved-edits guard: cancel keeps edits and stays on Graph', async () => {
       dialogMessage = null;
       const pointsBeforeNav = await countCurvePoints(page);
       const clicked = await page.evaluate(() => {
@@ -179,8 +191,8 @@ async function main() {
       assert(clicked, 'Dashboard nav button not found');
       assert(dialogMessage !== null, 'expected a confirm() dialog to fire');
       assert(dialogMessage.toLowerCase().includes('unsaved'), `unexpected dialog text: ${dialogMessage}`);
-      const stillOnCurves = await page.$('svg.graph');
-      assert(stillOnCurves, 'expected to remain on Curves after cancelling navigation');
+      const stillOnGraph = await page.$('.svelte-flow');
+      assert(stillOnGraph, 'expected to remain on Graph after cancelling navigation');
       const pointsAfterNav = await countCurvePoints(page);
       assert(
         pointsAfterNav === pointsBeforeNav,
@@ -195,10 +207,7 @@ async function main() {
           { timeout: 5000 }
         ),
         page.evaluate(() => {
-          const button = Array.from(document.querySelectorAll('.actions button')).find(
-            (b) => b.textContent.trim() === 'Save'
-          );
-          button.click();
+          document.querySelector('[data-testid="graph-save"]').click();
         }),
       ]);
       assert(response.status() === 204, `expected 204, got ${response.status()}`);
