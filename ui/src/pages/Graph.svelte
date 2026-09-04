@@ -37,6 +37,7 @@
   let error = $state('');
   let saveWarnings = $state([]);
   let saving = $state(false);
+  let savedAt = $state(0);
   const nodeTypes = {
     deviceSensor: DeviceSensorNode,
     deviceControl: DeviceControlNode,
@@ -376,6 +377,7 @@
       config = saved;
       nodes = adoptSavedTokens(nodes, saved.profiles[editingProfile]);
       dirty = false;
+      savedAt = Date.now();
       await refreshWarnings();
     } catch (err) {
       error = err.message;
@@ -446,6 +448,7 @@
     <NodePanel
       node={selectedNode}
       {edges}
+      {savedAt}
       onUpdateData={updateNodeData}
       onDeleteNode={deleteNode}
       onRenameNode={renameGraphNode}

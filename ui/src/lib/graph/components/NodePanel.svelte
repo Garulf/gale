@@ -3,12 +3,13 @@
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
   import { getWebhookUrl } from '../../api.js';
+  import { isWebhookNotFound, webhookNameFor } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
   import { tempValue, dutyValue, formatTemp, formatDuty, formatDeltaRate } from '../liveValues.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
-  let { node, edges, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode } = $props();
+  let { node, edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode } = $props();
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -161,29 +162,31 @@
 
   let webhookUrl = $state('');
   let webhookUrlError = $state('');
+  let webhookNeedsSave = $state(false);
   let copied = $state(false);
 
-  let webhookKey = $derived.by(() => {
-    if (!node || node.type !== 'virtual') return '';
-    const config = node.data.virtual.config;
-    if (config.type !== 'webhook' || !config.token) return '';
-    return `${node.data.virtual.name}\n${config.token}`;
-  });
+  let webhookName = $derived.by(() => webhookNameFor(node));
 
   $effect(() => {
-    const key = webhookKey;
+    const name = webhookName;
+    void savedAt;
     webhookUrl = '';
     webhookUrlError = '';
+    webhookNeedsSave = false;
     copied = false;
-    if (!key) return;
-    const name = key.slice(0, key.indexOf('\n'));
+    if (!name) return;
     let cancelled = false;
     getWebhookUrl(name)
       .then((result) => {
         if (!cancelled) webhookUrl = result.url;
       })
       .catch((err) => {
-        if (!cancelled) webhookUrlError = err.message;
+        if (cancelled) return;
+        if (isWebhookNotFound(err)) {
+          webhookNeedsSave = true;
+        } else {
+          webhookUrlError = err.message;
+        }
       });
     return () => {
       cancelled = true;
@@ -328,7 +331,7 @@
         </label>
       {/if}
     </fieldset>
-    {#if !config.token}
+    {#if webhookNeedsSave}
       <p class="mini">Save the profile to generate this sensor's URL.</p>
     {:else if webhookUrlError}
       <p class="error">{webhookUrlError}</p>

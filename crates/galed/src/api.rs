@@ -164,9 +164,20 @@ async fn inventory(State(ctx): State<ApiContext>) -> Response {
     .into_response()
 }
 
+fn redact_webhook_tokens(config: &mut GaleConfig) {
+    for profile in config.profiles.values_mut() {
+        for sensor in profile.sensors.values_mut() {
+            if let gale_core::config::VirtualSensorConfig::Webhook { token, .. } = sensor {
+                token.clear();
+            }
+        }
+    }
+}
+
 async fn get_config(State(ctx): State<ApiContext>) -> Response {
     let mut config = ctx.host.config();
     config.api.api_key = None;
+    redact_webhook_tokens(&mut config);
     Json(config).into_response()
 }
 
@@ -1602,7 +1613,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             .unwrap();
         let json = body_json(response).await;
         let fresh = &json["profiles"]["p"]["sensors"]["fresh"];
-        assert_eq!(fresh["token"], first);
+        assert_eq!(fresh["token"], "");
         assert!(fresh.get("timeout_s").is_none());
     }
 
@@ -1649,5 +1660,46 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(host.webhook_token("hook2"), Some(TOKEN.to_string()));
         assert_eq!(host.webhook_token("hook"), None);
+    }
+
+    #[tokio::test]
+    async fn get_config_redacts_webhook_tokens_but_the_real_token_still_works() {
+        let (router, _host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .clone()
+            .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["profiles"]["p"]["sensors"]["hook"]["token"], "");
+        assert_eq!(json["profiles"]["p"]["sensors"]["forever"]["token"], "");
+
+        let response = router
+            .oneshot(post_webhook_request(TOKEN, r#"{"value": 51.5}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn put_config_with_redacted_webhook_token_round_trips_without_wiping_it() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        let response = router
+            .clone()
+            .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let redacted: GaleConfig = {
+            let json = body_json(response).await;
+            serde_json::from_value(json).unwrap()
+        };
+        assert_eq!(webhook_token_of(&redacted, "hook"), "");
+
+        let response = router.oneshot(put_config_request(&redacted)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.webhook_token("hook"), Some(TOKEN.to_string()));
+        assert_eq!(host.webhook_token("forever"), Some(OTHER_TOKEN.to_string()));
     }
 }

@@ -181,6 +181,13 @@ async function postWebhook(token, value) {
   });
 }
 
+async function fetchWebhookUrl(name) {
+  const response = await fetch(`${BASE_URL}/api/webhook-url/${encodeURIComponent(name)}`);
+  assert(response.ok, `GET /api/webhook-url/${name} returned ${response.status}`);
+  const { url } = await response.json();
+  return url;
+}
+
 async function setPanelInput(page, testId, value) {
   await page.evaluate(
     (testId, value) => {
@@ -519,10 +526,14 @@ async function main() {
       const config = await fetchConfig();
       const sensor = config.profiles.default.sensors[WEBHOOK_SENSOR_NAME];
       assert(sensor && sensor.type === 'webhook', `expected a webhook sensor, got ${JSON.stringify(sensor)}`);
-      assert(/^[0-9a-f]{64}$/.test(sensor.token), `token is not 64 lowercase hex chars: ${sensor.token}`);
+      assert(sensor.token === '', `GET /api/config should redact the webhook token, got ${JSON.stringify(sensor.token)}`);
       assert(!('timeout_s' in sensor), `timeout_s should be absent, got ${JSON.stringify(sensor)}`);
       assert(!('inputs' in sensor) && !('input' in sensor), `webhook sensor should carry no inputs: ${JSON.stringify(sensor)}`);
-      webhookToken = sensor.token;
+
+      const url = await fetchWebhookUrl(WEBHOOK_SENSOR_NAME);
+      const match = /\/api\/webhook\/([0-9a-f]{64})$/.exec(url);
+      assert(match, `webhook URL is not shaped as expected: ${url}`);
+      webhookToken = match[1];
     });
 
     await record('the panel shows the saved webhook URL and the copy button puts it on the clipboard', async () => {
@@ -536,9 +547,43 @@ async function main() {
       await saveGraph(page);
       const config = await fetchConfig();
       assert(
-        config.profiles.default.sensors[WEBHOOK_SENSOR_NAME].token === webhookToken,
-        'a second save rotated the webhook token'
+        config.profiles.default.sensors[WEBHOOK_SENSOR_NAME].token === '',
+        'GET /api/config should redact the webhook token'
       );
+
+      const response = await postWebhook(webhookToken, WEBHOOK_VALUE);
+      assert(
+        response.status === 204,
+        `posting to the original token after a second save should still work (no rotation), got ${response.status}`
+      );
+    });
+
+    await record('reloading the page after a save still shows the working webhook URL', async () => {
+      const expected = `${BASE_URL}/api/webhook/${webhookToken}`;
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.waitForSelector('h2', { timeout: 5000 });
+
+      const clicked = await page.evaluate(() => {
+        const button = Array.from(document.querySelectorAll('nav button')).find(
+          (b) => b.textContent.trim() === 'Graph'
+        );
+        if (!button) return false;
+        button.click();
+        return true;
+      });
+      assert(clicked, 'Graph nav button not found');
+      await page.waitForSelector('.svelte-flow', { timeout: 5000 });
+
+      await page.waitForSelector(`[data-node-id="${WEBHOOK_NODE}"]`, { timeout: 5000 });
+      const nodeClicked = await page.evaluate((nodeId) => {
+        const node = document.querySelector(`[data-node-id="${nodeId}"]`);
+        if (!node) return false;
+        node.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        return true;
+      }, WEBHOOK_NODE);
+      assert(nodeClicked, `${WEBHOOK_NODE} not found after reload`);
+
+      await waitForWebhookPanel(page, (state) => state.url === expected, `panel never showed ${expected} after reload`);
     });
 
     await record('POSTing a value to the webhook URL shows on the node and in status', async () => {
