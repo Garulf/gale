@@ -1,16 +1,16 @@
 <script>
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { virtualInputHandles } from '../ids.js';
+  import { virtualInputHandles, numberedInputCount } from '../ids.js';
   import { tempValue, formatTemp } from '../liveValues.js';
 
   let { id, data, selected } = $props();
 
   let config = $derived(data.virtual.config);
-  let inputCount = $derived(config.inputs ? Math.max(config.inputs.length, 1) : 1);
-  let handles = $derived(virtualInputHandles(config.type, inputCount));
-
   const connections = useNodeConnections({ handleType: 'target' });
+
+  let connectedHandles = $derived(connections.current.map((c) => c.targetHandle));
+  let handles = $derived(virtualInputHandles(config.type, numberedInputCount(connectedHandles) + 1));
 
   function inputValue(handle) {
     const connection = connections.current.find((c) => c.targetHandle === handle);

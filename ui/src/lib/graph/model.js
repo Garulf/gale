@@ -248,3 +248,18 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
 
   return config;
 }
+
+export function edgeInto(edges, target, targetHandle) {
+  return edges.find((edge) => edge.target === target && edge.targetHandle === targetHandle);
+}
+
+export function isSingleInputHandle(nodeType, targetHandle) {
+  if (nodeType === 'curve') return targetHandle === 'sensor';
+  if (nodeType === 'combine' || nodeType === 'virtual') return targetHandle === 'in';
+  return false;
+}
+
+export function replaceEdge(edges, newEdge, target, targetHandle) {
+  const remaining = edges.filter((edge) => !(edge.target === target && edge.targetHandle === targetHandle));
+  return [...remaining, newEdge];
+}

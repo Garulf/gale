@@ -6,10 +6,10 @@
   import { getConfig, putConfig, getInventory } from '../lib/api.js';
   import { refreshWarnings } from '../lib/warnings.js';
   import { page } from '../lib/page.js';
-  import { configToGraph, graphToConfig } from '../lib/graph/model.js';
+  import { configToGraph, graphToConfig, edgeInto, replaceEdge } from '../lib/graph/model.js';
   import { isValidConnection } from '../lib/graph/validate.js';
   import { autoLayout } from '../lib/graph/layout.js';
-  import { nodeKind } from '../lib/graph/ids.js';
+  import { nodeKind, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
   import { configValidationError } from '../lib/graph/configValidation.js';
@@ -163,13 +163,11 @@
     future = [];
   }
 
-  function onConnect(connection) {
-    if (!isValidConnection(connection, nodes, edges)) return;
-    snapshotHistory();
-    const kind = nodeKind(connection.source) === 'sensor' || nodeKind(connection.source) === 'virtual' ? 'temp' : 'duty';
-    const id = `${connection.source}:${connection.sourceHandle}->${connection.target}:${connection.targetHandle}`;
-    const newEdge = {
-      id,
+  function buildEdge(connection) {
+    const sourceKind = nodeKind(connection.source);
+    const kind = sourceKind === 'sensor' || sourceKind === 'virtual' ? 'temp' : 'duty';
+    return {
+      id: edgeId(connection.source, connection.sourceHandle, connection.target, connection.targetHandle),
       source: connection.source,
       sourceHandle: connection.sourceHandle,
       target: connection.target,
@@ -178,9 +176,39 @@
       class: kind,
       data: { kind, showLabel: showEdgeLabels },
     };
-    edges = [...edges, newEdge];
+  }
+
+  function targetLabel(nodeId, handle) {
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return `${nodeId}: ${handle}`;
+    if (node.type === 'deviceControl') {
+      const row = node.data.deviceControl.rows.find((candidate) => candidate.handle === handle);
+      return `${node.data.deviceControl.device}: ${row ? row.label : handle}`;
+    }
+    const name = node.type === 'virtual' ? node.data.virtual.name : node.data[node.type].id;
+    return `${name}: ${handle}`;
+  }
+
+  function commitEdges(nextEdges) {
+    snapshotHistory();
+    edges = nextEdges;
     dirty = true;
     future = [];
+  }
+
+  function onBeforeConnect(connection) {
+    if (!isValidConnection(connection, nodes, edges)) return false;
+    const newEdge = buildEdge(connection);
+    const existing = edgeInto(edges, connection.target, connection.targetHandle);
+    if (existing && existing.id === newEdge.id) return false;
+    if (existing) {
+      const label = targetLabel(connection.target, connection.targetHandle);
+      if (!window.confirm(`Replace the existing connection into "${label}"?`)) return false;
+      commitEdges(replaceEdge(edges, newEdge, connection.target, connection.targetHandle));
+      return false;
+    }
+    commitEdges([...edges, newEdge]);
+    return false;
   }
 
   function onBeforeDelete({ nodes: deletedNodes }) {
@@ -347,7 +375,7 @@
       {nodeTypes}
       {edgeTypes}
       isValidConnection={(connection) => isValidConnection(connection, nodes, edges)}
-      onconnect={onConnect}
+      onbeforeconnect={onBeforeConnect}
       onnodedragstart={onNodeDragStart}
       onnodedragstop={onNodeDragStop}
       onbeforedelete={onBeforeDelete}

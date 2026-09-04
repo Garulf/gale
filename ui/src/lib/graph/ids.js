@@ -56,3 +56,17 @@ export function virtualInputHandles(type, count) {
   if (isSingleInputVirtualType(type)) return ['in'];
   return Array.from({ length: count }, (_, i) => `in-${i}`);
 }
+
+const NUMBERED_INPUT = /^in-(\d+)$/;
+
+export function numberedInputCount(connectedHandles) {
+  let connected = 0;
+  let highest = -1;
+  for (const handle of connectedHandles) {
+    const match = NUMBERED_INPUT.exec(handle);
+    if (!match) continue;
+    connected += 1;
+    highest = Math.max(highest, Number(match[1]));
+  }
+  return Math.max(connected, highest + 1);
+}

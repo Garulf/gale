@@ -2,14 +2,18 @@
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { dutyValue, formatDuty } from '../liveValues.js';
+  import { numberedInputCount } from '../ids.js';
 
   let { id, data, selected } = $props();
 
   let config = $derived(data.combine.config);
+  const inputConnections = useNodeConnections({ handleType: 'target' });
+
+  let connectedHandles = $derived(inputConnections.current.map((c) => c.targetHandle));
   let handles = $derived(
     config.type === 'sync'
       ? ['in']
-      : Array.from({ length: Math.max(config.sources ? config.sources.length : 0, 1) }, (_, i) => `in-${i}`)
+      : Array.from({ length: numberedInputCount(connectedHandles) + 1 }, (_, i) => `in-${i}`)
   );
 
   const outputConnections = useNodeConnections({ handleType: 'source', handleId: 'out' });
