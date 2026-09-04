@@ -3,6 +3,7 @@ use gale_hw::Id;
 use rand::RngCore;
 use std::collections::HashMap;
 use std::time::Instant;
+use subtle::ConstantTimeEq;
 
 #[derive(Debug, Clone, PartialEq)]
 struct WebhookEntry {
@@ -60,7 +61,11 @@ impl WebhookStore {
     }
 
     pub fn record(&mut self, token: &str, value: f64, now: Instant) -> bool {
-        match self.entries.values_mut().find(|entry| entry.token == token) {
+        match self
+            .entries
+            .values_mut()
+            .find(|entry| bool::from(entry.token.as_bytes().ct_eq(token.as_bytes())))
+        {
             Some(entry) => {
                 entry.value = Some(value);
                 entry.received_at = Some(now);
@@ -298,6 +303,16 @@ duty = 50.0
         assert_eq!(seeded(&store, t0)["virtual/hook"], None);
         assert!(store.record(&replacement, 1.0, t0));
         assert!(!store.record(TOKEN, 1.0, t0));
+    }
+
+    #[test]
+    fn record_matches_valid_token_and_rejects_wrong_token_under_constant_time_comparison() {
+        let t0 = Instant::now();
+        let mut store = WebhookStore::from_config(&config(WEBHOOK_CONFIG));
+        assert!(store.record(TOKEN, 51.5, t0));
+        assert!(!store.record(OTHER_TOKEN.replacen('f', "0", 1).as_str(), 1.0, t0));
+        let map = seeded(&store, t0);
+        assert_eq!(map["virtual/hook"], Some(51.5));
     }
 
     #[test]

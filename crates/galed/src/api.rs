@@ -13,6 +13,7 @@ use gale_core::config::{virtual_id, ConfigError, GaleConfig};
 use gale_hw::{Id, Inventory};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
+use subtle::ConstantTimeEq;
 
 #[derive(Clone)]
 pub struct ApiContext {
@@ -60,9 +61,11 @@ async fn require_api_key(
             .get("X-Api-Key")
             .and_then(|v| v.to_str().ok());
         let authorized = if let Some(provided) = header_key {
-            provided == expected.as_str()
+            bool::from(provided.as_bytes().ct_eq(expected.as_bytes()))
         } else if request.uri().path() == "/ws" {
-            query_param(request.uri().query(), "api_key").as_deref() == Some(expected.as_str())
+            query_param(request.uri().query(), "api_key")
+                .map(|provided| bool::from(provided.as_bytes().ct_eq(expected.as_bytes())))
+                .unwrap_or(false)
         } else {
             false
         };
@@ -464,6 +467,32 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             .await
             .unwrap();
         assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        let allowed = router
+            .oneshot(
+                Request::get("/api/status")
+                    .header("X-Api-Key", "secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_key_gate_rejects_wrong_key_under_constant_time_comparison() {
+        let (router, _host) = make_router(Some("secret".into()));
+        let wrong = router
+            .clone()
+            .oneshot(
+                Request::get("/api/status")
+                    .header("X-Api-Key", "secrer")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
         let allowed = router
             .oneshot(
                 Request::get("/api/status")
