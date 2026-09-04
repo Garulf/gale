@@ -1,9 +1,12 @@
 <script>
+  import { untrack } from 'svelte';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
+  import { SENSOR_TYPES } from '../../sensors.js';
+  import { CURVE_TYPES } from '../edit.js';
   import { tempValue, dutyValue, formatTemp, formatDuty } from '../liveValues.js';
 
-  let { node, edges, onUpdateData, onDeleteNode } = $props();
+  let { node, edges, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode } = $props();
 
   const MIX_MODES = ['max', 'min', 'avg'];
 
@@ -19,21 +22,57 @@
     return tagged.map((point) => [point.temp, point.duty]);
   }
 
-  let selectedId = $derived(node ? node.id : null);
+  function samePoints(a, b) {
+    return a.length === b.length && a.every(([temp, duty], i) => temp === b[i][0] && duty === b[i][1]);
+  }
+
   let taggedPoints = $state([]);
-  let lastTaggedFor = null;
 
   $effect(() => {
-    const sid = selectedId;
-    if (sid !== lastTaggedFor) {
-      lastTaggedFor = sid;
-      if (node && node.type === 'curve' && node.data.curve.config.type === 'point') {
-        taggedPoints = tagPoints(node.data.curve.config.points);
-      } else {
-        taggedPoints = [];
-      }
+    const isPointCurve = node && node.type === 'curve' && node.data.curve.config.type === 'point';
+    const points = isPointCurve ? node.data.curve.config.points : [];
+    if (!samePoints(points, untrack(() => untagPoints(taggedPoints)))) {
+      taggedPoints = tagPoints(points);
     }
   });
+
+  function nameOf(current) {
+    if (!current) return '';
+    if (current.type === 'virtual') return current.data.virtual.name;
+    if (current.type === 'curve' || current.type === 'combine') return current.data[current.type].id;
+    return '';
+  }
+
+  let nodeName = $derived(nameOf(node));
+  let nameDraft = $state('');
+  let nameError = $state('');
+
+  $effect(() => {
+    nameDraft = nodeName;
+    nameError = '';
+  });
+
+  function commitName() {
+    const name = nameDraft.trim();
+    if (name === nodeName) {
+      nameDraft = nodeName;
+      nameError = '';
+      return;
+    }
+    if (!name) {
+      nameError = 'name must not be empty';
+      return;
+    }
+    if (name.includes('/')) {
+      nameError = 'name must not contain "/"';
+      return;
+    }
+    nameError = onRenameNode(node.id, name);
+  }
+
+  function blurOnEnter(event) {
+    if (event.key === 'Enter') event.target.blur();
+  }
 
   function incomingEdge(targetHandle) {
     return (edges || []).find((edge) => edge.target === node.id && edge.targetHandle === targetHandle);
@@ -109,9 +148,38 @@
   }
 
   function numberFromEvent(event) {
-    return Number(event.target.value);
+    const raw = event.target.value.trim();
+    if (raw === '') return null;
+    const value = Number(raw);
+    return Number.isNaN(value) ? null : value;
   }
 </script>
+
+{#snippet identity(types, testId)}
+  <div class="identity">
+    <label class="inline">
+      Name
+      <input
+        type="text"
+        data-testid={testId}
+        bind:value={nameDraft}
+        onchange={commitName}
+        onkeydown={blurOnEnter}
+      />
+    </label>
+    <label class="inline">
+      Type
+      <select value={node.data[node.type].config.type} onchange={(e) => onRetypeNode(node.id, e.target.value)}>
+        {#each types as type}
+          <option value={type}>{type}</option>
+        {/each}
+      </select>
+    </label>
+    {#if nameError}
+      <p class="error">{nameError}</p>
+    {/if}
+  </div>
+{/snippet}
 
 {#if !node}
   <p class="muted">No node selected.</p>
@@ -124,6 +192,7 @@
 {:else if node.type === 'virtual'}
   {@const config = node.data.virtual.config}
   <h3>{node.data.virtual.name} <small>virtual, {config.type}</small></h3>
+  {@render identity(SENSOR_TYPES, 'virtual-sensor-name')}
 
   {#if config.type === 'offset'}
     <label class="inline">
@@ -183,6 +252,7 @@
 {:else if node.type === 'curve'}
   {@const config = node.data.curve.config}
   <h3>{node.data.curve.id} <small>{config.type}</small></h3>
+  {@render identity(CURVE_TYPES, undefined)}
 
   {#if config.type === 'point'}
     <PointCurveEditor
@@ -338,6 +408,7 @@
 {:else if node.type === 'combine'}
   {@const config = node.data.combine.config}
   <h3>{node.data.combine.id} <small>{config.type}</small></h3>
+  {@render identity(CURVE_TYPES, undefined)}
 
   {#if config.type === 'mix'}
     <label>
@@ -359,6 +430,22 @@
 <style>
   .muted {
     opacity: 0.6;
+  }
+
+  .error {
+    color: #f87171;
+    font-size: 0.8rem;
+    margin: 0.25rem 0 0;
+  }
+
+  .identity {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0;
+  }
+
+  input[type='text'] {
+    width: 9rem;
   }
 
   label.inline {

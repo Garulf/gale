@@ -12,6 +12,8 @@
   import { nodeKind } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
+  import { configValidationError } from '../lib/graph/configValidation.js';
+  import { renameNode, changeVirtualType, changeCurveType, nameInUse } from '../lib/graph/edit.js';
   import DeviceSensorNode from '../lib/graph/components/DeviceSensorNode.svelte';
   import DeviceControlNode from '../lib/graph/components/DeviceControlNode.svelte';
   import VirtualNode from '../lib/graph/components/VirtualNode.svelte';
@@ -207,6 +209,27 @@
     future = [];
   }
 
+  function applyEdit(edit) {
+    snapshotHistory();
+    nodes = edit.nodes;
+    edges = edit.edges;
+    if (selectedNodeId !== edit.id) selectedNodeId = edit.id;
+    dirty = true;
+    future = [];
+  }
+
+  function renameGraphNode(id, name) {
+    if (nameInUse(nodes, nodeKind(id), name, id)) return `Name "${name}" is already in use`;
+    applyEdit(renameNode(nodes, edges, id, name));
+    return '';
+  }
+
+  function retypeNode(id, type) {
+    const edit = nodeKind(id) === 'virtual' ? changeVirtualType(nodes, edges, id, type) : changeCurveType(nodes, edges, id, type);
+    if (edit.nodes === nodes) return;
+    applyEdit(edit);
+  }
+
   function deleteNode(id) {
     snapshotHistory();
     edges = edges.filter((edge) => edge.source !== id && edge.target !== id);
@@ -244,63 +267,59 @@
     return `sensor_${n}`;
   }
 
-  function addVirtualNode(position) {
+  function appendNode(node) {
     snapshotHistory();
-    const name = uniqueVirtualName();
-    nodes = [
-      ...nodes,
-      {
-        id: `virtual:${name}`,
-        type: 'virtual',
-        position,
-        hidden: false,
-        data: { virtual: { name, config: defaultVirtualSensor('max') } },
-      },
-    ];
+    nodes = [...nodes, node];
+    selectedNodeId = node.id;
     dirty = true;
     future = [];
+  }
+
+  function addVirtualNode(position) {
+    const name = uniqueVirtualName();
+    appendNode({
+      id: `virtual:${name}`,
+      type: 'virtual',
+      position,
+      hidden: false,
+      data: { virtual: { name, config: defaultVirtualSensor('max') } },
+    });
   }
 
   function addCurveNode(position) {
-    snapshotHistory();
     const id = uniqueCurveId('curve');
-    nodes = [
-      ...nodes,
-      {
-        id: `curve:${id}`,
-        type: 'curve',
-        position,
-        hidden: false,
-        data: { curve: { id, config: defaultCurve('point') } },
-      },
-    ];
-    dirty = true;
-    future = [];
+    appendNode({
+      id: `curve:${id}`,
+      type: 'curve',
+      position,
+      hidden: false,
+      data: { curve: { id, config: defaultCurve('point') } },
+    });
   }
 
   function addCombineNode(position) {
-    snapshotHistory();
     const id = uniqueCurveId('combine');
-    nodes = [
-      ...nodes,
-      {
-        id: `combine:${id}`,
-        type: 'combine',
-        position,
-        hidden: false,
-        data: { combine: { id, config: defaultCurve('mix') } },
-      },
-    ];
-    dirty = true;
-    future = [];
+    appendNode({
+      id: `combine:${id}`,
+      type: 'combine',
+      position,
+      hidden: false,
+      data: { combine: { id, config: defaultCurve('mix') } },
+    });
   }
 
   async function save() {
     saving = true;
     error = '';
     saveWarnings = [];
+    const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
+    const invalid = configValidationError(wireConfig);
+    if (invalid) {
+      error = invalid;
+      saving = false;
+      return;
+    }
     try {
-      const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
       const result = await putConfig(wireConfig);
       saveWarnings = (result && result.warnings) || [];
       dirty = false;
@@ -371,7 +390,14 @@
     {#if error}
       <p class="error">{error}</p>
     {/if}
-    <NodePanel node={selectedNode} {edges} onUpdateData={updateNodeData} onDeleteNode={deleteNode} />
+    <NodePanel
+      node={selectedNode}
+      {edges}
+      onUpdateData={updateNodeData}
+      onDeleteNode={deleteNode}
+      onRenameNode={renameGraphNode}
+      onRetypeNode={retypeNode}
+    />
     {#if dirty}
       <div class="warn">Unsaved changes on this profile. Saving applies them to the daemon and validates the whole graph.</div>
     {/if}

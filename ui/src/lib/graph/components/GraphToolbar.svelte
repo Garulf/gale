@@ -46,7 +46,7 @@
     <button type="button" class="primary" onclick={() => (addMenuOpen = !addMenuOpen)}>+ Node</button>
     {#if addMenuOpen}
       <div class="add-node-options">
-        <button type="button" onclick={addVirtual}>Virtual sensor</button>
+        <button type="button" data-testid="add-node-virtual" onclick={addVirtual}>Virtual sensor</button>
         <button type="button" onclick={addCurve}>Curve</button>
         <button type="button" onclick={addCombine}>Combine</button>
       </div>

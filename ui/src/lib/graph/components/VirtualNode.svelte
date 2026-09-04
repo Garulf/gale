@@ -7,7 +7,7 @@
   let { id, data, selected } = $props();
 
   let config = $derived(data.virtual.config);
-  let inputCount = $derived(config.inputs ? config.inputs.length : 1);
+  let inputCount = $derived(config.inputs ? Math.max(config.inputs.length, 1) : 1);
   let handles = $derived(virtualInputHandles(config.type, inputCount));
 
   const connections = useNodeConnections({ handleType: 'target' });

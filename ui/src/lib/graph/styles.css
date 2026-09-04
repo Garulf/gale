@@ -27,7 +27,7 @@
   background: var(--canvas);
 }
 
-:global(.svelte-flow) {
+.svelte-flow {
   background: var(--canvas);
 }
 
@@ -207,15 +207,15 @@
   background: var(--duty) !important;
 }
 
-:global(.svelte-flow__edge-path) {
+.svelte-flow__edge-path {
   stroke-width: 2;
 }
 
-:global(.svelte-flow__edge-path.temp) {
+.svelte-flow__edge-path.temp {
   stroke: var(--temp);
 }
 
-:global(.svelte-flow__edge-path.duty) {
+.svelte-flow__edge-path.duty {
   stroke: var(--duty);
 }
 
