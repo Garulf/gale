@@ -140,6 +140,9 @@ impl VirtualSensors {
                     input: input.clone(),
                     window: Window::new(*window_s),
                 },
+                VirtualSensorConfig::Webhook { .. } => {
+                    unreachable!("webhook node evaluation lands in gale plan 13 task 2")
+                }
             };
             nodes.push(Node {
                 id: virtual_id(&name),

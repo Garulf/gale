@@ -151,6 +151,12 @@ pub enum VirtualSensorConfig {
         input: Id,
         window_s: f64,
     },
+    Webhook {
+        #[serde(default)]
+        token: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_s: Option<f64>,
+    },
 }
 
 impl VirtualSensorConfig {
@@ -161,6 +167,7 @@ impl VirtualSensorConfig {
             VirtualSensorConfig::Mean { .. } => "mean",
             VirtualSensorConfig::Offset { .. } => "offset",
             VirtualSensorConfig::Delta { .. } => "delta",
+            VirtualSensorConfig::Webhook { .. } => "webhook",
         }
     }
 
@@ -173,6 +180,7 @@ impl VirtualSensorConfig {
             | VirtualSensorConfig::Delta { input, .. } => {
                 vec![input.clone()]
             }
+            VirtualSensorConfig::Webhook { .. } => Vec::new(),
         }
     }
 }
@@ -234,6 +242,21 @@ fn validate_virtual_sensor(
             return Err(ConfigError::Invalid(format!(
                 "virtual sensor '{name}' has a non-finite scale"
             )));
+        }
+    }
+
+    if let VirtualSensorConfig::Webhook { token, timeout_s } = cfg {
+        if token.is_empty() {
+            return Err(ConfigError::Invalid(format!(
+                "virtual sensor '{name}' has an empty token"
+            )));
+        }
+        if let Some(timeout_s) = timeout_s {
+            if !timeout_s.is_finite() || *timeout_s <= 0.0 {
+                return Err(ConfigError::Invalid(format!(
+                    "virtual sensor '{name}' timeout_s must be a positive number"
+                )));
+            }
         }
     }
 
@@ -1095,6 +1118,180 @@ inputs = ["hw/t1"]
             assignments: BTreeMap::new(),
             sensors: sensors.into(),
         }
+    }
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const OTHER_TOKEN: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+    #[test]
+    fn webhook_toml_round_trips_with_and_without_timeout() {
+        let toml = format!(
+            r#"
+active_profile = "default"
+
+[profiles.default.sensors.remote]
+type = "webhook"
+token = "{TOKEN}"
+timeout_s = 60.0
+
+[profiles.default.sensors.forever]
+type = "webhook"
+token = "{OTHER_TOKEN}"
+"#
+        );
+        let cfg = GaleConfig::from_toml(&toml).unwrap();
+        let profile = &cfg.profiles["default"];
+        assert_eq!(
+            profile.sensors["remote"],
+            VirtualSensorConfig::Webhook {
+                token: TOKEN.to_string(),
+                timeout_s: Some(60.0),
+            }
+        );
+        assert_eq!(
+            profile.sensors["forever"],
+            VirtualSensorConfig::Webhook {
+                token: OTHER_TOKEN.to_string(),
+                timeout_s: None,
+            }
+        );
+
+        let rendered = cfg.to_toml().unwrap();
+        assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
+
+        let forever_section = rendered
+            .split("[profiles.default.sensors.forever]")
+            .nth(1)
+            .unwrap();
+        let forever_section = forever_section.split("\n\n").next().unwrap();
+        assert!(!forever_section.contains("timeout_s"));
+    }
+
+    #[test]
+    fn webhook_type_name_and_inputs() {
+        let webhook = VirtualSensorConfig::Webhook {
+            token: "t".to_string(),
+            timeout_s: None,
+        };
+        assert_eq!(webhook.type_name(), "webhook");
+        assert_eq!(webhook.inputs(), Vec::<Id>::new());
+    }
+
+    #[test]
+    fn webhook_without_token_field_parses_with_empty_token() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default.sensors.w]
+type = "webhook"
+"#;
+        let cfg = GaleConfig::from_toml(toml).unwrap();
+        assert_eq!(
+            cfg.profiles["default"].sensors["w"],
+            VirtualSensorConfig::Webhook {
+                token: String::new(),
+                timeout_s: None,
+            }
+        );
+    }
+
+    #[test]
+    fn rule_9_rejects_empty_webhook_token() {
+        let profile = profile_with_sensors([(
+            "x".to_string(),
+            VirtualSensorConfig::Webhook {
+                token: String::new(),
+                timeout_s: None,
+            },
+        )]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Err(ConfigError::Invalid(
+                "virtual sensor 'x' has an empty token".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rule_10_rejects_invalid_timeout_s() {
+        for timeout_s in [Some(0.0), Some(-1.0), Some(f64::NAN)] {
+            let profile = profile_with_sensors([(
+                "x".to_string(),
+                VirtualSensorConfig::Webhook {
+                    token: TOKEN.to_string(),
+                    timeout_s,
+                },
+            )]);
+            assert_eq!(
+                profile.validate_virtual_sensors(),
+                Err(ConfigError::Invalid(
+                    "virtual sensor 'x' timeout_s must be a positive number".to_string()
+                ))
+            );
+        }
+
+        for timeout_s in [Some(60.0), None] {
+            let profile = profile_with_sensors([(
+                "x".to_string(),
+                VirtualSensorConfig::Webhook {
+                    token: TOKEN.to_string(),
+                    timeout_s,
+                },
+            )]);
+            assert_eq!(
+                profile.validate_virtual_sensors(),
+                Ok(vec!["x".to_string()])
+            );
+        }
+    }
+
+    #[test]
+    fn webhook_is_a_valid_leaf_input_to_other_virtual_sensors() {
+        let profile = profile_with_sensors([
+            (
+                "hook".to_string(),
+                VirtualSensorConfig::Webhook {
+                    token: TOKEN.to_string(),
+                    timeout_s: None,
+                },
+            ),
+            (
+                "agg".to_string(),
+                VirtualSensorConfig::Max {
+                    inputs: vec!["virtual/hook".to_string()],
+                },
+            ),
+        ]);
+        assert_eq!(
+            profile.validate_virtual_sensors(),
+            Ok(vec!["hook".to_string(), "agg".to_string()])
+        );
+    }
+
+    #[test]
+    fn hardware_sensors_used_ignores_webhook_sensors() {
+        let profile = ProfileConfig {
+            curves: [(
+                "c".to_string(),
+                CurveConfig::Point {
+                    sensor: "virtual/hook".to_string(),
+                    points: vec![[0.0, 0.0]],
+                    hysteresis: None,
+                    response: None,
+                },
+            )]
+            .into(),
+            assignments: [("pwm1".to_string(), "c".to_string())].into(),
+            sensors: [(
+                "hook".to_string(),
+                VirtualSensorConfig::Webhook {
+                    token: TOKEN.to_string(),
+                    timeout_s: None,
+                },
+            )]
+            .into(),
+        };
+        assert!(profile.hardware_sensors_used().is_empty());
     }
 
     #[test]
