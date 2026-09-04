@@ -279,18 +279,3 @@ export function replaceEdge(edges, newEdge, target, targetHandle) {
   const remaining = edges.filter((edge) => !(edge.target === target && edge.targetHandle === targetHandle));
   return [...remaining, newEdge];
 }
-
-export function adoptSavedTokens(nodes, savedProfile) {
-  const sensors = (savedProfile && savedProfile.sensors) || {};
-  return nodes.map((node) => {
-    if (node.type !== 'virtual') return node;
-    const config = node.data.virtual.config;
-    if (config.type !== 'webhook' || config.token) return node;
-    const saved = sensors[node.data.virtual.name];
-    if (!saved || saved.type !== 'webhook' || !saved.token) return node;
-    return {
-      ...node,
-      data: { ...node.data, virtual: { ...node.data.virtual, config: { ...config, token: saved.token } } },
-    };
-  });
-}

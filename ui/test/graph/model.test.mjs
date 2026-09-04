@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configToGraph, graphToConfig, adoptSavedTokens } from '../../src/lib/graph/model.js';
+import { configToGraph, graphToConfig } from '../../src/lib/graph/model.js';
 
 function fixtureAConfig() {
   return {
@@ -280,31 +280,6 @@ test('graphToConfig round-trips webhook sensors without adding an input field', 
   assert.ok(!('inputs' in result.profiles.default.sensors.remote));
   assert.ok(!('input' in result.profiles.default.sensors.forever));
   assert.ok(!('inputs' in result.profiles.default.sensors.forever));
-});
-
-test('adoptSavedTokens fills empty webhook tokens from the saved profile and leaves everything else alone', () => {
-  const nodes = [
-    { id: 'virtual:remote', type: 'virtual', data: { virtual: { name: 'remote', config: { type: 'webhook', token: '', timeout_s: null } } } },
-    { id: 'virtual:forever', type: 'virtual', data: { virtual: { name: 'forever', config: { type: 'webhook', token: 'keep', timeout_s: null } } } },
-    { id: 'virtual:hot', type: 'virtual', data: { virtual: { name: 'hot', config: { type: 'max', inputs: [] } } } },
-  ];
-  const savedProfile = {
-    sensors: {
-      remote: { type: 'webhook', token: 'newtoken' },
-      forever: { type: 'webhook', token: 'other' },
-      hot: { type: 'max', inputs: [] },
-    },
-  };
-  const result = adoptSavedTokens(nodes, savedProfile);
-  assert.equal(result.find((n) => n.id === 'virtual:remote').data.virtual.config.token, 'newtoken');
-  assert.equal(result.find((n) => n.id === 'virtual:forever').data.virtual.config.token, 'keep');
-  assert.equal(result.find((n) => n.id === 'virtual:hot'), nodes[2]);
-
-  const withMissing = [
-    { id: 'virtual:ghost', type: 'virtual', data: { virtual: { name: 'ghost', config: { type: 'webhook', token: '', timeout_s: null } } } },
-  ];
-  const missingResult = adoptSavedTokens(withMissing, { sensors: {} });
-  assert.equal(missingResult[0], withMissing[0]);
 });
 
 test('configToGraph marks device rows wired by their edges regardless of row position', () => {
