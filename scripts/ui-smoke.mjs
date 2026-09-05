@@ -302,6 +302,24 @@ async function main() {
       await waitForSensorRow(page, SENSOR_LABEL, SENSOR_VALUE_TEXT, 5000);
     });
 
+    await record('dashboard edit mode hides a sensor card and Show brings it back', async () => {
+      await page.click('[data-testid="dashboard-edit"]');
+      const cardSelector = `[data-card-id="${TEMP1}"]`;
+      await page.waitForSelector(`${cardSelector} [data-testid="card-hide"]`, { timeout: 5000 });
+      await page.click(`${cardSelector} [data-testid="card-hide"]`);
+      await page.waitForFunction((sel) => document.querySelector(sel).classList.contains('dimmed'), { timeout: 5000 }, cardSelector);
+      const config = await fetchConfig();
+      assert(config.ui.dashboard.hidden.includes(TEMP1), 'hidden list did not persist');
+      await page.click('[data-testid="dashboard-edit"]');
+      await page.waitForFunction((sel) => !document.querySelector(sel), { timeout: 5000 }, cardSelector);
+      await page.click('[data-testid="dashboard-edit"]');
+      await page.waitForSelector(`${cardSelector} [data-testid="card-hide"]`, { timeout: 5000 });
+      await page.click(`${cardSelector} [data-testid="card-hide"]`);
+      await page.waitForFunction((sel) => !document.querySelector(sel).classList.contains('dimmed'), { timeout: 5000 }, cardSelector);
+      await page.click('[data-testid="dashboard-edit"]');
+      await page.waitForSelector(cardSelector, { timeout: 5000 });
+    });
+
     await record('manual override badge appears within 3s of Hold', async () => {
       const card = await findControlCard(page, CONTROL_LABEL);
       const rangeInput = await card.$('input[type="range"]');

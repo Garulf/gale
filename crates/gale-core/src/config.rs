@@ -48,6 +48,14 @@ pub struct UiConfig {
     pub graph: BTreeMap<String, BTreeMap<String, [f64; 2]>>,
     #[serde(default)]
     pub hidden: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub dashboard: DashboardUiConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DashboardUiConfig {
+    #[serde(default)]
+    pub hidden: Vec<Id>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

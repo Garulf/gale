@@ -121,3 +121,10 @@ export function putLabel(id, label) {
 export function deleteLabel(id) {
   return requestJson(`/api/labels/${encodeIdPath(id)}`, { method: 'DELETE' });
 }
+export function putDashboardUi(dashboard) {
+  return requestJson('/api/ui/dashboard', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dashboard),
+  });
+}
