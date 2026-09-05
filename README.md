@@ -54,7 +54,8 @@ the next release. Corsair and NVIDIA GPU control work today.
 - NVIDIA GPU fan control via NVML
 - A REST and WebSocket API served alongside an embedded web UI, no separate
   frontend to install
-- Curve types: point, linear, trigger, target, flat, mix, and sync
+- Curve types: point, linear, trigger, target, flat, and the duty operators max, min,
+  average, offset, and sync
 - Virtual sensors: max, min, mean (optionally smoothed over a window), offset and
   delta nodes that combine or transform sensors before a curve reads them, plus
   webhook nodes that take their value from an HTTP POST
@@ -100,6 +101,11 @@ drags rather than three separate forms. Node positions are saved with the profil
 under `[ui.graph.<profile>]` so a layout survives a reinstall. Saving applies the
 whole profile through the same validation the API always enforced, and any warning
 comes back attached to the node it concerns.
+The node menu is organised by operation: curves, temperature operators (max, min,
+average, offset, delta, webhook) and duty operators (max, min, average, offset, sync),
+so a max-of-two-probes node and a max-of-two-curves node are separate entries rather
+than one node with a mode switch.
+
 Curve nodes can load a shape from a preset. Quiet, Balanced and Performance ship
 built in, and Save as stores the node's current shape under `[presets.<name>]` in
 config.toml so it follows the config file and can be loaded onto any other curve.

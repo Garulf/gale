@@ -119,7 +119,7 @@
     if (!curve) return '';
     const config = curve.config;
     if (isCombineType(config.type)) {
-      return config.type === 'sync' ? sensorLabel(config.source, inventory.sensors) : (config.sources || []).join(' + ');
+      return config.type === 'mix' ? (config.sources || []).join(' + ') : config.source || '';
     }
     return sensorLabel(config.sensor, inventory.sensors);
   }

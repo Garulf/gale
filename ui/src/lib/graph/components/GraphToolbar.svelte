@@ -1,5 +1,6 @@
 <script>
   import { useSvelteFlow } from '@xyflow/svelte';
+  import { PALETTE, paletteEntryId } from '../palette.js';
 
   let {
     showEdgeLabels,
@@ -13,9 +14,7 @@
     onSave,
     onDiscard,
     onToggleLabels,
-    onAddVirtual,
-    onAddCurve,
-    onAddCombine,
+    onAddNode,
   } = $props();
 
   let addMenuOpen = $state(false);
@@ -26,18 +25,8 @@
     return screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   }
 
-  function addVirtual() {
-    onAddVirtual(centerPosition());
-    addMenuOpen = false;
-  }
-
-  function addCurve() {
-    onAddCurve(centerPosition());
-    addMenuOpen = false;
-  }
-
-  function addCombine() {
-    onAddCombine(centerPosition());
+  function add(entry) {
+    onAddNode(entry, centerPosition());
     addMenuOpen = false;
   }
 </script>
@@ -48,9 +37,12 @@
       <button type="button" onclick={() => (addMenuOpen = !addMenuOpen)}>+ Node</button>
       {#if addMenuOpen}
         <div class="add-node-options">
-          <button type="button" data-testid="add-node-virtual" onclick={addVirtual}><strong>Virtual sensor</strong><small>max · min · mean · offset · delta · webhook</small></button>
-          <button type="button" onclick={addCurve}><strong>Curve</strong><small>point · trigger · target · flat</small></button>
-          <button type="button" onclick={addCombine}><strong>Combine</strong><small>mix · sync</small></button>
+          {#each PALETTE as group (group.label)}
+            <span class="palette-group">{group.label}</span>
+            {#each group.entries as entry (paletteEntryId(entry))}
+              <button type="button" data-testid="add-node-{paletteEntryId(entry)}" onclick={() => add(entry)}><strong>{entry.label}</strong><small>{entry.hint}</small></button>
+            {/each}
+          {/each}
         </div>
       {/if}
     </div>

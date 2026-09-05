@@ -18,6 +18,8 @@ export function defaultCurve(type) {
       return { type: 'mix', sources: [], mode: 'max' };
     case 'sync':
       return { type: 'sync', source: '' };
+    case 'offset':
+      return { type: 'offset', source: '', add: 0, scale: 1 };
     case 'trigger':
       return { type: 'trigger', on_temp: 60, off_temp: 50, on_duty: 100, off_duty: 20 };
     case 'target':
