@@ -413,9 +413,10 @@ impl ProfileConfig {
                 CurveConfig::Linear { sensor, .. } => Some(sensor.clone()),
                 CurveConfig::Trigger { sensor, .. } => Some(sensor.clone()),
                 CurveConfig::Target { sensor, .. } => Some(sensor.clone()),
-                CurveConfig::Flat { .. } | CurveConfig::Mix { .. } | CurveConfig::Sync { .. } => {
-                    None
-                }
+                CurveConfig::Flat { .. }
+                | CurveConfig::Mix { .. }
+                | CurveConfig::Sync { .. }
+                | CurveConfig::Offset { .. } => None,
             })
             .collect()
     }
@@ -454,7 +455,7 @@ impl ProfileConfig {
                     self.collect_curve_sensors(source, visited, sensors);
                 }
             }
-            CurveConfig::Sync { source } => {
+            CurveConfig::Sync { source } | CurveConfig::Offset { source, .. } => {
                 self.collect_curve_sensors(source, visited, sensors);
             }
         }
@@ -500,6 +501,11 @@ pub enum CurveConfig {
     },
     Sync {
         source: Id,
+    },
+    Offset {
+        source: Id,
+        add: f64,
+        scale: f64,
     },
     Trigger {
         sensor: Id,

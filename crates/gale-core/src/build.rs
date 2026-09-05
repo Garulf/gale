@@ -4,6 +4,7 @@ use crate::config::{
 use crate::curve::flat::FlatCurve;
 use crate::curve::linear::LinearCurve;
 use crate::curve::mix::MixCurve;
+use crate::curve::offset::OffsetCurve;
 use crate::curve::point::PointCurve;
 use crate::curve::sync::SyncCurve;
 use crate::curve::target::TargetCurve;
@@ -106,7 +107,7 @@ fn check_profile(profile: &ProfileConfig) -> Result<VirtualSensors, ConfigError>
 fn curve_references(curve: &CurveConfig) -> Vec<&str> {
     match curve {
         CurveConfig::Mix { sources, .. } => sources.iter().map(String::as_str).collect(),
-        CurveConfig::Sync { source } => vec![source.as_str()],
+        CurveConfig::Sync { source } | CurveConfig::Offset { source, .. } => vec![source.as_str()],
         _ => Vec::new(),
     }
 }
@@ -161,6 +162,11 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
         }),
         CurveConfig::Sync { source } => Box::new(SyncCurve {
             source: source.clone(),
+        }),
+        CurveConfig::Offset { source, add, scale } => Box::new(OffsetCurve {
+            source: source.clone(),
+            add: *add,
+            scale: *scale,
         }),
         CurveConfig::Trigger {
             sensor,

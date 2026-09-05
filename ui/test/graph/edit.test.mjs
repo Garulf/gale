@@ -33,8 +33,8 @@ function fixture() {
   return { nodes, edges };
 }
 
-test('CURVE_TYPES lists the seven curve types', () => {
-  assert.deepEqual(CURVE_TYPES, ['point', 'linear', 'flat', 'mix', 'sync', 'trigger', 'target']);
+test('CURVE_TYPES lists the eight curve types', () => {
+  assert.deepEqual(CURVE_TYPES, ['point', 'linear', 'flat', 'mix', 'sync', 'offset', 'trigger', 'target']);
 });
 
 test('nameInUse treats curve and combine ids as one namespace and ignores the node itself', () => {
@@ -227,4 +227,20 @@ test('duplicateNode handles virtual and combine nodes and refuses device nodes',
   assert.equal(combine.id, 'combine:both_copy');
   assert.equal(combine.nodes.find((node) => node.id === 'combine:both_copy').data.combine.id, 'both_copy');
   assert.equal(duplicateNode(nodes, 'sensor:hwmon/x', { x: 0, y: 0 }), null);
+});
+
+test('changeCurveType between sync and offset keeps the single duty input wired', () => {
+  const { nodes, edges } = fixture();
+  const withSync = nodes.map((node) => (node.id === 'combine:both' ? { ...node, data: { combine: { id: 'both', config: { type: 'sync', source: '' } } } } : node));
+  const syncEdges = edges.map((edge) => (edge.target === 'combine:both' ? { ...edge, targetHandle: 'in' } : edge));
+  const result = changeCurveType(withSync, syncEdges, 'combine:both', 'offset');
+  assert.equal(result.id, 'combine:both');
+  assert.equal(result.nodes.find((node) => node.id === 'combine:both').data.combine.config.type, 'offset');
+  assert.ok(result.edges.some((edge) => edge.target === 'combine:both' && edge.targetHandle === 'in'));
+});
+
+test('changeCurveType from mix to offset keeps only the first input', () => {
+  const { nodes, edges } = fixture();
+  const result = changeCurveType(nodes, edges, 'combine:both', 'offset');
+  assert.deepEqual(result.edges.filter((edge) => edge.target === 'combine:both').map((edge) => edge.targetHandle), ['in']);
 });

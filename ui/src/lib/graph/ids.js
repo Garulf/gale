@@ -22,10 +22,16 @@ export function combineNodeId(id) {
   return `combine:${id}`;
 }
 
-export const COMBINE_TYPES = ['mix', 'sync'];
+export const COMBINE_TYPES = ['mix', 'sync', 'offset'];
 
 export function isCombineType(curveType) {
   return COMBINE_TYPES.includes(curveType);
+}
+
+export const SINGLE_INPUT_COMBINE_TYPES = ['sync', 'offset'];
+
+export function isSingleInputCombineType(curveType) {
+  return SINGLE_INPUT_COMBINE_TYPES.includes(curveType);
 }
 
 export function nodeIdForCurveRef(curveId, curvesById) {

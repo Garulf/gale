@@ -437,38 +437,33 @@
     return { x: 120, y: 120 };
   }
 
-  function addVirtualNode(position = fallbackPosition()) {
-    const name = uniqueVirtualName();
+  function addPaletteNode(entry, position = fallbackPosition()) {
+    if (entry.kind === 'virtual') {
+      const name = uniqueVirtualName();
+      appendNode({
+        id: `virtual:${name}`,
+        type: 'virtual',
+        position: cascadePosition(position),
+        hidden: false,
+        data: { virtual: { name, config: defaultVirtualSensor(entry.type) } },
+      });
+      return;
+    }
+    const id = uniqueCurveId(entry.kind);
+    const config = entry.mode ? { ...defaultCurve(entry.type), mode: entry.mode } : defaultCurve(entry.type);
     appendNode({
-      id: `virtual:${name}`,
-      type: 'virtual',
+      id: `${entry.kind}:${id}`,
+      type: entry.kind,
       position: cascadePosition(position),
       hidden: false,
-      data: { virtual: { name, config: defaultVirtualSensor('max') } },
+      data: { [entry.kind]: { id, config } },
     });
   }
 
   function addCurveNode(position = fallbackPosition()) {
-    const id = uniqueCurveId('curve');
-    appendNode({
-      id: `curve:${id}`,
-      type: 'curve',
-      position: cascadePosition(position),
-      hidden: false,
-      data: { curve: { id, config: defaultCurve('point') } },
-    });
+    addPaletteNode({ kind: 'curve', type: 'point' }, position);
   }
 
-  function addCombineNode(position = fallbackPosition()) {
-    const id = uniqueCurveId('combine');
-    appendNode({
-      id: `combine:${id}`,
-      type: 'combine',
-      position: cascadePosition(position),
-      hidden: false,
-      data: { combine: { id, config: defaultCurve('mix') } },
-    });
-  }
 
   async function save() {
     saving = true;
@@ -545,9 +540,7 @@
         onSave={save}
         onDiscard={discard}
         onToggleLabels={toggleEdgeLabels}
-        onAddVirtual={addVirtualNode}
-        onAddCurve={addCurveNode}
-        onAddCombine={addCombineNode}
+        onAddNode={addPaletteNode}
       />
       <ZoomControls />
     </SvelteFlow>

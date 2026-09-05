@@ -4,6 +4,7 @@
   import { buildChains, chainDevices, chainMatchesFilter, stepKey } from '../chains.js';
   import { curvePaths, curveScale, evalCurve, clamp, curvePoints } from '../../curveMath.js';
   import { shortDevice } from '../../dashboard.js';
+  import { operationLabel } from '../palette.js';
 
   const CHART_W = 220;
   const CHART_H = 84;
@@ -46,7 +47,7 @@
     if (node.type === 'virtual') {
       const config = node.data.virtual.config;
       const value = tempValue(snap, node.id, 'out');
-      return { title: node.data.virtual.name, sub: `virtual · ${config.type}${config.window_s ? ` · ${config.window_s}s` : ''}`, value: fmt1(value), unit: config.type === 'delta' ? '°C/min' : '°C', kind: 'temp', editable: true };
+      return { title: node.data.virtual.name, sub: `${operationLabel('virtual', config)}${config.window_s ? ` · ${config.window_s}s` : ''}`, value: fmt1(value), unit: config.type === 'delta' ? '°C/min' : '°C', kind: 'temp', editable: true };
     }
     if (node.type === 'curve') {
       const config = node.data.curve.config;
@@ -68,7 +69,7 @@
       const config = node.data.combine.config;
       const controlEdge = edges.find((edge) => edge.source === node.id && edge.target.startsWith('control:'));
       const duty = controlEdge ? dutyValue(snap, controlEdge.targetHandle) : null;
-      return { title: node.data.combine.id, sub: `combine · ${config.type}${config.mode ? ` · ${config.mode}` : ''}`, value: duty === null ? '—' : String(Math.round(duty)), unit: '%', kind: 'duty', editable: true };
+      return { title: node.data.combine.id, sub: operationLabel('combine', config), value: duty === null ? '—' : String(Math.round(duty)), unit: '%', kind: 'duty', editable: true };
     }
     return null;
   }

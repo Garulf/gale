@@ -327,3 +327,27 @@ test('linear curves round-trip through the graph with a sensor edge like point c
   const back = graphToConfig(nodes, edges, config, 'default');
   assert.deepEqual(back.profiles.default.curves, config.profiles.default.curves);
 });
+
+test('offset duty curves round-trip through the graph with a single in edge', () => {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {},
+        curves: {
+          base: { type: 'flat', duty: 40 },
+          boosted: { type: 'offset', source: 'base', add: 10, scale: 1.5 },
+        },
+        assignments: { 'hwmon/chipA/pwm1': 'boosted' },
+      },
+    },
+  };
+  const inventory = { sensors: [], controls: [{ id: 'hwmon/chipA/pwm1', label: 'Fan' }] };
+  const { nodes, edges } = configToGraph(config, inventory, 'default');
+  const boosted = nodes.find((node) => node.id === 'combine:boosted');
+  assert.equal(boosted.type, 'combine');
+  assert.ok(edges.some((edge) => edge.source === 'curve:base' && edge.target === 'combine:boosted' && edge.targetHandle === 'in'));
+  const back = graphToConfig(nodes, edges, config, 'default');
+  assert.deepEqual(back.profiles.default.curves, config.profiles.default.curves);
+});

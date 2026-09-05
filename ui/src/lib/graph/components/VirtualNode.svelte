@@ -5,6 +5,7 @@
   import { snapshot } from '../../store.js';
   import { virtualInputHandles, numberedInputCount } from '../ids.js';
   import { tempValue } from '../liveValues.js';
+  import { operationLabel } from '../palette.js';
 
   let { id, data, selected } = $props();
 
@@ -44,7 +45,7 @@
 <div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
   <h4>
     <span class="kind"></span>
-    <span class="title"><span class="name">{data.virtual.name}<WarningBadge messages={warnings} /></span><small>virtual · {config.type}</small></span>
+    <span class="title"><span class="name">{data.virtual.name}<WarningBadge messages={warnings} /></span><small>{operationLabel('virtual', config)}</small></span>
   </h4>
   <div class="rows">
     {#each handles as handle (handle)}

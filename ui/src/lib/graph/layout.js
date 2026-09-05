@@ -1,7 +1,7 @@
 import dagre from '@dagrejs/dagre';
 import { curvePoints } from '../curveMath.js';
 import { foldRows } from './fold.js';
-import { numberedInputCount, virtualInputHandles } from './ids.js';
+import { numberedInputCount, virtualInputHandles, isSingleInputCombineType } from './ids.js';
 
 const NODE_WIDTH = 236;
 const HEAD_HEIGHT = 52;
@@ -22,7 +22,7 @@ function rowCount(node, edges) {
     return handles.length + 1;
   }
   if (node.type === 'combine') {
-    const handles = data.combine.config.type === 'sync' ? 1 : numberedInputCount(connectedHandles(node, edges)) + 1;
+    const handles = isSingleInputCombineType(data.combine.config.type) ? 1 : numberedInputCount(connectedHandles(node, edges)) + 1;
     return handles + 1;
   }
   return 2;

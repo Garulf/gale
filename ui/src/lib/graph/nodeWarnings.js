@@ -1,4 +1,4 @@
-import { nodeKind, deviceOf, isZeroInputVirtualType } from './ids.js';
+import { nodeKind, deviceOf, isZeroInputVirtualType, isSingleInputCombineType } from './ids.js';
 import { virtualId } from '../sensors.js';
 
 const ID_CHAR = /[A-Za-z0-9_./-]/;
@@ -67,7 +67,7 @@ export function unwiredRequiredInputs(nodes, edges) {
       }
     } else if (node.type === 'combine') {
       const type = node.data.combine.config.type;
-      if (type === 'sync' && !hasEdgeInto(edges, node.id, 'in')) {
+      if (isSingleInputCombineType(type) && !hasEdgeInto(edges, node.id, 'in')) {
         flagged.push({ nodeId: node.id, message: 'input is not wired' });
       } else if (type === 'mix' && !hasEdgeInto(edges, node.id)) {
         flagged.push({ nodeId: node.id, message: 'no inputs are wired' });

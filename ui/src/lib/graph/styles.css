@@ -86,6 +86,21 @@
   z-index: 10;
 }
 
+.gale-toolbar .add-node-options {
+  width: 240px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+
+.gale-toolbar .add-node-options .palette-group {
+  padding: 8px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .gale-toolbar .add-node-options button {
   display: flex;
   flex-direction: column;

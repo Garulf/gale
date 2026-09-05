@@ -6,6 +6,7 @@ import {
   curveNodeId,
   combineNodeId,
   isCombineType,
+  isSingleInputCombineType,
   nodeIdForCurveRef,
   nodeKind,
   nodeName,
@@ -54,7 +55,7 @@ function resolveSensorSource(input) {
 }
 
 function combineInputHandles(type, count) {
-  if (type === 'sync') return ['in'];
+  if (isSingleInputCombineType(type)) return ['in'];
   return Array.from({ length: count }, (_, i) => `in-${i}`);
 }
 
@@ -166,7 +167,7 @@ export function configToGraph(config, inventory, profileName) {
         const source = nodeIdForCurveRef(curveId, profile.curves);
         edges.push(makeEdge(source, 'out', nodeId, handles[index], 'duty'));
       });
-    } else if (curveConfig.type === 'sync') {
+    } else if (isSingleInputCombineType(curveConfig.type)) {
       const source = nodeIdForCurveRef(curveConfig.source, profile.curves);
       edges.push(makeEdge(source, 'out', nodeId, 'in', 'duty'));
     }
@@ -239,7 +240,7 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
     if (SENSOR_INPUT_CURVE_TYPES.includes(curveConfig.type)) {
       const edge = incoming.find((candidate) => candidate.targetHandle === 'sensor');
       curveConfig.sensor = edge ? refIdForSource(edge) : '';
-    } else if (curveConfig.type === 'sync') {
+    } else if (isSingleInputCombineType(curveConfig.type)) {
       const edge = incoming.find((candidate) => candidate.targetHandle === 'in');
       curveConfig.source = edge ? refIdForSource(edge) : '';
     } else if (curveConfig.type === 'mix') {

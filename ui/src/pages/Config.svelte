@@ -73,6 +73,8 @@
         return `mode ${curve.mode}`;
       case 'sync':
         return 'follows source';
+      case 'offset':
+        return `× ${curve.scale} + ${curve.add}%`;
       default:
         return '';
     }
@@ -87,7 +89,7 @@
         id,
         type: curve.type,
         input: isCombineType(curve.type)
-          ? curve.type === 'sync'
+          ? curve.type === 'sync' || curve.type === 'offset'
             ? curve.source || '—'
             : (curve.sources || []).join(' + ') || '—'
           : sensorLabel(curve.sensor, inventory ? inventory.sensors : []) || '—',
