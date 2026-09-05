@@ -454,6 +454,28 @@ async function main() {
       );
     });
 
+    await record('loading the Quiet preset onto the cpu curve saves its points', async () => {
+      await page.waitForSelector('[data-testid="curve-preset"] option[value="Quiet"]', { timeout: 5000 });
+      await setPanelInput(page, 'curve-preset', 'Quiet');
+      await page.waitForFunction(() => document.querySelector('[data-testid="curve-preset"]').value === 'Quiet', { timeout: 5000 });
+      await saveGraph(page);
+      const config = await fetchConfig();
+      deepStrictEqual(config.profiles.default.curves.cpu.points, [[30, 20], [50, 30], [65, 50], [75, 80], [85, 100]]);
+    });
+
+    await record('saving the cpu curve as a preset lists it under user presets and in the TOML', async () => {
+      await page.evaluate(() => {
+        window.prompt = () => 'smoke_preset';
+      });
+      await page.click('[data-testid="preset-save"]');
+      await page.waitForFunction(() => document.querySelector('[data-testid="curve-preset"]').value === 'smoke_preset', { timeout: 5000 });
+      const presets = await (await fetch(`${BASE_URL}/api/presets`)).json();
+      assert(presets.user.smoke_preset && presets.user.smoke_preset.type === 'point', 'smoke_preset missing from GET /api/presets');
+      const toml = await (await fetch(`${BASE_URL}/api/config.toml`)).text();
+      assert(toml.includes('[presets.smoke_preset]'), 'TOML does not contain the saved preset');
+      await page.waitForSelector('[data-testid="preset-delete"]', { timeout: 5000 });
+    });
+
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {
       const addedId = await addVirtualNode(page);
       await renameSelectedVirtualNode(page, NEW_SENSOR_NAME);

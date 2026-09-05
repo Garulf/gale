@@ -16,3 +16,8 @@ test('presetNameFor returns an empty string when nothing matches', () => {
   assert.equal(presetNameFor({ type: 'flat', duty: 36 }, groups), '');
   assert.equal(presetNameFor({ type: 'point', points: [[30, 20]], hysteresis: null, response: null }, groups), '');
 });
+
+test('presetNameFor prefers a saved preset over a built-in with the same shape', () => {
+  const shared = { builtin: groups.builtin, user: { mine: { type: 'point', points: [[30, 20], [85, 100]], hysteresis: null, response: null } } };
+  assert.equal(presetNameFor(shared.user.mine, shared), 'mine');
+});

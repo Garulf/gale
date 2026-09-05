@@ -92,6 +92,9 @@ drags rather than three separate forms. Node positions are saved with the profil
 under `[ui.graph.<profile>]` so a layout survives a reinstall. Saving applies the
 whole profile through the same validation the API always enforced, and any warning
 comes back attached to the node it concerns.
+Curve nodes can load a shape from a preset. Quiet, Balanced and Performance ship
+built in, and Save as stores the node's current shape under `[presets.<name>]` in
+config.toml so it follows the config file and can be loaded onto any other curve.
 
 ### Virtual sensors
 

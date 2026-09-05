@@ -36,7 +36,7 @@ function samePreset(a, b) {
 }
 
 export function presetNameFor(config, groups) {
-  for (const group of [groups.builtin, groups.user]) {
+  for (const group of [groups.user, groups.builtin]) {
     for (const [name, preset] of Object.entries(group)) {
       if (samePreset(config, preset)) return name;
     }
