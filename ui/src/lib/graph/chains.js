@@ -56,14 +56,16 @@ export function buildChains(nodes, edges) {
     for (const step of steps) covered.add(step.nodeId);
     chains.push({ id: head.id, steps });
   }
-  for (const node of nodes) {
-    if (covered.has(node.id) || node.hidden) continue;
-    if (node.type === 'deviceSensor' || node.type === 'deviceControl') continue;
-    const seen = new Set();
-    const steps = dedupe([...upstreamSteps(node.id, nodes, edges, seen), { nodeId: node.id, handle: 'out', kind: node.type }]);
-    chains.push({ id: node.id, steps, unassigned: true });
-  }
-  return chains;
+  const unassigned = nodes
+    .filter((node) => !covered.has(node.id) && !node.hidden && node.type !== 'deviceSensor' && node.type !== 'deviceControl')
+    .map((node) => ({
+      id: node.id,
+      steps: dedupe([...upstreamSteps(node.id, nodes, edges, new Set()), { nodeId: node.id, handle: 'out', kind: node.type }]),
+      unassigned: true,
+    }));
+  const feedsAnotherUnassigned = (chain) =>
+    unassigned.some((other) => other !== chain && other.steps.some((step) => step.nodeId === chain.id));
+  return [...chains, ...unassigned.filter((chain) => !feedsAnotherUnassigned(chain))];
 }
 
 export function chainDevices(chains, nodes) {

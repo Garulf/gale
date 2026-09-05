@@ -27,3 +27,12 @@ test('returns null when nothing on the device matches', () => {
   assert.equal(tachSensorFor('hwmon/nct6798/pwm5', sensors), null);
   assert.equal(tachSensorFor('other/dev/pwm1', sensors), null);
 });
+
+test('does not pair a lone tach with every other control on the device', () => {
+  const single = [
+    { id: 'hwmon/nct6798/fan1', kind: 'rpm' },
+    { id: 'hwmon/nct6798/temp1', kind: 'temp' },
+  ];
+  assert.equal(tachSensorFor('hwmon/nct6798/pwm1', single).id, 'hwmon/nct6798/fan1');
+  assert.equal(tachSensorFor('hwmon/nct6798/pwm3', single), null);
+});

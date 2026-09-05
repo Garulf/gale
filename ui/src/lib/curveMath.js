@@ -55,3 +55,15 @@ export function sparklinePath(values, width, height) {
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+
+export function nextPointTemp(temps) {
+  const sorted = [...temps].sort((a, b) => a - b);
+  if (sorted.length === 0) return 50;
+  const bounds = [0, ...sorted, 100];
+  let best = { width: -1, mid: null };
+  for (let i = 1; i < bounds.length; i += 1) {
+    const width = bounds[i] - bounds[i - 1];
+    if (width > best.width) best = { width, mid: Math.round((bounds[i] + bounds[i - 1]) / 2) };
+  }
+  return sorted.includes(best.mid) ? null : best.mid;
+}

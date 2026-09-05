@@ -3,7 +3,7 @@
   import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { tempValue } from '../liveValues.js';
+  import { tempValue, sensorDisplay } from '../liveValues.js';
   import { foldRows } from '../fold.js';
   import { shortDevice } from '../../dashboard.js';
 
@@ -21,14 +21,6 @@
     return tempValue($snapshot, id, row.handle);
   }
 
-  function display(value, kind) {
-    if (value === null) return '—';
-    return kind === 'rpm' ? String(Math.round(value)) : value.toFixed(1);
-  }
-
-  function unit(kind) {
-    return kind === 'rpm' ? 'rpm' : '°C';
-  }
 </script>
 
 <div class="node" class:sel={selected} class:warned={warnings.length > 0} data-node-id={id}>
@@ -39,9 +31,10 @@
   <div class="rows">
     {#each visibleRows as row (row.handle)}
       {@const value = valueFor(row)}
+      {@const reading = sensorDisplay(value, row.kind)}
       <div class="row out" class:missing={value === null}>
         <span>{row.label}</span>
-        <span class="val {row.kind || 'temp'}">{display(value, row.kind)}<span class="unit">{unit(row.kind)}</span></span>
+        <span class="val {row.kind || 'temp'}">{reading.text}<span class="unit">{reading.unit}</span></span>
         <Handle type="source" position={Position.Right} id={row.handle} class="port out" />
       </div>
     {/each}

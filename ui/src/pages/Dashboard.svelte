@@ -5,12 +5,12 @@
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { daemonConfig } from '../lib/config.js';
   import { sensorHistory } from '../lib/sensorHistory.js';
-  import { virtualName, isVirtualId } from '../lib/sensors.js';
+  import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
   import { curvePaths, curveScale, evalCurve, sparklinePath } from '../lib/curveMath.js';
-  import { shortDevice, deviceOf, overview, trendArrow } from '../lib/dashboard.js';
+  import { shortDevice, overview, trendArrow, temperatureUnit } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
-  import { isCombineType, nodeIdForCurveRef } from '../lib/graph/ids.js';
+  import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
 
   const CHART_W = 220;
   const CHART_H = 84;
@@ -52,11 +52,13 @@
     const history = $sensorHistory;
     const hardware = inventory.sensors
       .filter((sensor) => sensor.kind === 'temp')
-      .map((sensor) => ({ id: sensor.id, label: sensor.label, device: shortDevice(deviceOf(sensor.id)) }));
+      .map((sensor) => ({ id: sensor.id, label: sensor.label, device: shortDevice(deviceOf(sensor.id)), unit: '°C', ranked: true }));
     const virtual = (inventory.virtual || []).map((entry) => ({
       id: entry.id,
       label: virtualName(entry.id),
       device: `virtual · ${entry.type}`,
+      unit: temperatureUnit(entry.type),
+      ranked: false,
     }));
     return [...hardware, ...virtual].map((sensor) => {
       const value = values[sensor.id] ?? null;
@@ -66,7 +68,7 @@
         ...sensor,
         value,
         text: fmtTemp(value),
-        hot: value !== null && value >= 60,
+        hot: sensor.unit === '°C' && value !== null && value >= 60,
         spark: sparklinePath(samples, 120, 36),
         trend: samples.length > 1 ? trendArrow(delta) : '',
         trendText: samples.length > 1 ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}° over the last ${Math.round(samples.length * 5 / 60) || 1} min` : 'collecting history',
@@ -83,19 +85,12 @@
     return { id: curveId, config };
   }
 
-  function sensorLabel(id) {
-    if (!id) return '';
-    if (isVirtualId(id)) return virtualName(id);
-    const sensor = inventory.sensors.find((entry) => entry.id === id);
-    return sensor ? sensor.label : id;
-  }
-
-  function chartFor(curve) {
+  function chartFor(curve, liveDuty) {
     if (!curve || curve.config.type !== 'point') return null;
     const temp = values[curve.config.sensor] ?? null;
     const paths = curvePaths(curve.config.points, CHART_W, CHART_H, CHART_PAD);
     const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
-    const duty = temp === null ? null : evalCurve(curve.config.points, temp);
+    const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(curve.config.points, temp);
     return {
       ...paths,
       showDot: temp !== null,
@@ -108,9 +103,9 @@
     if (!curve) return '';
     const config = curve.config;
     if (isCombineType(config.type)) {
-      return config.type === 'sync' ? sensorLabel(config.source) : (config.sources || []).join(' + ');
+      return config.type === 'sync' ? sensorLabel(config.source, inventory.sensors) : (config.sources || []).join(' + ');
     }
-    return sensorLabel(config.sensor);
+    return sensorLabel(config.sensor, inventory.sensors);
   }
 
   function curveKind(curve) {
@@ -126,11 +121,12 @@
       const tach = tachSensorFor(control.id, inventory.sensors);
       const rpm = tach ? values[tach.id] ?? null : null;
       const temp = curve && curve.config.sensor ? values[curve.config.sensor] ?? null : null;
+      const duty = duties[control.id] ?? null;
       return {
         id: control.id,
         label: control.label,
         device: shortDevice(deviceOf(control.id)),
-        duty: duties[control.id] ?? null,
+        duty,
         manual: control.id in manual,
         rpm,
         rpmMissing: tach !== null && rpm === null,
@@ -139,14 +135,14 @@
         curveKind: curveKind(curve),
         input: curveInput(curve),
         temp: temp === null ? '' : `${fmtTemp(temp)}°`,
-        chart: chartFor(curve),
+        chart: chartFor(curve, duty),
       };
     });
   });
 
   let stats = $derived(
     overview(
-      temps.map((sensor) => sensor.value),
+      temps.filter((sensor) => sensor.ranked).map((sensor) => sensor.value),
       fans.map((fan) => fan.duty),
       $warnings.length
     )
@@ -227,7 +223,7 @@
           <div class="card temp-card">
             <div class="temp-head"><span class="label">{sensor.label}</span><span class="device mono">{sensor.device}</span></div>
             <div class="temp-value">
-              <span class="value mono" class:hot={sensor.hot}>{sensor.text}</span><span class="unit">°C</span>
+              <span class="value mono" class:hot={sensor.hot}>{sensor.text}</span><span class="unit">{sensor.unit}</span>
               {#if sensor.trend}<span class="trend" title={sensor.trendText}>{sensor.trend}</span>{/if}
             </div>
             {#if sensor.spark}

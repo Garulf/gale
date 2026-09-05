@@ -64,3 +64,23 @@ test('buildChains lists a sensor feeding a combine through two branches only onc
   assert.equal(new Set(keys).size, keys.length);
   assert.ok(keys.includes('sensor:hwmon/x|hwmon/x/temp1'));
 });
+
+test('buildChains folds an upstream virtual sensor into its unassigned curve instead of a second chain', () => {
+  const spareNodes = [
+    { id: 'sensor:hwmon/x', type: 'deviceSensor', data: { deviceSensor: { device: 'hwmon/x', rows: [] } } },
+    { id: 'virtual:hot', type: 'virtual', data: { virtual: { name: 'hot', config: { type: 'max' } } } },
+    { id: 'curve:spare', type: 'curve', data: { curve: { id: 'spare', config: { type: 'point' } } } },
+  ];
+  const spareEdges = [
+    { source: 'sensor:hwmon/x', sourceHandle: 'hwmon/x/temp1', target: 'virtual:hot', targetHandle: 'in-0' },
+    { source: 'virtual:hot', sourceHandle: 'out', target: 'curve:spare', targetHandle: 'sensor' },
+  ];
+  const chains = buildChains(spareNodes, spareEdges);
+  assert.equal(chains.length, 1);
+  assert.equal(chains[0].id, 'curve:spare');
+  assert.equal(chains[0].unassigned, true);
+  assert.deepEqual(
+    chains[0].steps.map((step) => step.nodeId),
+    ['sensor:hwmon/x', 'virtual:hot', 'curve:spare']
+  );
+});

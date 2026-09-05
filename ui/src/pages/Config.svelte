@@ -1,26 +1,28 @@
 <script>
   import { onMount } from 'svelte';
-  import { daemonConfig, refreshConfig } from '../lib/config.js';
+  import { daemonConfig, configError, refreshConfig } from '../lib/config.js';
   import { snapshot } from '../lib/store.js';
-  import { getInventory, activateProfile } from '../lib/api.js';
+  import { getInventory, activateProfile, getConfigToml } from '../lib/api.js';
   import { refreshWarnings } from '../lib/warnings.js';
   import { openInGraph } from '../lib/page.js';
-  import { toToml } from '../lib/toml.js';
-  import { virtualName, isVirtualId } from '../lib/sensors.js';
+  import { sensorLabel } from '../lib/sensors.js';
   import { isCombineType, nodeIdForCurveRef } from '../lib/graph/ids.js';
 
   let inventory = $state(null);
+  let toml = $state('');
   let error = $state('');
   let busy = $state('');
 
-  onMount(async () => {
+  onMount(load);
+
+  async function load() {
     refreshConfig();
     try {
-      inventory = await getInventory();
+      [inventory, toml] = await Promise.all([getInventory(), getConfigToml()]);
     } catch (err) {
       error = err.message;
     }
-  });
+  }
 
   let config = $derived($daemonConfig);
   let activeName = $derived($snapshot ? $snapshot.active_profile : config ? config.active_profile : '');
@@ -49,13 +51,6 @@
         };
       });
   });
-
-  function sensorLabel(id) {
-    if (!id) return '—';
-    if (isVirtualId(id)) return virtualName(id);
-    const sensor = inventory ? inventory.sensors.find((entry) => entry.id === id) : null;
-    return sensor ? sensor.label : id;
-  }
 
   function controlLabel(id) {
     const control = inventory ? inventory.controls.find((entry) => entry.id === id) : null;
@@ -93,7 +88,7 @@
           ? curve.type === 'sync'
             ? curve.source || '—'
             : (curve.sources || []).join(' + ') || '—'
-          : sensorLabel(curve.sensor),
+          : sensorLabel(curve.sensor, inventory ? inventory.sensors : []) || '—',
         drives: Object.entries(assignments)
           .filter(([, curveId]) => curveId === id)
           .map(([controlId]) => controlLabel(controlId))
@@ -103,14 +98,12 @@
       }));
   });
 
-  let toml = $derived(config ? toToml(config) : '');
-
   async function activate(name) {
     busy = name;
     error = '';
     try {
       await activateProfile(name);
-      await Promise.all([refreshConfig(), refreshWarnings()]);
+      await Promise.all([refreshConfig(), refreshWarnings(), getConfigToml().then((text) => (toml = text))]);
     } catch (err) {
       error = err.message;
     } finally {
@@ -130,7 +123,12 @@
   {/if}
 
   {#if !config}
-    <p class="muted">Loading configuration.</p>
+    {#if $configError}
+      <p class="error">Could not load the daemon configuration: {$configError}</p>
+      <button type="button" class="btn" onclick={load}>Retry</button>
+    {:else}
+      <p class="muted">Loading configuration.</p>
+    {/if}
   {:else}
     <section class="two-up">
       <div class="card block">
@@ -138,7 +136,7 @@
         <div class="settings">
           <span class="k">Tick interval</span><span class="mono">{config.tick_interval_ms} ms</span>
           <span class="k">API bind</span><span class="mono">{config.api.bind}</span>
-          <span class="k">API key</span><span class="mono faint">{config.api.api_key ? '•••• set in config file' : 'not set'}</span>
+          <span class="k">API key</span><span class="faint">managed via config file</span>
           <span class="k">Corsair on release</span><span>{corsairReleaseLabel(config.hardware?.corsair?.on_release)}</span>
           <span class="k">Active profile</span><span class="strong">{activeName}</span>
         </div>

@@ -45,6 +45,11 @@ export function getConfig() {
   return requestJson('/api/config');
 }
 
+export async function getConfigToml() {
+  const response = await request('/api/config.toml');
+  return response.text();
+}
+
 export async function putConfig(config) {
   const response = await request('/api/config', {
     method: 'PUT',

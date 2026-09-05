@@ -1,14 +1,9 @@
 <script>
-  import { warnings } from '../warnings.js';
+  import { warnings, dismissedWarnings, dismissWarning } from '../warnings.js';
   import { splitLinks } from '../linkify.js';
   import { openInGraph } from '../page.js';
 
-  let dismissed = $state([]);
-  let visible = $derived($warnings.filter((warning) => !dismissed.includes(warning)));
-
-  function dismiss(warning) {
-    dismissed = [...dismissed, warning];
-  }
+  let visible = $derived($warnings.filter((warning) => !$dismissedWarnings.includes(warning)));
 </script>
 
 {#each visible as warning (warning)}
@@ -16,7 +11,7 @@
     <span class="mark">!</span>
     <span class="text mono">{#each splitLinks(warning) as part}{#if part.href}<a href={part.href} target="_blank" rel="noopener">{part.href}</a>{:else}{part.text}{/if}{/each}</span>
     <button type="button" class="open" onclick={() => openInGraph({ warning })}>Open in graph</button>
-    <button type="button" class="close" aria-label="Dismiss warning" onclick={() => dismiss(warning)}>×</button>
+    <button type="button" class="close" aria-label="Dismiss warning" onclick={() => dismissWarning(warning)}>×</button>
   </div>
 {/each}
 

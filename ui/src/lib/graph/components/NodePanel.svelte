@@ -6,7 +6,7 @@
   import { isWebhookNotFound, webhookNameFor } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
-  import { tempValue, dutyValue, formatDeltaRate } from '../liveValues.js';
+  import { tempValue, dutyValue, formatDeltaRate, sensorDisplay } from '../liveValues.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
   import { nodeKind } from '../ids.js';
   import { shortDevice } from '../../dashboard.js';
@@ -275,8 +275,8 @@
     if (!node) return [];
     if (node.type === 'deviceSensor') {
       return node.data.deviceSensor.rows.map((row) => {
-        const value = tempValue($snapshot, node.id, row.handle);
-        return { label: row.label, kind: row.kind || 'temp', text: value === null ? '—' : row.kind === 'rpm' ? `${Math.round(value)} rpm` : `${value.toFixed(1)} °C` };
+        const reading = sensorDisplay(tempValue($snapshot, node.id, row.handle), row.kind);
+        return { label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}` };
       });
     }
     if (node.type === 'deviceControl') {

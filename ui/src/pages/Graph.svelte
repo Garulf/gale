@@ -269,6 +269,7 @@
 
   function onNodeClick({ node }) {
     selectedNodeId = node.id;
+    sheetOpen = true;
   }
 
   function onPaneClick() {
@@ -401,14 +402,14 @@
     saving = true;
     error = '';
     saveWarnings = [];
-    const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
-    const invalid = configValidationError(wireConfig);
-    if (invalid) {
-      error = invalid;
-      saving = false;
-      return;
-    }
     try {
+      config = await getConfig();
+      const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
+      const invalid = configValidationError(wireConfig);
+      if (invalid) {
+        error = invalid;
+        return;
+      }
       const result = await putConfig(wireConfig);
       saveWarnings = (result && result.warnings) || [];
       const saved = await getConfig();
@@ -508,7 +509,9 @@
     {#if error}
       <p class="error">{error}</p>
     {/if}
-    <ChainView nodes={visibleNodes} {edges} {selectedNodeId} onSelect={selectNode} />
+    {#if isMobile}
+      <ChainView nodes={visibleNodes} {edges} {selectedNodeId} onSelect={selectNode} />
+    {/if}
     <div class="chains-foot">
       <button type="button" class="btn" disabled={!dirty || saving} onclick={discard}>Discard</button>
       <button type="button" class="btn" class:primary={dirty} disabled={saving} onclick={save}>Save profile</button>

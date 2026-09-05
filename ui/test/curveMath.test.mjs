@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evalCurve, curvePaths, sparklinePath } from '../src/lib/curveMath.js';
+import { evalCurve, curvePaths, sparklinePath, nextPointTemp } from '../src/lib/curveMath.js';
 
 const points = [
   [70, 100],
@@ -24,4 +24,12 @@ test('curvePaths extends flat to both edges and closes the area', () => {
 test('sparklinePath normalizes values into the box', () => {
   assert.equal(sparklinePath([1], 100, 20), '');
   assert.equal(sparklinePath([0, 10], 100, 20), 'M 0.0 18.0 L 100.0 2.0');
+});
+
+test('nextPointTemp picks the middle of the widest gap and never lands on an existing point', () => {
+  assert.equal(nextPointTemp([30, 70]), 50);
+  assert.equal(nextPointTemp([50]), 25);
+  assert.equal(nextPointTemp([49, 50]), 75);
+  assert.equal(nextPointTemp([0, 100]), 50);
+  assert.equal(nextPointTemp([]), 50);
 });

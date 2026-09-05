@@ -6,9 +6,8 @@ export function shortDevice(device) {
   return device;
 }
 
-export function deviceOf(id) {
-  const slash = id.lastIndexOf('/');
-  return slash === -1 ? id : id.slice(0, slash);
+export function temperatureUnit(virtualType) {
+  return virtualType === 'delta' ? '°C/min' : '°C';
 }
 
 export function headline({ maxTemp, avgDuty, warnings }) {

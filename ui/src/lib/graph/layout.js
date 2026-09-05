@@ -1,4 +1,6 @@
 import dagre from '@dagrejs/dagre';
+import { foldRows } from './fold.js';
+import { numberedInputCount, virtualInputHandles } from './ids.js';
 
 const NODE_WIDTH = 236;
 const HEAD_HEIGHT = 52;
@@ -6,18 +8,28 @@ const ROW_HEIGHT = 26;
 const ROWS_PADDING = 12;
 const CHART_HEIGHT = 74;
 
-function rowCount(node) {
+function connectedHandles(node, edges) {
+  return edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle);
+}
+
+function rowCount(node, edges) {
   const data = node.data || {};
-  if (node.type === 'deviceSensor') return Math.min(3, data.deviceSensor.rows.length) + 1;
-  if (node.type === 'deviceControl') return Math.min(3, data.deviceControl.rows.length) + 1;
-  if (node.type === 'virtual') return (data.virtual.config.inputs ? data.virtual.config.inputs.length : 1) + 2;
-  if (node.type === 'combine') return (data.combine.config.sources ? data.combine.config.sources.length : 1) + 2;
+  if (node.type === 'deviceSensor') return foldRows(data.deviceSensor.rows).visible.length + 1;
+  if (node.type === 'deviceControl') return foldRows(data.deviceControl.rows).visible.length + 1;
+  if (node.type === 'virtual') {
+    const handles = virtualInputHandles(data.virtual.config.type, numberedInputCount(connectedHandles(node, edges)) + 1);
+    return handles.length + 1;
+  }
+  if (node.type === 'combine') {
+    const handles = data.combine.config.type === 'sync' ? 1 : numberedInputCount(connectedHandles(node, edges)) + 1;
+    return handles + 1;
+  }
   return 2;
 }
 
-function measure(node) {
+export function measure(node, edges) {
   const chart = node.type === 'curve' && node.data && node.data.curve.config.type === 'point' ? CHART_HEIGHT : 0;
-  return { width: NODE_WIDTH, height: HEAD_HEIGHT + ROWS_PADDING + rowCount(node) * ROW_HEIGHT + chart };
+  return { width: NODE_WIDTH, height: HEAD_HEIGHT + ROWS_PADDING + rowCount(node, edges) * ROW_HEIGHT + chart };
 }
 
 export function autoLayout(nodes, edges) {
@@ -26,7 +38,7 @@ export function autoLayout(nodes, edges) {
   graph.setGraph({ rankdir: 'LR' });
 
   for (const node of nodes) {
-    const size = measure(node);
+    const size = measure(node, edges);
     graph.setNode(node.id, { width: size.width, height: size.height });
   }
 

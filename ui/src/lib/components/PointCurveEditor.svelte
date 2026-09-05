@@ -1,5 +1,5 @@
 <script>
-  import { evalCurve, clamp } from '../curveMath.js';
+  import { evalCurve, clamp, nextPointTemp } from '../curveMath.js';
 
   let { points, liveTemp = null, onChange } = $props();
 
@@ -89,9 +89,8 @@
       onChange([{ id: crypto.randomUUID(), temp: 50, duty: 50 }]);
       return;
     }
-    const first = sorted[0].temp;
-    const last = sorted[sorted.length - 1].temp;
-    const temp = Math.round((first + last) / 2);
+    const temp = nextPointTemp(sorted.map((point) => point.temp));
+    if (temp === null) return;
     const duty = Math.round(evalCurve(pairs(sorted), temp));
     onChange([...points, { id: crypto.randomUUID(), temp, duty }]);
   }

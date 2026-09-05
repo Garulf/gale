@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortDevice, overview, trendArrow } from '../src/lib/dashboard.js';
+import { shortDevice, overview, trendArrow, temperatureUnit } from '../src/lib/dashboard.js';
 
 test('shortDevice compacts known vendor prefixes', () => {
   assert.equal(shortDevice('hwmon/nct6798'), 'nct6798');
@@ -26,4 +26,10 @@ test('trendArrow ignores tiny drift', () => {
   assert.equal(trendArrow(0.2), '→');
   assert.equal(trendArrow(1), '↗');
   assert.equal(trendArrow(-1), '↘');
+});
+
+test('temperatureUnit only treats delta virtual sensors as a rate', () => {
+  assert.equal(temperatureUnit('delta'), '°C/min');
+  assert.equal(temperatureUnit('max'), '°C');
+  assert.equal(temperatureUnit(undefined), '°C');
 });

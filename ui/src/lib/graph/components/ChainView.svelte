@@ -1,6 +1,6 @@
 <script>
   import { snapshot } from '../../store.js';
-  import { tempValue, dutyValue, isOverridden } from '../liveValues.js';
+  import { tempValue, dutyValue, isOverridden, sensorDisplay } from '../liveValues.js';
   import { buildChains, chainDevices, chainMatchesFilter, stepKey } from '../chains.js';
   import { curvePaths, curveScale, evalCurve, clamp } from '../../curveMath.js';
   import { shortDevice } from '../../dashboard.js';
@@ -33,8 +33,8 @@
     if (node.type === 'deviceSensor') {
       const row = node.data.deviceSensor.rows.find((candidate) => candidate.handle === step.handle);
       const value = tempValue(snap, node.id, step.handle);
-      const rpm = row && row.kind === 'rpm';
-      return { title: row ? row.label : step.handle, sub: shortDevice(node.data.deviceSensor.device), value: value === null ? '—' : rpm ? String(Math.round(value)) : value.toFixed(1), unit: rpm ? 'rpm' : '°C', kind: 'temp', editable: true, warned: value === null };
+      const reading = sensorDisplay(value, row ? row.kind : undefined);
+      return { title: row ? row.label : step.handle, sub: shortDevice(node.data.deviceSensor.device), value: reading.text, unit: reading.unit, kind: 'temp', editable: true, warned: value === null };
     }
     if (node.type === 'deviceControl') {
       const row = node.data.deviceControl.rows.find((candidate) => candidate.handle === step.handle);
@@ -58,7 +58,7 @@
       if (config.type === 'point') {
         const paths = curvePaths(config.points, CHART_W, CHART_H, CHART_PAD);
         const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
-        const liveDuty = temp === null ? null : evalCurve(config.points, temp);
+        const liveDuty = duty !== null ? duty : temp === null ? null : evalCurve(config.points, temp);
         chart = { ...paths, show: temp !== null, dotX: temp === null ? 0 : scale.x(clamp(temp, 0, 100)), dotY: liveDuty === null ? 0 : scale.y(liveDuty) };
       }
       return { title: node.data.curve.id, sub: `${config.type} curve`, value: duty === null ? '—' : String(Math.round(duty)), unit: '%', kind: 'duty', editable: true, chart };
