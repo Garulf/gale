@@ -33,7 +33,8 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
     }
     Ok(
         FanEngine::new(set, profile.assignments.clone().into_iter().collect())
-            .with_virtual_sensors(virtual_sensors),
+            .with_virtual_sensors(virtual_sensors)
+            .with_control_settings(config.controls.clone().into_iter().collect()),
     )
 }
 
@@ -58,6 +59,21 @@ fn validate_hardware(config: &GaleConfig) -> Result<(), ConfigError> {
             return Err(ConfigError::Invalid(format!(
                 "hardware.corsair.on_release fixed percent {percent} must be between 0 and 100"
             )));
+        }
+    }
+    for (control, settings) in &config.controls {
+        for (field, value) in [
+            ("min_duty", settings.min_duty),
+            ("start_duty", settings.start_duty),
+            ("stop_duty", settings.stop_duty),
+        ] {
+            if let Some(value) = value {
+                if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+                    return Err(ConfigError::Invalid(format!(
+                        "controls.'{control}'.{field} must be between 0 and 100"
+                    )));
+                }
+            }
         }
     }
     Ok(())

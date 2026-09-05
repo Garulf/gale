@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
-  import { getWebhookUrl } from '../../api.js';
+  import { getWebhookUrl, putControlSettings } from '../../api.js';
+  import { daemonConfig, refreshConfig } from '../../config.js';
   import { isWebhookNotFound, webhookNameFor } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
@@ -62,6 +63,33 @@
   let nodeName = $derived(nameOf(node));
   let nameDraft = $state('');
   let nameError = $state('');
+
+  const CONTROL_LIMIT_FIELDS = [
+    ['min_duty', 'min %', 'never below'],
+    ['start_duty', 'start %', 'kick from stopped'],
+    ['stop_duty', 'stop %', 'snap to 0 below'],
+  ];
+  let controlLimitsError = $state('');
+
+  function controlSettingsFor(handle) {
+    const config = $daemonConfig;
+    return (config && config.controls && config.controls[handle]) || {};
+  }
+
+  async function commitControlLimit(handle, field, raw) {
+    const trimmed = String(raw).trim();
+    const value = trimmed === '' ? null : Number(trimmed);
+    if (value !== null && Number.isNaN(value)) return;
+    const next = { ...controlSettingsFor(handle), [field]: value };
+    for (const key of Object.keys(next)) if (next[key] === null || next[key] === undefined) delete next[key];
+    controlLimitsError = '';
+    try {
+      await putControlSettings(handle, next);
+      await refreshConfig();
+    } catch (err) {
+      controlLimitsError = err.message;
+    }
+  }
 
   let presetName = $derived(node && node.type === 'curve' ? presetNameFor(node.data.curve.config, $presets) : '');
   let presetError = $state('');
@@ -315,13 +343,13 @@
     if (node.type === 'deviceSensor') {
       return node.data.deviceSensor.rows.map((row) => {
         const reading = sensorDisplay(tempValue($snapshot, node.id, row.handle), row.kind);
-        return { label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}` };
+        return { handle: row.handle, label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}` };
       });
     }
     if (node.type === 'deviceControl') {
       return node.data.deviceControl.rows.map((row) => {
         const value = dutyValue($snapshot, row.handle);
-        return { label: row.label, kind: 'duty', text: value === null ? '—' : `${Math.round(value)} %` };
+        return { handle: row.handle, label: row.label, kind: 'duty', text: value === null ? '—' : `${Math.round(value)} %` };
       });
     }
     return [];
@@ -388,11 +416,39 @@
     {#if onClose}<button type="button" class="btn close" aria-label="Close" onclick={onClose}>×</button>{/if}
   </div>
   <div class="list">
-    {#each deviceRows as row}
+    {#each deviceRows as row (row.handle)}
       <div class="list-row"><span>{row.label}</span><span class="mono {row.kind}">{row.text}</span></div>
+      {#if !isSensor}
+        {@const limits = controlSettingsFor(row.handle)}
+        <div class="limits">
+          {#each CONTROL_LIMIT_FIELDS as [field, label, hint] (field)}
+            <label class="limit" title={hint}>
+              <span>{label}</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                placeholder="—"
+                data-testid="control-{field}"
+                data-handle={row.handle}
+                value={limits[field] ?? ''}
+                onchange={(e) => commitControlLimit(row.handle, field, e.target.value)}
+                onkeydown={blurOnEnter}
+              />
+            </label>
+          {/each}
+        </div>
+      {/if}
     {/each}
   </div>
-  <p class="note">Hardware nodes have no editable fields. Channels appear here as ports; unwired channels are folded on the canvas.</p>
+  {#if controlLimitsError}
+    <p class="error">{controlLimitsError}</p>
+  {/if}
+  {#if isSensor}
+    <p class="note">Hardware nodes have no editable fields. Channels appear here as ports; unwired channels are folded on the canvas.</p>
+  {:else}
+    <p class="note">Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor. They save immediately and live in config.toml under [controls].</p>
+  {/if}
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
 {:else if node.type === 'virtual'}
   {@const config = node.data.virtual.config}
@@ -554,6 +610,26 @@
 {/if}
 
 <style>
+  .limits {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding: 0 0 8px 12px;
+  }
+
+  .limit {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .limit input {
+    width: 100%;
+    min-width: 0;
+  }
+
   .preset-row {
     display: flex;
     gap: 6px;

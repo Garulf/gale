@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use gale_core::build::validate_profiles;
-use gale_core::config::{virtual_id, ConfigError, GaleConfig};
+use gale_core::config::{virtual_id, ConfigError, ControlSettings, GaleConfig};
 use gale_core::presets::{self, CurvePreset};
 use gale_hw::{Id, Inventory};
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,10 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/inventory", get(inventory))
         .route("/config", get(get_config).put(put_config))
         .route("/config.toml", get(get_config_toml))
+        .route(
+            "/control-settings/*id",
+            put(put_control_settings).delete(delete_control_settings),
+        )
         .route("/presets", get(get_presets))
         .route("/presets/:name", put(put_preset).delete(delete_preset))
         .route("/warnings", get(get_warnings))
@@ -193,6 +197,41 @@ async fn get_config(State(ctx): State<ApiContext>) -> Response {
 async fn get_config_toml(State(ctx): State<ApiContext>) -> Response {
     match redacted_config(&ctx).to_toml() {
         Ok(toml) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], toml).into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn put_control_settings(
+    State(ctx): State<ApiContext>,
+    Path(id): Path<String>,
+    Json(settings): Json<ControlSettings>,
+) -> Response {
+    let mut config = ctx.host.config();
+    if settings.is_empty() {
+        config.controls.remove(&id);
+    } else {
+        config.controls.insert(id, settings);
+    }
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn delete_control_settings(
+    State(ctx): State<ApiContext>,
+    Path(id): Path<String>,
+) -> Response {
+    let mut config = ctx.host.config();
+    if config.controls.remove(&id).is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("no control settings for '{id}'"),
+        )
+            .into_response();
+    }
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => config_error_response(error),
     }
 }
@@ -981,6 +1020,52 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert!(json["api"]["api_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn control_settings_round_trip_validate_and_clear() {
+        let (router, host) = make_router(None);
+        let put = |body: &str| {
+            Request::builder()
+                .method("PUT")
+                .uri("/api/control-settings/hwmon/x/pwm1")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let response = router
+            .clone()
+            .oneshot(put(r#"{"min_duty":20,"stop_duty":10}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let settings = &host.config().controls["hwmon/x/pwm1"];
+        assert_eq!(settings.min_duty, Some(20.0));
+        assert_eq!(settings.start_duty, None);
+        assert_eq!(settings.stop_duty, Some(10.0));
+
+        let response = router
+            .clone()
+            .oneshot(put(r#"{"min_duty":120}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let response = router.clone().oneshot(put(r#"{}"#)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(host.config().controls.is_empty());
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/control-settings/hwmon/x/pwm1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     fn preset_request(method: &str, name: &str, body: Option<&str>) -> Request<Body> {

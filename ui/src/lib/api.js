@@ -109,3 +109,11 @@ export function putPreset(name, preset) {
 export function deletePreset(name) {
   return requestJson(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
+
+export function putControlSettings(id, settings) {
+  return requestJson(`/api/control-settings/${encodeIdPath(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}

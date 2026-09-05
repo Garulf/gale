@@ -37,7 +37,43 @@ pub struct GaleConfig {
     #[serde(default)]
     pub ui: UiConfig,
     #[serde(default)]
+    pub controls: BTreeMap<Id, ControlSettings>,
+    #[serde(default)]
     pub presets: BTreeMap<String, CurvePreset>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ControlSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_duty: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_duty: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_duty: Option<f64>,
+}
+
+impl ControlSettings {
+    pub fn is_empty(&self) -> bool {
+        self.min_duty.is_none() && self.start_duty.is_none() && self.stop_duty.is_none()
+    }
+
+    pub fn shape(&self, requested: f64, previous: f64) -> f64 {
+        let mut duty = requested;
+        if let Some(stop) = self.stop_duty {
+            if duty < stop {
+                duty = 0.0;
+            }
+        }
+        if let Some(start) = self.start_duty {
+            if previous <= 0.0 && duty > 0.0 {
+                duty = duty.max(start);
+            }
+        }
+        if let Some(min) = self.min_duty {
+            duty = duty.max(min);
+        }
+        duty
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -534,6 +570,7 @@ impl GaleConfig {
             )]
             .into(),
             ui: UiConfig::default(),
+            controls: BTreeMap::new(),
             presets: BTreeMap::new(),
         }
     }
