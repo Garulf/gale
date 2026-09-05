@@ -12,7 +12,7 @@
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onHideNode, onClose } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose } = $props();
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -358,6 +358,13 @@
   {/if}
 {/snippet}
 
+{#snippet nodeActions()}
+  <div class="actions">
+    <button type="button" class="btn" data-testid="node-duplicate" onclick={() => onDuplicateNode(node.id)}>Duplicate</button>
+    <button type="button" class="btn danger delete" onclick={() => onDeleteNode(node.id)}>Delete node</button>
+  </div>
+{/snippet}
+
 {#snippet toggleBox(label, hint, checked, onToggle, content)}
   <div class="box">
     <label class="toggle">
@@ -450,7 +457,7 @@
       {/if}
     </div>
   {/if}
-  <button type="button" class="btn danger delete" onclick={() => onDeleteNode(node.id)}>Delete node</button>
+  {@render nodeActions()}
 {:else if node.type === 'curve'}
   {@const config = node.data.curve.config}
   {@render identity('duty', CURVE_TYPES, undefined)}
@@ -531,7 +538,7 @@
       <label class="field">max %<input type="number" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
   {/if}
-  <button type="button" class="btn danger delete" onclick={() => onDeleteNode(node.id)}>Delete node</button>
+  {@render nodeActions()}
 {:else if node.type === 'combine'}
   {@const config = node.data.combine.config}
   {@render identity('duty', CURVE_TYPES, undefined)}
@@ -550,10 +557,19 @@
       </div>
     </div>
   {/if}
-  <button type="button" class="btn danger delete" onclick={() => onDeleteNode(node.id)}>Delete node</button>
+  {@render nodeActions()}
 {/if}
 
 <style>
+  .actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .actions .delete {
+    margin-left: auto;
+  }
+
   .preset-row {
     display: flex;
     gap: 6px;

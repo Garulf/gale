@@ -6,6 +6,7 @@ import {
   isSingleInputVirtualType,
   isZeroInputVirtualType,
   nodeKind,
+  nodeName,
   edgeId,
 } from './ids.js';
 import { defaultVirtualSensor } from '../sensors.js';
@@ -125,4 +126,30 @@ export function applyPreset(nodes, edges, id, preset) {
       node.id === retyped.id ? { ...node, data: { curve: { id: node.data.curve.id, config } } } : node
     ),
   };
+}
+
+export function copyName(nodes, kind, base) {
+  let candidate = `${base}_copy`;
+  let n = 2;
+  while (nameInUse(nodes, kind, candidate)) {
+    candidate = `${base}_copy_${n}`;
+    n += 1;
+  }
+  return candidate;
+}
+
+export function duplicateNode(nodes, id, position) {
+  const source = nodes.find((node) => node.id === id);
+  if (!source || (source.type !== 'curve' && source.type !== 'combine' && source.type !== 'virtual')) return null;
+  const kind = nodeKind(id);
+  const name = copyName(nodes, kind, nodeName(id));
+  const config = JSON.parse(JSON.stringify(source.data[source.type].config));
+  const copy = {
+    id: nodeIdFor(kind, name),
+    type: source.type,
+    position: { x: position.x, y: position.y },
+    hidden: false,
+    data: dataFor(source.type, name, config),
+  };
+  return { id: copy.id, nodes: [...nodes, copy] };
 }

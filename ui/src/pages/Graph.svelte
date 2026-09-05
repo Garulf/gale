@@ -15,7 +15,7 @@
   import { defaultCurve } from '../lib/graph/defaults.js';
   import { configValidationError } from '../lib/graph/configValidation.js';
   import { collectNodeWarnings, attributeWarning } from '../lib/graph/nodeWarnings.js';
-  import { renameNode, changeVirtualType, changeCurveType, nameInUse, applyPreset } from '../lib/graph/edit.js';
+  import { renameNode, changeVirtualType, changeCurveType, nameInUse, applyPreset, duplicateNode } from '../lib/graph/edit.js';
   import { refreshPresets } from '../lib/presets.js';
   import { shortDevice } from '../lib/dashboard.js';
   import DeviceSensorNode from '../lib/graph/components/DeviceSensorNode.svelte';
@@ -309,6 +309,38 @@
     applyEdit(edit);
   }
 
+  const DUPLICATE_OFFSET = 40;
+  let copiedNodeId = '';
+
+  function duplicateGraphNode(id) {
+    const source = nodes.find((node) => node.id === id);
+    if (!source) return;
+    const result = duplicateNode(nodes, id, cascadePosition({ x: source.position.x + DUPLICATE_OFFSET, y: source.position.y + DUPLICATE_OFFSET }));
+    if (!result) return;
+    snapshotHistory();
+    nodes = result.nodes;
+    selectedNodeId = result.id;
+    sheetOpen = true;
+    dirty = true;
+    future = [];
+  }
+
+  function isTypingTarget(target) {
+    return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+  }
+
+  function onClipboardKey(event) {
+    if (!(event.ctrlKey || event.metaKey) || isTypingTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if (key === 'c' && selectedNodeId && nodeKind(selectedNodeId) !== 'sensor' && nodeKind(selectedNodeId) !== 'control') {
+      copiedNodeId = selectedNodeId;
+      event.preventDefault();
+    } else if (key === 'v' && copiedNodeId) {
+      duplicateGraphNode(copiedNodeId);
+      event.preventDefault();
+    }
+  }
+
   function applyCurvePreset(id, preset) {
     applyEdit(applyPreset(nodes, edges, id, preset));
   }
@@ -450,6 +482,8 @@
   });
 </script>
 
+<svelte:window onkeydown={onClipboardKey} />
+
 <section class="gale-graph-page" data-mobile-view={mobileView}>
   <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
     <SvelteFlow
@@ -542,6 +576,7 @@
       onRenameNode={renameGraphNode}
       onRetypeNode={retypeNode}
       onApplyPreset={applyCurvePreset}
+      onDuplicateNode={duplicateGraphNode}
       onHideNode={hideNode}
     />
     {#if saveWarnings.length > 0}
@@ -568,6 +603,7 @@
           onRenameNode={renameGraphNode}
           onRetypeNode={retypeNode}
           onApplyPreset={applyCurvePreset}
+          onDuplicateNode={duplicateGraphNode}
           onHideNode={hideNode}
           onClose={() => (sheetOpen = false)}
         />

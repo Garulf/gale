@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CURVE_TYPES, nameInUse, renameNode, changeVirtualType, changeCurveType, applyPreset } from '../../src/lib/graph/edit.js';
+import { CURVE_TYPES, nameInUse, renameNode, changeVirtualType, changeCurveType, applyPreset, copyName, duplicateNode } from '../../src/lib/graph/edit.js';
 
 function edge(source, sourceHandle, target, targetHandle, kind) {
   return {
@@ -195,4 +195,36 @@ test('applyPreset across types goes through the retype path so edges are remappe
   assert.deepEqual(node.data.curve.config, preset);
   assert.equal(result.edges.some((edge) => edge.target === 'curve:cpu'), false);
   assert.equal(result.edges.some((edge) => edge.source === 'curve:cpu'), true);
+});
+
+test('copyName appends _copy and counts up until the name is free', () => {
+  const { nodes } = fixture();
+  assert.equal(copyName(nodes, 'curve', 'cpu'), 'cpu_copy');
+  const withCopy = [...nodes, { id: 'curve:cpu_copy', type: 'curve', position: { x: 0, y: 0 }, data: { curve: { id: 'cpu_copy', config: { type: 'flat', duty: 1 } } } }];
+  assert.equal(copyName(withCopy, 'curve', 'cpu'), 'cpu_copy_2');
+  assert.equal(copyName(nodes, 'virtual', 'hot'), 'hot_copy');
+});
+
+test('duplicateNode clones a curve with a fresh name, the given position and no wiring', () => {
+  const { nodes, edges } = fixture();
+  const result = duplicateNode(nodes, 'curve:cpu', { x: 40, y: 50 });
+  assert.equal(result.id, 'curve:cpu_copy');
+  assert.equal(result.nodes.length, nodes.length + 1);
+  const copy = result.nodes.find((node) => node.id === 'curve:cpu_copy');
+  assert.equal(copy.type, 'curve');
+  assert.deepEqual(copy.position, { x: 40, y: 50 });
+  assert.deepEqual(copy.data.curve, { id: 'cpu_copy', config: nodes[2].data.curve.config });
+  assert.notEqual(copy.data.curve.config, nodes[2].data.curve.config);
+  assert.equal(edges.some((edge) => edge.source === 'curve:cpu_copy' || edge.target === 'curve:cpu_copy'), false);
+});
+
+test('duplicateNode handles virtual and combine nodes and refuses device nodes', () => {
+  const { nodes } = fixture();
+  const virtual = duplicateNode(nodes, 'virtual:hot', { x: 0, y: 0 });
+  assert.equal(virtual.id, 'virtual:hot_copy');
+  assert.equal(virtual.nodes.find((node) => node.id === 'virtual:hot_copy').data.virtual.name, 'hot_copy');
+  const combine = duplicateNode(nodes, 'combine:both', { x: 0, y: 0 });
+  assert.equal(combine.id, 'combine:both_copy');
+  assert.equal(combine.nodes.find((node) => node.id === 'combine:both_copy').data.combine.id, 'both_copy');
+  assert.equal(duplicateNode(nodes, 'sensor:hwmon/x', { x: 0, y: 0 }), null);
 });
