@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use gale_core::build::validate_profiles;
-use gale_core::config::{virtual_id, ConfigError, GaleConfig};
+use gale_core::config::{virtual_id, ConfigError, DashboardUiConfig, GaleConfig};
 use gale_core::presets::{self, CurvePreset};
 use gale_hw::{Id, Inventory};
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,7 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/labels/*id", put(put_label).delete(delete_label))
         .route("/config", get(get_config).put(put_config))
         .route("/config.toml", get(get_config_toml))
+        .route("/ui/dashboard", put(put_dashboard_ui))
         .route("/presets", get(get_presets))
         .route("/presets/:name", put(put_preset).delete(delete_preset))
         .route("/warnings", get(get_warnings))
@@ -244,6 +245,18 @@ async fn delete_label(State(ctx): State<ApiContext>, Path(id): Path<String>) -> 
     if config.labels.remove(&id).is_none() {
         return (StatusCode::NOT_FOUND, format!("no label set for '{id}'")).into_response();
     }
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn put_dashboard_ui(
+    State(ctx): State<ApiContext>,
+    Json(dashboard): Json<DashboardUiConfig>,
+) -> Response {
+    let mut config = ctx.host.config();
+    config.ui.dashboard = dashboard;
     match apply_and_persist(&ctx, config).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => config_error_response(error),
@@ -1139,6 +1152,36 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn dashboard_hidden_list_persists_and_echoes_in_config() {
+        let (router, host) = make_router(None);
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/ui/dashboard")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"hidden":["hwmon/x/temp3","hwmon/x/pwm2"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            host.config().ui.dashboard.hidden,
+            vec!["hwmon/x/temp3".to_string(), "hwmon/x/pwm2".to_string()]
+        );
+        let json = body_json(
+            router
+                .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(json["ui"]["dashboard"]["hidden"][1], "hwmon/x/pwm2");
     }
 
     fn preset_request(method: &str, name: &str, body: Option<&str>) -> Request<Body> {

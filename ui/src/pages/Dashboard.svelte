@@ -1,9 +1,9 @@
 <script>
   import { onMount } from 'svelte';
   import { snapshot } from '../lib/store.js';
-  import { getInventory, setControl, releaseControl } from '../lib/api.js';
+  import { getInventory, setControl, releaseControl, putDashboardUi } from '../lib/api.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
-  import { daemonConfig } from '../lib/config.js';
+  import { daemonConfig, refreshConfig } from '../lib/config.js';
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
@@ -17,7 +17,20 @@
   const CHART_PAD = 6;
 
   let inventory = $state(null);
+  let editing = $state(false);
   let error = $state('');
+  let hiddenIds = $derived(($daemonConfig && $daemonConfig.ui && $daemonConfig.ui.dashboard && $daemonConfig.ui.dashboard.hidden) || []);
+
+  async function setHidden(id, hidden) {
+    const next = hiddenIds.filter((entry) => entry !== id);
+    if (hidden) next.push(id);
+    try {
+      await putDashboardUi({ hidden: next });
+      await refreshConfig();
+    } catch (err) {
+      error = err.message;
+    }
+  }
   let pending = $state({});
   let drafts = $state({});
 
@@ -47,7 +60,7 @@
     return cfg.profiles[name] || null;
   });
 
-  let temps = $derived.by(() => {
+  let allTemps = $derived.by(() => {
     if (!inventory) return [];
     const history = $sensorHistory;
     const hardware = inventory.sensors
@@ -72,9 +85,11 @@
         spark: sparklinePath(samples, 120, 36),
         trend: samples.length > 1 ? trendArrow(delta) : '',
         trendText: samples.length > 1 ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}° over the last ${Math.round(samples.length * 5 / 60) || 1} min` : 'collecting history',
+        hidden: hiddenIds.includes(sensor.id),
       };
     });
   });
+  let temps = $derived(editing ? allTemps : allTemps.filter((sensor) => !sensor.hidden));
 
   function curveFor(control) {
     if (!profile) return null;
@@ -115,7 +130,7 @@
     return config.type === 'mix' ? `mix · ${config.mode}` : config.type;
   }
 
-  let fans = $derived.by(() => {
+  let allFans = $derived.by(() => {
     if (!inventory) return [];
     return inventory.controls.map((control) => {
       const curve = curveFor(control);
@@ -137,9 +152,12 @@
         input: curveInput(curve),
         temp: temp === null ? '' : `${fmtTemp(temp)}°`,
         chart: chartFor(curve, duty),
+        hidden: hiddenIds.includes(control.id),
       };
     });
   });
+  let fans = $derived(editing ? allFans : allFans.filter((fan) => !fan.hidden));
+  let hiddenCount = $derived(allTemps.filter((sensor) => sensor.hidden).length + allFans.filter((fan) => fan.hidden).length);
 
   let stats = $derived(
     overview(
@@ -202,6 +220,7 @@
       <span class="eyebrow">Overview</span>
       <h1>{stats.headline}</h1>
     </div>
+    <button type="button" class="btn edit-toggle" class:primary={editing} data-testid="dashboard-edit" onclick={() => (editing = !editing)}>{editing ? 'Done' : hiddenCount > 0 ? `Edit · ${hiddenCount} hidden` : 'Edit'}</button>
     <div class="stats">
       <div class="stat"><span class="eyebrow">Hottest</span><span class="num mono temp">{fmtTemp(stats.maxTemp)}<small> °C</small></span></div>
       <div class="stat"><span class="eyebrow">Avg duty</span><span class="num mono duty">{fmtInt(stats.avgDuty)}<small> %</small></span></div>
@@ -220,9 +239,10 @@
     <section>
       <div class="section-head"><h2 class="section-title">Temperatures</h2><span class="hint">last 10 minutes</span></div>
       <div class="temps">
+        {#if temps.length === 0}<p class="muted">Every sensor is hidden. Use Edit to bring some back.</p>{/if}
         {#each temps as sensor (sensor.id)}
-          <div class="card temp-card">
-            <div class="temp-head"><span class="label">{sensor.label}</span><span class="device mono">{sensor.device}</span></div>
+          <div class="card temp-card" class:dimmed={sensor.hidden} data-card-id={sensor.id}>
+            <div class="temp-head"><span class="label">{sensor.label}</span><span class="device mono">{sensor.device}</span>{#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(sensor.id, !sensor.hidden)}>{sensor.hidden ? 'Show' : 'Hide'}</button>{/if}</div>
             <div class="temp-value">
               <span class="value mono" class:hot={sensor.hot}>{sensor.text}</span><span class="unit">{sensor.unit}</span>
               {#if sensor.trend}<span class="trend" title={sensor.trendText}>{sensor.trend}</span>{/if}
@@ -240,10 +260,12 @@
     <section>
       <div class="section-head"><h2 class="section-title">Fans</h2><span class="hint">where each control sits on its curve</span></div>
       <div class="fans">
+        {#if fans.length === 0}<p class="muted">Every fan is hidden. Use Edit to bring some back.</p>{/if}
         {#each fans as fan (fan.id)}
-          <div class="card control">
+          <div class="card control" class:dimmed={fan.hidden} data-card-id={fan.id}>
             <div class="control-head">
               <div class="names"><span class="label">{fan.label}</span><span class="device mono">{fan.device}</span></div>
+              {#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(fan.id, !fan.hidden)}>{fan.hidden ? 'Show' : 'Hide'}</button>{/if}
               {#if fan.manual}<span class="badge pill">manual</span>{/if}
               <div class="readings">
                 <span class="duty-read mono">{fmtInt(fan.duty)}<small>%</small></span>
@@ -296,6 +318,20 @@
 </main>
 
 <style>
+  .edit-toggle {
+    align-self: flex-end;
+  }
+
+  .hide-toggle {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+
+  .card.dimmed {
+    opacity: 0.45;
+  }
+
   .overview {
     display: flex;
     align-items: flex-end;
