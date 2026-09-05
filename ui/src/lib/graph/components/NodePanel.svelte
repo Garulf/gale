@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
-  import { getWebhookUrl } from '../../api.js';
+  import { getWebhookUrl, putControlSettings } from '../../api.js';
+  import { daemonConfig, refreshConfig } from '../../config.js';
   import { isWebhookNotFound, webhookNameFor } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
@@ -71,6 +72,33 @@
       await onRenameRow(node.id, handle, value.trim());
     } catch (err) {
       rowLabelError = err.message;
+    }
+  }
+
+  const CONTROL_LIMIT_FIELDS = [
+    ['min_duty', 'min %', 'never below'],
+    ['start_duty', 'start %', 'kick from stopped'],
+    ['stop_duty', 'stop %', 'snap to 0 below'],
+  ];
+  let controlLimitsError = $state('');
+
+  function controlSettingsFor(handle) {
+    const config = $daemonConfig;
+    return (config && config.controls && config.controls[handle]) || {};
+  }
+
+  async function commitControlLimit(handle, field, raw) {
+    const trimmed = String(raw).trim();
+    const value = trimmed === '' ? null : Number(trimmed);
+    if (value !== null && Number.isNaN(value)) return;
+    const next = { ...controlSettingsFor(handle), [field]: value };
+    for (const key of Object.keys(next)) if (next[key] === null || next[key] === undefined) delete next[key];
+    controlLimitsError = '';
+    try {
+      await putControlSettings(handle, next);
+      await refreshConfig();
+    } catch (err) {
+      controlLimitsError = err.message;
     }
   }
 
@@ -420,12 +448,40 @@
         />
         <span class="mono {row.kind}">{row.text}</span>
       </div>
+      {#if !isSensor}
+        {@const limits = controlSettingsFor(row.handle)}
+        <div class="limits">
+          {#each CONTROL_LIMIT_FIELDS as [field, label, hint] (field)}
+            <label class="limit" title={hint}>
+              <span>{label}</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                placeholder="—"
+                data-testid="control-{field}"
+                data-handle={row.handle}
+                value={limits[field] ?? ''}
+                onchange={(e) => commitControlLimit(row.handle, field, e.target.value)}
+                onkeydown={blurOnEnter}
+              />
+            </label>
+          {/each}
+        </div>
+      {/if}
     {/each}
   </div>
   {#if rowLabelError}
     <p class="error">{rowLabelError}</p>
   {/if}
-  <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. Unwired channels are folded on the canvas.</p>
+  {#if controlLimitsError}
+    <p class="error">{controlLimitsError}</p>
+  {/if}
+  {#if isSensor}
+    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. Unwired channels are folded on the canvas.</p>
+  {:else}
+    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor. Both save immediately to config.toml.</p>
+  {/if}
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
 {:else if node.type === 'virtual'}
   {@const config = node.data.virtual.config}
@@ -617,6 +673,26 @@
   .row-label:focus {
     border-color: var(--line2);
     background: var(--surface2);
+  }
+
+  .limits {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding: 0 0 8px 12px;
+  }
+
+  .limit {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .limit input {
+    width: 100%;
+    min-width: 0;
   }
 
   .preset-row {
