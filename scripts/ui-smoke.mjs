@@ -127,6 +127,10 @@ async function dragConnection(page, sourceSelector, targetSelector) {
   await page.mouse.up();
 }
 
+function countEdgeLabels(page) {
+  return page.$$eval('.elabel', (els) => els.length);
+}
+
 async function saveGraph(page) {
   const [response] = await Promise.all([
     page.waitForResponse(
@@ -368,6 +372,12 @@ async function main() {
       assert(badges.length === 0, `unexpected node warning badges on a clean config: ${badges.join(' | ')}`);
     });
 
+    let savedEdgeLabels = 0;
+    await record('saved connections show live value labels on load', async () => {
+      await page.waitForFunction(() => document.querySelectorAll('.elabel').length > 0, { timeout: 5000 });
+      savedEdgeLabels = await countEdgeLabels(page);
+    });
+
     await record('device rows wired past the fold render their edges on load', async () => {
       await page.waitForSelector(`g.svelte-flow__edge[data-id="${LATE_SENSOR_EDGE_ID}"] path`, { timeout: 5000 });
       await page.waitForSelector(`g.svelte-flow__edge[data-id="${LATE_CONTROL_EDGE_ID}"] path`, { timeout: 5000 });
@@ -511,7 +521,18 @@ async function main() {
       await dragConnection(page, handleSelector(SENSOR_NODE, TEMP2), handleSelector(newNodeId, 'in-1'));
       await page.waitForSelector(handleSelector(newNodeId, 'in-2'), { timeout: 5000 });
 
+      const labelsBeforeSave = await countEdgeLabels(page);
+      assert(
+        labelsBeforeSave === savedEdgeLabels,
+        `unsaved connections should show no value label: ${savedEdgeLabels} -> ${labelsBeforeSave}`
+      );
+
       await saveGraph(page);
+      await page.waitForFunction(
+        (before) => document.querySelectorAll('.elabel').length > before,
+        { timeout: 5000 },
+        savedEdgeLabels
+      );
       const config = await fetchConfig();
       deepStrictEqual(config.profiles.default.sensors[NEW_SENSOR_NAME], {
         type: 'max',

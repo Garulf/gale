@@ -1,4 +1,5 @@
 <script>
+  import { getContext } from 'svelte';
   import { BaseEdge, EdgeLabel, getBezierPath } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue } from '../liveValues.js';
@@ -19,12 +20,15 @@
     data,
   } = $props();
 
+  const edgeSaved = getContext('galeEdgeSaved');
+  let saved = $derived(edgeSaved ? edgeSaved(id) : true);
+
   let path = $derived(
     getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
   );
 
   let label = $derived.by(() => {
-    if (!data.showLabel) return '';
+    if (!data.showLabel || !saved) return '';
     const snap = $snapshot;
     if (data.kind === 'temp') {
       const value = tempValue(snap, source, sourceHandleId);
