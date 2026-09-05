@@ -93,6 +93,8 @@ enum NodeKind {
         inputs: Vec<Id>,
         window: Option<Window>,
     },
+    Sum(Vec<Id>),
+    Subtract(Vec<Id>),
     Offset {
         input: Id,
         add: f64,
@@ -132,6 +134,8 @@ impl VirtualSensors {
                     inputs: inputs.clone(),
                     window: window_s.map(Window::new),
                 },
+                VirtualSensorConfig::Sum { inputs } => NodeKind::Sum(inputs.clone()),
+                VirtualSensorConfig::Subtract { inputs } => NodeKind::Subtract(inputs.clone()),
                 VirtualSensorConfig::Offset { input, add, scale } => NodeKind::Offset {
                     input: input.clone(),
                     add: *add,
@@ -193,6 +197,13 @@ impl VirtualSensors {
                         None => None,
                     }
                 }
+                NodeKind::Sum(inputs) => {
+                    fold_available(inputs.iter().map(|id| read(sensors, id)), |a, b| a + b)
+                }
+                NodeKind::Subtract(inputs) => subtract_available(
+                    inputs.first().and_then(|id| read(sensors, id)),
+                    inputs.iter().skip(1).map(|id| read(sensors, id)),
+                ),
                 NodeKind::Offset { input, add, scale } => {
                     read(sensors, input).map(|v| v * *scale + *add)
                 }
@@ -222,6 +233,14 @@ pub fn fold_available(
     pick: fn(f64, f64) -> f64,
 ) -> Option<f64> {
     values.flatten().reduce(pick)
+}
+
+pub fn subtract_available(
+    first: Option<f64>,
+    rest: impl Iterator<Item = Option<f64>>,
+) -> Option<f64> {
+    let first = first?;
+    Some(first - rest.flatten().sum::<f64>())
 }
 
 pub fn mean_available(values: impl Iterator<Item = Option<f64>>) -> Option<f64> {
@@ -293,6 +312,36 @@ mod tests {
         vs.evaluate(&mut map, 1.0);
         assert_eq!(map[&virtual_id("cpu_hot")], Some(60.0));
         assert_eq!(map[&virtual_id("cpu_cold")], Some(60.0));
+    }
+
+    #[test]
+    fn sum_and_subtract_follow_the_availability_rule() {
+        let profile = parse_profile(
+            r#"
+            [sensors.total]
+            type = "sum"
+            inputs = ["a", "b"]
+
+            [sensors.gap]
+            type = "subtract"
+            inputs = ["b", "a"]
+            "#,
+        );
+        let mut vs = VirtualSensors::build(&profile).unwrap();
+
+        let mut map = sensors(&[("a", Some(60.0)), ("b", Some(72.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("total")], Some(132.0));
+        assert_eq!(map[&virtual_id("gap")], Some(12.0));
+
+        let mut map = sensors(&[("a", None), ("b", Some(72.0))]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("total")], Some(72.0));
+        assert_eq!(map[&virtual_id("gap")], Some(72.0));
+
+        let mut map = sensors(&[("a", Some(60.0)), ("b", None)]);
+        vs.evaluate(&mut map, 1.0);
+        assert_eq!(map[&virtual_id("gap")], None);
     }
 
     #[test]

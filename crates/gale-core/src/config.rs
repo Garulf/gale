@@ -39,7 +39,43 @@ pub struct GaleConfig {
     #[serde(default)]
     pub labels: BTreeMap<Id, String>,
     #[serde(default)]
+    pub controls: BTreeMap<Id, ControlSettings>,
+    #[serde(default)]
     pub presets: BTreeMap<String, CurvePreset>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ControlSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_duty: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_duty: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_duty: Option<f64>,
+}
+
+impl ControlSettings {
+    pub fn is_empty(&self) -> bool {
+        self.min_duty.is_none() && self.start_duty.is_none() && self.stop_duty.is_none()
+    }
+
+    pub fn shape(&self, requested: f64, previous: f64) -> f64 {
+        let mut duty = requested;
+        if let Some(stop) = self.stop_duty {
+            if duty < stop {
+                duty = 0.0;
+            }
+        }
+        if let Some(start) = self.start_duty {
+            if previous <= 0.0 && duty > 0.0 {
+                duty = duty.max(start);
+            }
+        }
+        if let Some(min) = self.min_duty {
+            duty = duty.max(min);
+        }
+        duty
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -155,6 +191,12 @@ pub enum VirtualSensorConfig {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         window_s: Option<f64>,
     },
+    Sum {
+        inputs: Vec<Id>,
+    },
+    Subtract {
+        inputs: Vec<Id>,
+    },
     Offset {
         input: Id,
         add: f64,
@@ -178,6 +220,8 @@ impl VirtualSensorConfig {
             VirtualSensorConfig::Max { .. } => "max",
             VirtualSensorConfig::Min { .. } => "min",
             VirtualSensorConfig::Mean { .. } => "mean",
+            VirtualSensorConfig::Sum { .. } => "sum",
+            VirtualSensorConfig::Subtract { .. } => "subtract",
             VirtualSensorConfig::Offset { .. } => "offset",
             VirtualSensorConfig::Delta { .. } => "delta",
             VirtualSensorConfig::Webhook { .. } => "webhook",
@@ -188,7 +232,9 @@ impl VirtualSensorConfig {
         match self {
             VirtualSensorConfig::Max { inputs }
             | VirtualSensorConfig::Min { inputs }
-            | VirtualSensorConfig::Mean { inputs, .. } => inputs.clone(),
+            | VirtualSensorConfig::Mean { inputs, .. }
+            | VirtualSensorConfig::Sum { inputs }
+            | VirtualSensorConfig::Subtract { inputs } => inputs.clone(),
             VirtualSensorConfig::Offset { input, .. }
             | VirtualSensorConfig::Delta { input, .. } => {
                 vec![input.clone()]
@@ -220,6 +266,8 @@ fn validate_virtual_sensor(
         VirtualSensorConfig::Max { .. }
             | VirtualSensorConfig::Min { .. }
             | VirtualSensorConfig::Mean { .. }
+            | VirtualSensorConfig::Sum { .. }
+            | VirtualSensorConfig::Subtract { .. }
     ) && inputs.is_empty()
     {
         return Err(ConfigError::Invalid(format!(
@@ -494,6 +542,10 @@ pub enum CurveConfig {
         max_temp: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        hysteresis: Option<HysteresisConfig>,
+        #[serde(default)]
+        response: Option<ResponseConfig>,
     },
     Mix {
         sources: Vec<Id>,
@@ -513,6 +565,8 @@ pub enum CurveConfig {
         off_temp: f64,
         on_duty: f64,
         off_duty: f64,
+        #[serde(default)]
+        response: Option<ResponseConfig>,
     },
     Target {
         sensor: Id,
@@ -520,6 +574,10 @@ pub enum CurveConfig {
         step_pct_per_sec: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        deadband: Option<f64>,
+        #[serde(default)]
+        idle_temp: Option<f64>,
     },
 }
 
@@ -551,6 +609,7 @@ impl GaleConfig {
             .into(),
             ui: UiConfig::default(),
             labels: BTreeMap::new(),
+            controls: BTreeMap::new(),
             presets: BTreeMap::new(),
         }
     }
@@ -730,6 +789,7 @@ mode = "max"
                         off_temp: 50.0,
                         on_duty: 100.0,
                         off_duty: 20.0,
+                        response: None,
                     },
                 ),
                 (
@@ -740,6 +800,8 @@ mode = "max"
                         step_pct_per_sec: 5.0,
                         min_duty: 20.0,
                         max_duty: 100.0,
+                        deadband: None,
+                        idle_temp: None,
                     },
                 ),
                 ("flat".to_string(), CurveConfig::Flat { duty: 50.0 }),

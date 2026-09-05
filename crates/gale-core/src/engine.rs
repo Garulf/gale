@@ -1,3 +1,4 @@
+use crate::config::ControlSettings;
 use crate::curve::{CurveSet, EvalContext};
 use crate::r#virtual::VirtualSensors;
 use crate::Id;
@@ -9,6 +10,8 @@ pub struct FanEngine {
     curves: CurveSet,
     assignments: HashMap<Id, Id>,
     virtual_sensors: VirtualSensors,
+    control_settings: HashMap<Id, ControlSettings>,
+    last_duties: HashMap<Id, f64>,
 }
 
 impl std::fmt::Debug for FanEngine {
@@ -25,7 +28,14 @@ impl FanEngine {
             curves,
             assignments,
             virtual_sensors: VirtualSensors::empty(),
+            control_settings: HashMap::new(),
+            last_duties: HashMap::new(),
         }
+    }
+
+    pub fn with_control_settings(mut self, settings: HashMap<Id, ControlSettings>) -> Self {
+        self.control_settings = settings;
+        self
     }
 
     pub fn with_virtual_sensors(mut self, virtual_sensors: VirtualSensors) -> Self {
@@ -48,16 +58,29 @@ impl FanEngine {
     ) -> HashMap<Id, f64> {
         self.virtual_sensors.evaluate(sensors, dt_secs);
         let ctx = EvalContext::new(&self.curves, sensors, dt_secs);
-        self.assignments
+        let duties: HashMap<Id, f64> = self
+            .assignments
             .iter()
             .map(|(control, curve)| {
-                let duty = ctx
+                let requested = ctx
                     .resolve(curve)
                     .filter(|d| d.is_finite())
-                    .unwrap_or(FAIL_SAFE_PCT);
-                (control.clone(), duty.clamp(0.0, 100.0))
+                    .unwrap_or(FAIL_SAFE_PCT)
+                    .clamp(0.0, 100.0);
+                let duty = match self.control_settings.get(control) {
+                    Some(settings) => settings
+                        .shape(
+                            requested,
+                            self.last_duties.get(control).copied().unwrap_or(0.0),
+                        )
+                        .clamp(0.0, 100.0),
+                    None => requested,
+                };
+                (control.clone(), duty)
             })
-            .collect()
+            .collect();
+        self.last_duties = duties.clone();
+        duties
     }
 }
 
@@ -244,5 +267,62 @@ mod tests {
     fn engine_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<FanEngine>();
+    }
+
+    #[test]
+    fn control_settings_apply_stop_start_and_minimum() {
+        let mut set = CurveSet::new();
+        set.insert(
+            "cpu".into(),
+            Box::new(PointCurve::new(
+                "t".into(),
+                vec![(30.0, 10.0), (70.0, 100.0)],
+            )),
+        );
+        let assignments: HashMap<String, String> = [("pwm1".to_string(), "cpu".to_string())].into();
+        let settings: HashMap<String, ControlSettings> = [(
+            "pwm1".to_string(),
+            ControlSettings {
+                min_duty: None,
+                start_duty: Some(40.0),
+                stop_duty: Some(15.0),
+            },
+        )]
+        .into();
+        let mut engine = FanEngine::new(set, assignments).with_control_settings(settings);
+        assert_eq!(
+            engine.tick(&mut sensors(&[("t", Some(30.0))]), 1.0)["pwm1"],
+            0.0
+        );
+        assert_eq!(
+            engine.tick(&mut sensors(&[("t", Some(40.0))]), 1.0)["pwm1"],
+            40.0
+        );
+        assert_eq!(
+            engine.tick(&mut sensors(&[("t", Some(40.0))]), 1.0)["pwm1"],
+            32.5
+        );
+        assert_eq!(
+            engine.tick(&mut sensors(&[("t", Some(30.0))]), 1.0)["pwm1"],
+            0.0
+        );
+    }
+
+    #[test]
+    fn minimum_duty_is_a_hard_floor_even_below_stop() {
+        let mut set = CurveSet::new();
+        set.insert("low".into(), Box::new(FlatCurve { duty: 5.0 }));
+        let assignments: HashMap<String, String> = [("pwm1".to_string(), "low".to_string())].into();
+        let settings: HashMap<String, ControlSettings> = [(
+            "pwm1".to_string(),
+            ControlSettings {
+                min_duty: Some(25.0),
+                start_duty: None,
+                stop_duty: Some(10.0),
+            },
+        )]
+        .into();
+        let mut engine = FanEngine::new(set, assignments).with_control_settings(settings);
+        assert_eq!(engine.tick(&mut sensors(&[]), 1.0)["pwm1"], 25.0);
     }
 }

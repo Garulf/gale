@@ -34,7 +34,8 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
     }
     Ok(
         FanEngine::new(set, profile.assignments.clone().into_iter().collect())
-            .with_virtual_sensors(virtual_sensors),
+            .with_virtual_sensors(virtual_sensors)
+            .with_control_settings(config.controls.clone().into_iter().collect()),
     )
 }
 
@@ -59,6 +60,21 @@ fn validate_hardware(config: &GaleConfig) -> Result<(), ConfigError> {
             return Err(ConfigError::Invalid(format!(
                 "hardware.corsair.on_release fixed percent {percent} must be between 0 and 100"
             )));
+        }
+    }
+    for (control, settings) in &config.controls {
+        for (field, value) in [
+            ("min_duty", settings.min_duty),
+            ("start_duty", settings.start_duty),
+            ("stop_duty", settings.stop_duty),
+        ] {
+            if let Some(value) = value {
+                if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+                    return Err(ConfigError::Invalid(format!(
+                        "controls.'{control}'.{field} must be between 0 and 100"
+                    )));
+                }
+            }
         }
     }
     Ok(())
@@ -149,13 +165,19 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
             max_temp,
             min_duty,
             max_duty,
-        } => Box::new(LinearCurve::new(
-            sensor.clone(),
-            *min_temp,
-            *max_temp,
-            *min_duty,
-            *max_duty,
-        )),
+            hysteresis,
+            response,
+        } => {
+            let mut c =
+                LinearCurve::new(sensor.clone(), *min_temp, *max_temp, *min_duty, *max_duty);
+            if let Some(h) = hysteresis {
+                c = c.with_hysteresis(h.up, h.down);
+            }
+            if let Some(r) = response {
+                c = c.with_response(r.rise_pct_per_sec, r.fall_pct_per_sec);
+            }
+            Box::new(c)
+        }
         CurveConfig::Mix { sources, mode } => Box::new(MixCurve {
             sources: sources.clone(),
             mode: *mode,
@@ -174,26 +196,38 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
             off_temp,
             on_duty,
             off_duty,
-        } => Box::new(TriggerCurve::new(
-            sensor.clone(),
-            *on_temp,
-            *off_temp,
-            *on_duty,
-            *off_duty,
-        )),
+            response,
+        } => {
+            let mut c = TriggerCurve::new(sensor.clone(), *on_temp, *off_temp, *on_duty, *off_duty);
+            if let Some(r) = response {
+                c = c.with_response(r.rise_pct_per_sec, r.fall_pct_per_sec);
+            }
+            Box::new(c)
+        }
         CurveConfig::Target {
             sensor,
             target_temp,
             step_pct_per_sec,
             min_duty,
             max_duty,
-        } => Box::new(TargetCurve::new(
-            sensor.clone(),
-            *target_temp,
-            *step_pct_per_sec,
-            *min_duty,
-            *max_duty,
-        )),
+            deadband,
+            idle_temp,
+        } => {
+            let mut c = TargetCurve::new(
+                sensor.clone(),
+                *target_temp,
+                *step_pct_per_sec,
+                *min_duty,
+                *max_duty,
+            );
+            if let Some(deadband) = deadband {
+                c = c.with_deadband(*deadband);
+            }
+            if let Some(idle) = idle_temp {
+                c = c.with_idle_temp(*idle);
+            }
+            Box::new(c)
+        }
     }
 }
 

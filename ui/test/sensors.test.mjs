@@ -31,8 +31,8 @@ test('isVirtualId recognizes virtual ids', () => {
   assert.equal(isVirtualId(42), false);
 });
 
-test('SENSOR_TYPES lists the six virtual sensor types', () => {
-  assert.deepEqual(SENSOR_TYPES, ['max', 'min', 'mean', 'offset', 'delta', 'webhook']);
+test('SENSOR_TYPES lists the eight virtual sensor types', () => {
+  assert.deepEqual(SENSOR_TYPES, ['max', 'min', 'mean', 'sum', 'subtract', 'offset', 'delta', 'webhook']);
 });
 
 test('sensorOptions lists hardware first then virtual, sorted', () => {
@@ -74,6 +74,8 @@ test('sensorOptions treats null hardware as empty', () => {
 test('defaultVirtualSensor returns the right shape for each type', () => {
   assert.deepEqual(defaultVirtualSensor('max'), { type: 'max', inputs: [] });
   assert.deepEqual(defaultVirtualSensor('min'), { type: 'min', inputs: [] });
+  assert.deepEqual(defaultVirtualSensor('sum'), { type: 'sum', inputs: [] });
+  assert.deepEqual(defaultVirtualSensor('subtract'), { type: 'subtract', inputs: [] });
   assert.deepEqual(defaultVirtualSensor('mean'), { type: 'mean', inputs: [], window_s: null });
   assert.deepEqual(defaultVirtualSensor('offset'), {
     type: 'offset',

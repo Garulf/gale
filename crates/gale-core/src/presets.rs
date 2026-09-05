@@ -20,18 +20,28 @@ pub enum CurvePreset {
         max_temp: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        hysteresis: Option<HysteresisConfig>,
+        #[serde(default)]
+        response: Option<ResponseConfig>,
     },
     Trigger {
         on_temp: f64,
         off_temp: f64,
         on_duty: f64,
         off_duty: f64,
+        #[serde(default)]
+        response: Option<ResponseConfig>,
     },
     Target {
         target_temp: f64,
         step_pct_per_sec: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        deadband: Option<f64>,
+        #[serde(default)]
+        idle_temp: Option<f64>,
     },
 }
 
@@ -204,7 +214,9 @@ mod tests {
                 target_temp: 60.0,
                 step_pct_per_sec: 5.0,
                 min_duty: 80.0,
-                max_duty: 20.0
+                max_duty: 20.0,
+                deadband: None,
+                idle_temp: None
             }
         )
         .is_err());
@@ -214,7 +226,9 @@ mod tests {
                 min_temp: 40.0,
                 max_temp: 80.0,
                 min_duty: 20.0,
-                max_duty: 101.0
+                max_duty: 101.0,
+                hysteresis: None,
+                response: None
             }
         )
         .is_err());
@@ -224,7 +238,8 @@ mod tests {
                 on_temp: 60.0,
                 off_temp: 50.0,
                 on_duty: 100.0,
-                off_duty: 20.0
+                off_duty: 20.0,
+                response: None
             }
         )
         .is_ok());

@@ -47,8 +47,8 @@ the next release. Corsair and NVIDIA GPU control work today.
 - A REST and WebSocket API served alongside an embedded web UI, no separate
   frontend to install
 - Curve types: point, linear, trigger, target, flat, and the duty operators max, min,
-  average, offset, and sync
-- Virtual sensors: max, min, mean (optionally smoothed over a window), offset and
+  average, sum, subtract, offset, and sync
+- Virtual sensors: max, min, mean (optionally smoothed over a window), sum, subtract, offset and
   delta nodes that combine or transform sensors before a curve reads them, plus
   webhook nodes that take their value from an HTTP POST
 - Graph editor: one canvas per profile wiring device sensors, virtual sensors, curves
@@ -94,9 +94,14 @@ under `[ui.graph.<profile>]` so a layout survives a reinstall. Saving applies th
 whole profile through the same validation the API always enforced, and any warning
 comes back attached to the node it concerns.
 The node menu is organised by operation: curves, temperature operators (max, min,
-average, offset, delta, webhook) and duty operators (max, min, average, offset, sync),
+average, sum, subtract, offset, delta, webhook) and duty operators (max, min, average, sum, subtract, offset, sync),
 so a max-of-two-probes node and a max-of-two-curves node are separate entries rather
 than one node with a mode switch.
+
+Each hardware control can carry its own limits under `[controls."<id>"]`: a stop
+duty below which the fan snaps to 0, a start duty that kicks it from a stop, and a
+hard minimum. They apply to whatever curve drives the control and are edited from
+the control node's panel.
 
 Curve nodes can load a shape from a preset. Quiet, Balanced and Performance ship
 built in, and Save as stores the node's current shape under `[presets.<name>]` in

@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
-  import { getWebhookUrl } from '../../api.js';
+  import { getWebhookUrl, putControlSettings } from '../../api.js';
+  import { daemonConfig, refreshConfig } from '../../config.js';
   import { isWebhookNotFound, webhookNameFor } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
@@ -24,7 +25,7 @@
     onUpdateData(id, updater, takeSnapshot);
   }
 
-  const MIX_MODES = ['max', 'min', 'avg'];
+  const MIX_MODES = ['max', 'min', 'avg', 'sum', 'subtract'];
 
   function newPointId() {
     return crypto.randomUUID();
@@ -71,6 +72,33 @@
       await onRenameRow(node.id, handle, value.trim());
     } catch (err) {
       rowLabelError = err.message;
+    }
+  }
+
+  const CONTROL_LIMIT_FIELDS = [
+    ['min_duty', 'min %', 'never below'],
+    ['start_duty', 'start %', 'kick from stopped'],
+    ['stop_duty', 'stop %', 'snap to 0 below'],
+  ];
+  let controlLimitsError = $state('');
+
+  function controlSettingsFor(handle) {
+    const config = $daemonConfig;
+    return (config && config.controls && config.controls[handle]) || {};
+  }
+
+  async function commitControlLimit(handle, field, raw) {
+    const trimmed = String(raw).trim();
+    const value = trimmed === '' ? null : Number(trimmed);
+    if (value !== null && Number.isNaN(value)) return;
+    const next = { ...controlSettingsFor(handle), [field]: value };
+    for (const key of Object.keys(next)) if (next[key] === null || next[key] === undefined) delete next[key];
+    controlLimitsError = '';
+    try {
+      await putControlSettings(handle, next);
+      await refreshConfig();
+    } catch (err) {
+      controlLimitsError = err.message;
     }
   }
 
@@ -220,6 +248,13 @@
 
   function fmtInt(value) {
     return value === null || value === undefined ? '—' : String(Math.round(value));
+  }
+
+  function optionalNumberFromEvent(event) {
+    const raw = event.target.value.trim();
+    if (raw === '') return null;
+    const value = Number(raw);
+    return Number.isNaN(value) ? null : value;
   }
 
   function updateCurveField(field, value) {
@@ -376,6 +411,26 @@
   </div>
 {/snippet}
 
+{#snippet smoothing(withHysteresis)}
+  {@const config = node.data.curve.config}
+  {#snippet hysteresisFields()}
+    <div class="two">
+      <label class="field">up<input type="number" value={config.hysteresis.up} oninput={(e) => updateHysteresisField('up', numberFromEvent(e))} />°</label>
+      <label class="field">down<input type="number" value={config.hysteresis.down} oninput={(e) => updateHysteresisField('down', numberFromEvent(e))} />°</label>
+    </div>
+  {/snippet}
+  {#snippet responseFields()}
+    <div class="two">
+      <label class="field">rise<input type="number" value={config.response.rise_pct_per_sec} oninput={(e) => updateResponseField('rise_pct_per_sec', numberFromEvent(e))} />%/s</label>
+      <label class="field">fall<input type="number" value={config.response.fall_pct_per_sec} oninput={(e) => updateResponseField('fall_pct_per_sec', numberFromEvent(e))} />%/s</label>
+    </div>
+  {/snippet}
+  {#if withHysteresis}
+    {@render toggleBox('Hysteresis', 'avoid flutter', config.hysteresis !== null, toggleHysteresis, hysteresisFields)}
+  {/if}
+  {@render toggleBox('Response limiting', '%/s ramp', config.response !== null, toggleResponse, responseFields)}
+{/snippet}
+
 {#snippet toggleBox(label, hint, checked, onToggle, content)}
   <div class="box">
     <label class="toggle">
@@ -420,12 +475,40 @@
         />
         <span class="mono {row.kind}">{row.text}</span>
       </div>
+      {#if !isSensor}
+        {@const limits = controlSettingsFor(row.handle)}
+        <div class="limits">
+          {#each CONTROL_LIMIT_FIELDS as [field, label, hint] (field)}
+            <label class="limit" title={hint}>
+              <span>{label}</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                placeholder="—"
+                data-testid="control-{field}"
+                data-handle={row.handle}
+                value={limits[field] ?? ''}
+                onchange={(e) => commitControlLimit(row.handle, field, e.target.value)}
+                onkeydown={blurOnEnter}
+              />
+            </label>
+          {/each}
+        </div>
+      {/if}
     {/each}
   </div>
   {#if rowLabelError}
     <p class="error">{rowLabelError}</p>
   {/if}
-  <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. Unwired channels are folded on the canvas.</p>
+  {#if controlLimitsError}
+    <p class="error">{controlLimitsError}</p>
+  {/if}
+  {#if isSensor}
+    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. Unwired channels are folded on the canvas.</p>
+  {:else}
+    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor. Both save immediately to config.toml.</p>
+  {/if}
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
 {:else if node.type === 'virtual'}
   {@const config = node.data.virtual.config}
@@ -440,7 +523,7 @@
       {#each virtualInputs as input (input.handle)}
         <div class="list-row"><span class="swatch temp"></span><span>{input.label}</span><span class="mono temp">{fmt1(input.value)}°</span></div>
       {/each}
-      <span class="tip">{config.type === 'offset' || config.type === 'delta' ? 'Wire one temperature port into this node.' : 'Wire more temperature ports into this node to add inputs.'}</span>
+      <span class="tip">{config.type === 'offset' || config.type === 'delta' ? 'Wire one temperature port into this node.' : config.type === 'subtract' ? 'The first input is the base; every further input is subtracted from it.' : 'Wire more temperature ports into this node to add inputs.'}</span>
     </div>
   {/if}
   {#if config.type === 'offset'}
@@ -526,20 +609,7 @@
 
   {#if config.type === 'point'}
     <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} />
-    {#snippet hysteresisFields()}
-      <div class="two">
-        <label class="field">up<input type="number" value={config.hysteresis.up} oninput={(e) => updateHysteresisField('up', numberFromEvent(e))} />°</label>
-        <label class="field">down<input type="number" value={config.hysteresis.down} oninput={(e) => updateHysteresisField('down', numberFromEvent(e))} />°</label>
-      </div>
-    {/snippet}
-    {@render toggleBox('Hysteresis', 'avoid flutter', config.hysteresis !== null, toggleHysteresis, hysteresisFields)}
-    {#snippet responseFields()}
-      <div class="two">
-        <label class="field">rise<input type="number" value={config.response.rise_pct_per_sec} oninput={(e) => updateResponseField('rise_pct_per_sec', numberFromEvent(e))} />%/s</label>
-        <label class="field">fall<input type="number" value={config.response.fall_pct_per_sec} oninput={(e) => updateResponseField('fall_pct_per_sec', numberFromEvent(e))} />%/s</label>
-      </div>
-    {/snippet}
-    {@render toggleBox('Response limiting', '%/s ramp', config.response !== null, toggleResponse, responseFields)}
+    {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">
       <label class="field">from °C<input type="number" value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
@@ -547,6 +617,7 @@
       <label class="field">to °C<input type="number" value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
+    {@render smoothing(true)}
   {:else if config.type === 'flat'}
     <label class="field">duty %<input type="number" min="0" max="100" value={config.duty} oninput={(e) => updateCurveField('duty', numberFromEvent(e))} /></label>
   {:else if config.type === 'trigger'}
@@ -556,12 +627,17 @@
       <label class="field">off °C<input type="number" value={config.off_temp} oninput={(e) => updateCurveField('off_temp', numberFromEvent(e))} /></label>
       <label class="field">off %<input type="number" value={config.off_duty} oninput={(e) => updateCurveField('off_duty', numberFromEvent(e))} /></label>
     </div>
+    {@render smoothing(false)}
   {:else if config.type === 'target'}
     <div class="two">
       <label class="field">target °C<input type="number" value={config.target_temp} oninput={(e) => updateCurveField('target_temp', numberFromEvent(e))} /></label>
       <label class="field">step %/s<input type="number" value={config.step_pct_per_sec} oninput={(e) => updateCurveField('step_pct_per_sec', numberFromEvent(e))} /></label>
       <label class="field">min %<input type="number" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
       <label class="field">max %<input type="number" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
+    </div>
+    <div class="two">
+      <label class="field" title="hold the duty while the temperature is within this many degrees of the target">deadband °<input type="number" min="0" step="0.5" placeholder="0.5" value={config.deadband ?? ''} oninput={(e) => updateCurveField('deadband', optionalNumberFromEvent(e))} /></label>
+      <label class="field" title="at or below this temperature drop straight to min duty">idle °C<input type="number" placeholder="off" value={config.idle_temp ?? ''} oninput={(e) => updateCurveField('idle_temp', optionalNumberFromEvent(e))} /></label>
     </div>
   {/if}
   {@render nodeActions()}
@@ -617,6 +693,26 @@
   .row-label:focus {
     border-color: var(--line2);
     background: var(--surface2);
+  }
+
+  .limits {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding: 0 0 8px 12px;
+  }
+
+  .limit {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .limit input {
+    width: 100%;
+    min-width: 0;
   }
 
   .preset-row {

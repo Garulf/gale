@@ -128,3 +128,11 @@ export function putDashboardUi(dashboard) {
     body: JSON.stringify(dashboard),
   });
 }
+
+export function putControlSettings(id, settings) {
+  return requestJson(`/api/control-settings/${encodeIdPath(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}

@@ -1,4 +1,4 @@
-use crate::curve::{Curve, EvalContext};
+use crate::curve::{Curve, EvalContext, ResponseLimit};
 use crate::Id;
 
 pub struct TriggerCurve {
@@ -8,6 +8,7 @@ pub struct TriggerCurve {
     on_duty: f64,
     off_duty: f64,
     active: bool,
+    response: ResponseLimit,
 }
 
 impl TriggerCurve {
@@ -19,7 +20,13 @@ impl TriggerCurve {
             on_duty,
             off_duty,
             active: false,
+            response: ResponseLimit::default(),
         }
+    }
+
+    pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
+        self.response = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
+        self
     }
 }
 
@@ -31,11 +38,12 @@ impl Curve for TriggerCurve {
         } else if temp <= self.off_temp {
             self.active = false;
         }
-        Some(if self.active {
+        let target = if self.active {
             self.on_duty
         } else {
             self.off_duty
-        })
+        };
+        Some(self.response.apply(target, ctx.dt_secs))
     }
 }
 
@@ -50,6 +58,16 @@ mod tests {
         let sensors: HashMap<_, _> = [("t".to_string(), temp)].into();
         let ctx = EvalContext::new(&set, &sensors, 1.0);
         c.evaluate(&ctx)
+    }
+
+    #[test]
+    fn response_ramps_between_the_two_duties() {
+        let mut c =
+            TriggerCurve::new("t".into(), 70.0, 55.0, 100.0, 30.0).with_response(20.0, 10.0);
+        assert_eq!(eval(&mut c, Some(60.0)), Some(30.0));
+        assert_eq!(eval(&mut c, Some(75.0)), Some(50.0));
+        assert_eq!(eval(&mut c, Some(75.0)), Some(70.0));
+        assert_eq!(eval(&mut c, Some(50.0)), Some(60.0));
     }
 
     #[test]

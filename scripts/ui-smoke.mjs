@@ -456,6 +456,41 @@ async function main() {
       });
     });
 
+    await record('control limits save from the device panel and clear back out', async () => {
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, CONTROL_NODE);
+      const selector = '[data-testid="control-min_duty"][data-handle="hwmon/nct6798/pwm1"]';
+      await page.waitForSelector(selector, { timeout: 5000 });
+      await page.evaluate((sel) => {
+        const input = document.querySelector(sel);
+        input.value = '20';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }, selector);
+      await page.waitForFunction(
+        async () => {
+          const config = await (await fetch('/api/config')).json();
+          return config.controls && config.controls['hwmon/nct6798/pwm1'] && config.controls['hwmon/nct6798/pwm1'].min_duty === 20;
+        },
+        { timeout: 5000 }
+      );
+      await page.evaluate((sel) => {
+        const input = document.querySelector(sel);
+        input.value = '';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }, selector);
+      await page.waitForFunction(
+        async () => {
+          const config = await (await fetch('/api/config')).json();
+          return !config.controls || !config.controls['hwmon/nct6798/pwm1'];
+        },
+        { timeout: 5000 }
+      );
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+
     await record('virtual node exposes one more input handle than it has connections', async () => {
       await page.waitForSelector(handleSelector('virtual:combined', 'in-2'), { timeout: 5000 });
       const handles = await page.$$eval('[data-node-id="virtual:combined"] [data-handleid^="in-"]', (els) =>
@@ -552,6 +587,8 @@ async function main() {
         max_temp: 80,
         min_duty: 20,
         max_duty: 100,
+        hysteresis: null,
+        response: null,
       });
       await setPanelInput(page, 'node-type', 'point');
       await saveGraph(page);
