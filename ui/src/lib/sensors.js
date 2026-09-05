@@ -13,6 +13,13 @@ export function isVirtualId(id) {
   return typeof id === 'string' && id.startsWith(VIRTUAL_PREFIX);
 }
 
+export function sensorLabel(id, hardwareSensors) {
+  if (!id) return '';
+  if (isVirtualId(id)) return virtualName(id);
+  const sensor = (hardwareSensors || []).find((entry) => entry.id === id);
+  return sensor ? sensor.label : id;
+}
+
 export function sensorOptions(hardwareSensors, virtualNames, excludeId) {
   const hardware = (hardwareSensors || []).map((sensor) => ({
     id: sensor.id,

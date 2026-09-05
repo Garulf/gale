@@ -33,6 +33,7 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/status", get(status))
         .route("/inventory", get(inventory))
         .route("/config", get(get_config).put(put_config))
+        .route("/config.toml", get(get_config_toml))
         .route("/warnings", get(get_warnings))
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
@@ -174,11 +175,22 @@ fn redact_webhook_tokens(config: &mut GaleConfig) {
     }
 }
 
-async fn get_config(State(ctx): State<ApiContext>) -> Response {
+fn redacted_config(ctx: &ApiContext) -> GaleConfig {
     let mut config = ctx.host.config();
     config.api.api_key = None;
     redact_webhook_tokens(&mut config);
-    Json(config).into_response()
+    config
+}
+
+async fn get_config(State(ctx): State<ApiContext>) -> Response {
+    Json(redacted_config(&ctx)).into_response()
+}
+
+async fn get_config_toml(State(ctx): State<ApiContext>) -> Response {
+    match redacted_config(&ctx).to_toml() {
+        Ok(toml) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], toml).into_response(),
+        Err(error) => config_error_response(error),
+    }
 }
 
 #[derive(Serialize)]
@@ -913,6 +925,31 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert!(json["api"]["api_key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn get_config_toml_serves_the_daemon_serializer_with_secrets_redacted() {
+        let (router, host) = make_router(None);
+        let mut config = host.config();
+        config.api.api_key = Some("realkey".to_string());
+        host.replace_config(config).await.unwrap();
+        let response = router
+            .oneshot(
+                Request::get("/api/config.toml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/plain; charset=utf-8"
+        );
+        let body = body_text(response).await;
+        assert!(body.contains("active_profile = \"p\""), "{body}");
+        assert!(!body.contains("realkey"), "{body}");
+        assert_eq!(GaleConfig::from_toml(&body).unwrap().api.api_key, None);
     }
 
     #[tokio::test]

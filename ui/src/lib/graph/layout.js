@@ -1,12 +1,35 @@
 import dagre from '@dagrejs/dagre';
+import { foldRows } from './fold.js';
+import { numberedInputCount, virtualInputHandles } from './ids.js';
 
-const DEFAULT_SIZE = { width: 150, height: 64 };
+const NODE_WIDTH = 236;
+const HEAD_HEIGHT = 52;
+const ROW_HEIGHT = 26;
+const ROWS_PADDING = 12;
+const CHART_HEIGHT = 74;
 
-function measure(node) {
-  if (node.type === 'curve' && node.data && node.data.curve && node.data.curve.config.type === 'point') {
-    return { width: 152, height: 120 };
+function connectedHandles(node, edges) {
+  return edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle);
+}
+
+function rowCount(node, edges) {
+  const data = node.data || {};
+  if (node.type === 'deviceSensor') return foldRows(data.deviceSensor.rows).visible.length + 1;
+  if (node.type === 'deviceControl') return foldRows(data.deviceControl.rows).visible.length + 1;
+  if (node.type === 'virtual') {
+    const handles = virtualInputHandles(data.virtual.config.type, numberedInputCount(connectedHandles(node, edges)) + 1);
+    return handles.length + 1;
   }
-  return DEFAULT_SIZE;
+  if (node.type === 'combine') {
+    const handles = data.combine.config.type === 'sync' ? 1 : numberedInputCount(connectedHandles(node, edges)) + 1;
+    return handles + 1;
+  }
+  return 2;
+}
+
+export function measure(node, edges) {
+  const chart = node.type === 'curve' && node.data && node.data.curve.config.type === 'point' ? CHART_HEIGHT : 0;
+  return { width: NODE_WIDTH, height: HEAD_HEIGHT + ROWS_PADDING + rowCount(node, edges) * ROW_HEIGHT + chart };
 }
 
 export function autoLayout(nodes, edges) {
@@ -15,7 +38,7 @@ export function autoLayout(nodes, edges) {
   graph.setGraph({ rankdir: 'LR' });
 
   for (const node of nodes) {
-    const size = measure(node);
+    const size = measure(node, edges);
     graph.setNode(node.id, { width: size.width, height: size.height });
   }
 

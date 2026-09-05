@@ -1,11 +1,12 @@
 <script>
-  import { onMount, onDestroy, setContext } from 'svelte';
-  import { SvelteFlow, Background, Controls } from '@xyflow/svelte';
+  import { onMount, onDestroy, setContext, tick } from 'svelte';
+  import { SvelteFlow, Background } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
   import { getConfig, putConfig, getInventory } from '../lib/api.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
-  import { page } from '../lib/page.js';
+  import { refreshConfig } from '../lib/config.js';
+  import { page, graphFocus } from '../lib/page.js';
   import { configToGraph, graphToConfig, edgeInto, replaceEdge } from '../lib/graph/model.js';
   import { isValidConnection } from '../lib/graph/validate.js';
   import { autoLayout } from '../lib/graph/layout.js';
@@ -13,8 +14,9 @@
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
   import { configValidationError } from '../lib/graph/configValidation.js';
-  import { collectNodeWarnings } from '../lib/graph/nodeWarnings.js';
+  import { collectNodeWarnings, attributeWarning } from '../lib/graph/nodeWarnings.js';
   import { renameNode, changeVirtualType, changeCurveType, nameInUse } from '../lib/graph/edit.js';
+  import { shortDevice } from '../lib/dashboard.js';
   import DeviceSensorNode from '../lib/graph/components/DeviceSensorNode.svelte';
   import DeviceControlNode from '../lib/graph/components/DeviceControlNode.svelte';
   import VirtualNode from '../lib/graph/components/VirtualNode.svelte';
@@ -23,6 +25,8 @@
   import GaleEdge from '../lib/graph/components/GaleEdge.svelte';
   import NodePanel from '../lib/graph/components/NodePanel.svelte';
   import GraphToolbar from '../lib/graph/components/GraphToolbar.svelte';
+  import ZoomControls from '../lib/graph/components/ZoomControls.svelte';
+  import ChainView from '../lib/graph/components/ChainView.svelte';
 
   let config = $state.raw(null);
   let inventory = $state.raw(null);
@@ -38,6 +42,13 @@
   let saveWarnings = $state([]);
   let saving = $state(false);
   let savedAt = $state(0);
+  let mobileView = $state('chains');
+  let sheetOpen = $state(false);
+  const mobileQuery = window.matchMedia('(max-width: 720px)');
+  let isMobile = $state(mobileQuery.matches);
+  const onMobileChange = (event) => (isMobile = event.matches);
+  mobileQuery.addEventListener('change', onMobileChange);
+  onDestroy(() => mobileQuery.removeEventListener('change', onMobileChange));
   const nodeTypes = {
     deviceSensor: DeviceSensorNode,
     deviceControl: DeviceControlNode,
@@ -50,6 +61,7 @@
   function hideNode(id) {
     snapshotHistory();
     nodes = nodes.map((node) => (node.id === id ? { ...node, hidden: true } : node));
+    if (selectedNodeId === id) selectedNodeId = '';
     dirty = true;
     future = [];
   }
@@ -104,9 +116,29 @@
       history = [];
       future = [];
       dirty = false;
+      applyFocus();
     } catch (err) {
       error = err.message;
     }
+  }
+
+  function applyFocus() {
+    const focus = $graphFocus;
+    if (!focus) return;
+    graphFocus.set(null);
+    let target = focus.nodeId || '';
+    if (!target && focus.warning) {
+      target = attributeWarning(focus.warning, nodes, edges)[0] || '';
+    }
+    if (target && nodes.some((node) => node.id === target)) {
+      selectNode(target);
+    }
+  }
+
+  function selectNode(id) {
+    selectedNodeId = id;
+    sheetOpen = true;
+    nodes = nodes.map((node) => (node.selected !== (node.id === id) ? { ...node, selected: node.id === id } : node));
   }
 
   function cloneData(value) {
@@ -237,6 +269,7 @@
 
   function onNodeClick({ node }) {
     selectedNodeId = node.id;
+    sheetOpen = true;
   }
 
   function onPaneClick() {
@@ -276,6 +309,7 @@
     edges = edges.filter((edge) => edge.source !== id && edge.target !== id);
     nodes = nodes.filter((node) => node.id !== id);
     if (selectedNodeId === id) selectedNodeId = '';
+    sheetOpen = false;
     dirty = true;
     future = [];
   }
@@ -322,11 +356,16 @@
     snapshotHistory();
     nodes = [...nodes, node];
     selectedNodeId = node.id;
+    sheetOpen = true;
     dirty = true;
     future = [];
   }
 
-  function addVirtualNode(position) {
+  function fallbackPosition() {
+    return { x: 120, y: 120 };
+  }
+
+  function addVirtualNode(position = fallbackPosition()) {
     const name = uniqueVirtualName();
     appendNode({
       id: `virtual:${name}`,
@@ -337,7 +376,7 @@
     });
   }
 
-  function addCurveNode(position) {
+  function addCurveNode(position = fallbackPosition()) {
     const id = uniqueCurveId('curve');
     appendNode({
       id: `curve:${id}`,
@@ -348,7 +387,7 @@
     });
   }
 
-  function addCombineNode(position) {
+  function addCombineNode(position = fallbackPosition()) {
     const id = uniqueCurveId('combine');
     appendNode({
       id: `combine:${id}`,
@@ -363,21 +402,21 @@
     saving = true;
     error = '';
     saveWarnings = [];
-    const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
-    const invalid = configValidationError(wireConfig);
-    if (invalid) {
-      error = invalid;
-      saving = false;
-      return;
-    }
     try {
+      config = await getConfig();
+      const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
+      const invalid = configValidationError(wireConfig);
+      if (invalid) {
+        error = invalid;
+        return;
+      }
       const result = await putConfig(wireConfig);
       saveWarnings = (result && result.warnings) || [];
       const saved = await getConfig();
       config = saved;
       dirty = false;
       savedAt = Date.now();
-      await refreshWarnings();
+      await Promise.all([refreshWarnings(), refreshConfig()]);
     } catch (err) {
       error = err.message;
     } finally {
@@ -391,10 +430,18 @@
 
   let selectedNode = $derived(nodes.find((node) => node.id === selectedNodeId) || null);
   let hiddenNodes = $derived(nodes.filter((node) => node.hidden === true));
+  let visibleNodes = $derived(nodes.filter((node) => node.hidden !== true));
+
+  $effect(() => {
+    const focus = $graphFocus;
+    if (focus && nodes.length > 0) {
+      tick().then(applyFocus);
+    }
+  });
 </script>
 
-<section class="gale-graph-page">
-  <div class="gale-canvas">
+<section class="gale-graph-page" data-mobile-view={mobileView}>
+  <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
     <SvelteFlow
       bind:nodes
       bind:edges
@@ -407,15 +454,16 @@
       onbeforedelete={onBeforeDelete}
       onnodeclick={onNodeClick}
       onpaneclick={onPaneClick}
+      proOptions={{ hideAttribution: true }}
       fitView
     >
-      <Background />
-      <Controls />
+      <Background gap={20} size={1} />
       <GraphToolbar
         {showEdgeLabels}
         canUndo={history.length > 0}
         canRedo={future.length > 0}
         {saving}
+        {dirty}
         onAutoLayout={runAutoLayout}
         onUndo={undo}
         onRedo={redo}
@@ -426,18 +474,48 @@
         onAddCurve={addCurveNode}
         onAddCombine={addCombineNode}
       />
+      <ZoomControls />
     </SvelteFlow>
+
+    <div class="gale-legend">
+      <span><span class="swatch temp"></span>temperature</span>
+      <span><span class="swatch duty"></span>duty</span>
+      <span class="tip">drag headers · drag canvas to pan</span>
+    </div>
 
     {#if hiddenNodes.length > 0}
       <div class="gale-hidden-strip">
         {#each hiddenNodes as node (node.id)}
           <div class="gale-hidden-chip">
-            <span>{node.type === 'deviceSensor' ? node.data.deviceSensor.device : node.data.deviceControl.device}</span>
+            <span>{shortDevice(node.type === 'deviceSensor' ? node.data.deviceSensor.device : node.data.deviceControl.device)}</span>
             <button type="button" onclick={() => showNode(node.id)}>Show</button>
           </div>
         {/each}
       </div>
     {/if}
+  </div>
+
+  <div class="gale-chains" class:mobile-hidden={mobileView !== 'chains'}>
+    <div class="chains-head">
+      <div class="page-title">
+        <span class="eyebrow">Profile · {editingProfile}</span>
+        <h1>Graph</h1>
+      </div>
+      <div class="chains-actions">
+        <button type="button" class="btn" onclick={() => (mobileView = 'canvas')}>Canvas</button>
+        <button type="button" class="btn primary" onclick={() => addCurveNode()}>+ Node</button>
+      </div>
+    </div>
+    {#if error}
+      <p class="error">{error}</p>
+    {/if}
+    {#if isMobile}
+      <ChainView nodes={visibleNodes} {edges} {selectedNodeId} onSelect={selectNode} />
+    {/if}
+    <div class="chains-foot">
+      <button type="button" class="btn" disabled={!dirty || saving} onclick={discard}>Discard</button>
+      <button type="button" class="btn" class:primary={dirty} disabled={saving} onclick={save}>Save profile</button>
+    </div>
   </div>
 
   <aside class="gale-panel">
@@ -446,16 +524,15 @@
     {/if}
     <NodePanel
       node={selectedNode}
+      {nodes}
       {edges}
       {savedAt}
       onUpdateData={updateNodeData}
       onDeleteNode={deleteNode}
       onRenameNode={renameGraphNode}
       onRetypeNode={retypeNode}
+      onHideNode={hideNode}
     />
-    {#if dirty}
-      <div class="warn">Unsaved changes on this profile. Saving applies them to the daemon and validates the whole graph.</div>
-    {/if}
     {#if saveWarnings.length > 0}
       <ul class="save-warnings">
         {#each saveWarnings as warning}
@@ -464,26 +541,180 @@
       </ul>
     {/if}
   </aside>
+
+  {#if isMobile && sheetOpen && selectedNode}
+    <div class="sheet-scrim" role="presentation" onclick={() => (sheetOpen = false)}></div>
+    <div class="sheet" role="dialog" aria-label="Edit node">
+      <div class="grip"><span></span></div>
+      <div class="sheet-body">
+        <NodePanel
+          node={selectedNode}
+          {nodes}
+          {edges}
+          {savedAt}
+          onUpdateData={updateNodeData}
+          onDeleteNode={deleteNode}
+          onRenameNode={renameGraphNode}
+          onRetypeNode={retypeNode}
+          onHideNode={hideNode}
+          onClose={() => (sheetOpen = false)}
+        />
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="btn" onclick={() => (sheetOpen = false)}>Done</button>
+        <button type="button" class="btn primary" disabled={saving} onclick={() => { sheetOpen = false; save(); }}>Apply to profile</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if mobileView === 'canvas'}
+    <button type="button" class="btn gale-view-toggle" onclick={() => (mobileView = 'chains')}>Chains</button>
+  {/if}
 </section>
 
 <style>
-  .error {
-    color: #f87171;
-  }
-
-  .warn {
-    border: 1px solid #f59e0b55;
-    background: #f59e0b12;
-    color: #f5c16b;
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-size: 12px;
-  }
-
   .save-warnings {
     margin: 0;
     padding-left: 1.1rem;
-    color: #fbbf24;
+    color: var(--warn);
     font-size: 0.85rem;
+  }
+
+  .gale-chains {
+    display: none;
+  }
+
+  .sheet-scrim,
+  .sheet {
+    display: none;
+  }
+
+  @media (max-width: 720px) {
+    .gale-canvas.mobile-hidden {
+      display: none;
+    }
+
+    .gale-chains {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow: auto;
+      padding: 16px 16px 110px;
+      background: var(--canvas);
+      background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    .gale-chains.mobile-hidden {
+      display: none;
+    }
+
+    .chains-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chains-head h1 {
+      font-size: 20px;
+    }
+
+    .chains-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+    }
+
+    .chains-actions .btn {
+      height: 36px;
+      padding: 0 12px;
+    }
+
+    .chains-foot {
+      display: flex;
+      gap: 6px;
+    }
+
+    .chains-foot .btn {
+      flex: 1;
+      height: 44px;
+      font-size: 13px;
+    }
+
+    .gale-view-toggle {
+      display: block;
+      position: absolute;
+      top: 58px;
+      left: 10px;
+      z-index: 6;
+      background: var(--surface);
+    }
+
+    .sheet-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 40;
+    }
+
+    .sheet {
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      top: 72px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-bottom: none;
+      border-radius: 18px 18px 0 0;
+      z-index: 41;
+      overflow: hidden;
+    }
+
+    .grip {
+      display: flex;
+      justify-content: center;
+      padding: 8px 0 0;
+    }
+
+    .grip span {
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--line2);
+    }
+
+    .sheet-body {
+      flex: 1;
+      overflow: auto;
+      padding: 14px 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sheet-foot {
+      padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+      display: flex;
+      gap: 8px;
+    }
+
+    .sheet-foot .btn {
+      height: 48px;
+      font-size: 14px;
+    }
+
+    .sheet-foot .btn:first-child {
+      flex: 1;
+    }
+
+    .sheet-foot .btn:last-child {
+      flex: 2;
+    }
   }
 </style>

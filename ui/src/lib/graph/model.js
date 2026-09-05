@@ -13,10 +13,11 @@ import {
   virtualInputHandles,
 } from './ids.js';
 import { VIRTUAL_PREFIX, isVirtualId, virtualId, virtualSensorInputs } from '../sensors.js';
+import { tachSensorFor } from '../tach.js';
 
-const COLUMN_X = { sensor: 40, virtual: 340, curve: 590, combine: 590, control: 830 };
+const COLUMN_X = { sensor: 40, virtual: 360, curve: 680, combine: 680, control: 1000 };
 const ROW_START = 40;
-const ROW_HEIGHT = 140;
+const ROW_HEIGHT = 240;
 
 function virtualNameFromId(id) {
   return id.slice(VIRTUAL_PREFIX.length);
@@ -63,9 +64,9 @@ function curveConfigWithoutWiring(curveConfig) {
 function fallbackPositions(allNodeIds) {
   const byKind = new Map();
   for (const id of allNodeIds) {
-    const kind = nodeKind(id);
-    if (!byKind.has(kind)) byKind.set(kind, []);
-    byKind.get(kind).push(id);
+    const column = nodeKind(id) === 'combine' ? 'curve' : nodeKind(id);
+    if (!byKind.has(column)) byKind.set(column, []);
+    byKind.get(column).push(id);
   }
   const positions = new Map();
   for (const ids of byKind.values()) {
@@ -116,7 +117,15 @@ export function configToGraph(config, inventory, profileName) {
     nodeSpecs.push({
       id: controlNodeId(device),
       type: 'deviceControl',
-      data: { deviceControl: { device, rows: rows.map((row) => ({ handle: row.id, label: row.label })) } },
+      data: {
+        deviceControl: {
+          device,
+          rows: rows.map((row) => {
+            const tach = tachSensorFor(row.id, inventory.sensors || []);
+            return { handle: row.id, label: row.label, tach: tach ? tach.id : null };
+          }),
+        },
+      },
     });
   }
 

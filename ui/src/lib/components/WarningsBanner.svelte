@@ -1,50 +1,84 @@
 <script>
-  import { warnings, warningsDismissed } from '../warnings.js';
+  import { warnings, dismissedWarnings, dismissWarning } from '../warnings.js';
   import { splitLinks } from '../linkify.js';
+  import { openInGraph } from '../page.js';
+
+  let visible = $derived($warnings.filter((warning) => !$dismissedWarnings.includes(warning)));
 </script>
 
-{#if $warnings.length > 0 && !$warningsDismissed}
-  <div class="banner">
-    <ul>
-      {#each $warnings as warning}
-        <li>{#each splitLinks(warning) as part}{#if part.href}<a href={part.href} target="_blank" rel="noopener">{part.href}</a>{:else}{part.text}{/if}{/each}</li>
-      {/each}
-    </ul>
-    <button onclick={() => warningsDismissed.set(true)}>Dismiss</button>
+{#each visible as warning (warning)}
+  <div class="warning-row" role="status">
+    <span class="mark">!</span>
+    <span class="text mono">{#each splitLinks(warning) as part}{#if part.href}<a href={part.href} target="_blank" rel="noopener">{part.href}</a>{:else}{part.text}{/if}{/each}</span>
+    <button type="button" class="open" onclick={() => openInGraph({ warning })}>Open in graph</button>
+    <button type="button" class="close" aria-label="Dismiss warning" onclick={() => dismissWarning(warning)}>×</button>
   </div>
-{/if}
+{/each}
 
 <style>
-  .banner {
+  .warning-row {
     display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    background: #3a2a12;
-    border: 1px solid #a1620b;
-    color: #fbbf24;
-    padding: 0.6rem 0.9rem;
-    margin: 0 1rem;
-    border-radius: 6px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    background: var(--warnbg);
+    border-bottom: 1px solid var(--line);
+    color: var(--warn);
+    font-size: 13px;
   }
 
-  ul {
-    margin: 0;
-    padding-left: 1.1rem;
-    flex: 1;
-  }
-
-  button {
-    background: none;
-    border: 1px solid #a1620b;
-    color: inherit;
-    border-radius: 4px;
-    padding: 0.2rem 0.6rem;
-    cursor: pointer;
+  .mark {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid var(--warn);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
     flex-shrink: 0;
   }
 
-  li a {
-    color: #fbbf24;
+  .text {
+    flex: 1;
+    font-size: 12px;
+    line-height: 1.4;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .text a {
+    color: inherit;
     text-decoration: underline;
+  }
+
+  .open {
+    border: 1px solid var(--warn);
+    background: none;
+    color: var(--warn);
+    border-radius: var(--r);
+    padding: 4px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .close {
+    border: none;
+    background: none;
+    color: var(--warn);
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+
+  @media (max-width: 720px) {
+    .warning-row {
+      padding: 10px 16px;
+    }
+
+    .open {
+      display: none;
+    }
   }
 </style>

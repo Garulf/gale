@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDeltaRate, isOverridden } from '../../src/lib/graph/liveValues.js';
+import { formatDeltaRate, isOverridden, sensorDisplay } from '../../src/lib/graph/liveValues.js';
 
 test('formatDeltaRate formats a rate in degrees per minute', () => {
   assert.equal(formatDeltaRate(2.5), '2.5 C/min');
@@ -26,4 +26,12 @@ test('isOverridden is false when the handle is not in the snapshot overrides lis
 test('isOverridden handles a missing or overrides-less snapshot', () => {
   assert.equal(isOverridden(null, 'pwm1'), false);
   assert.equal(isOverridden({}, 'pwm1'), false);
+});
+
+test('sensorDisplay splits a reading into text and unit by kind', () => {
+  assert.deepEqual(sensorDisplay(45.26, 'temp'), { text: '45.3', unit: '°C' });
+  assert.deepEqual(sensorDisplay(45.26, undefined), { text: '45.3', unit: '°C' });
+  assert.deepEqual(sensorDisplay(1199.6, 'rpm'), { text: '1200', unit: 'rpm' });
+  assert.deepEqual(sensorDisplay(45.4, 'duty'), { text: '45', unit: '%' });
+  assert.deepEqual(sensorDisplay(null, 'duty'), { text: '—', unit: '%' });
 });

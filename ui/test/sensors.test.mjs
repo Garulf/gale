@@ -10,6 +10,7 @@ import {
   defaultVirtualSensor,
   virtualSensorInputs,
   virtualSensorReferences,
+  sensorLabel,
   virtualSensorValidationError,
 } from '../src/lib/sensors.js';
 
@@ -205,4 +206,13 @@ test('virtualSensorReferences sees a webhook as a reference source but never a t
   };
   assert.deepEqual(virtualSensorReferences('hook', {}, sensors), ['sensor "agg"']);
   assert.deepEqual(virtualSensorReferences('agg', {}, sensors), []);
+});
+
+test('sensorLabel resolves virtual names, inventory labels, and falls back to the id', () => {
+  const sensors = [{ id: 'hwmon/x/temp1', label: 'CPU' }];
+  assert.equal(sensorLabel('virtual/hot', sensors), 'hot');
+  assert.equal(sensorLabel('hwmon/x/temp1', sensors), 'CPU');
+  assert.equal(sensorLabel('hwmon/x/temp9', sensors), 'hwmon/x/temp9');
+  assert.equal(sensorLabel('', sensors), '');
+  assert.equal(sensorLabel('hwmon/x/temp1', null), 'hwmon/x/temp1');
 });

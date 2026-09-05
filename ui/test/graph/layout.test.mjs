@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoLayout } from '../../src/lib/graph/layout.js';
+import { autoLayout, measure } from '../../src/lib/graph/layout.js';
 import { configToGraph } from '../../src/lib/graph/model.js';
 
 function fixtureBConfig() {
@@ -64,4 +64,19 @@ test('autoLayout preserves each node id, type and data', () => {
     assert.equal(node.type, original.type);
     assert.deepEqual(node.data, original.data);
   }
+});
+
+test('measure grows device nodes with every wired row, not just the first three', () => {
+  const rows = (count) => Array.from({ length: count }, (_, i) => ({ handle: `fan${i}`, label: `fan${i}`, wired: true }));
+  const three = { id: 'control:a', type: 'deviceControl', data: { deviceControl: { device: 'a', rows: rows(3) } } };
+  const six = { id: 'control:b', type: 'deviceControl', data: { deviceControl: { device: 'b', rows: rows(6) } } };
+  assert.ok(measure(six, []).height > measure(three, []).height);
+});
+
+test('measure sizes combine nodes by their live incoming edges', () => {
+  const mix = { id: 'combine:m', type: 'combine', data: { combine: { id: 'm', config: { type: 'mix', mode: 'max' } } } };
+  const edges = Array.from({ length: 5 }, (_, i) => ({ source: `curve:c${i}`, sourceHandle: 'out', target: 'combine:m', targetHandle: `in-${i}` }));
+  const single = [edges[0]];
+  assert.ok(measure(mix, edges).height > measure(mix, single).height);
+  assert.ok(measure(mix, single).height > measure(mix, []).height);
 });

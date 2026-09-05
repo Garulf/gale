@@ -130,9 +130,12 @@ test('configToGraph_falls_back_to_deterministic_position_when_layout_is_empty', 
   const config = fixtureAConfig();
   const { nodes } = configToGraph(config, fixtureAInventory(), 'default');
   for (const node of nodes) {
-    assert.ok([40, 340, 590, 830].includes(node.position.x), `unexpected x ${node.position.x} for ${node.id}`);
+    assert.ok([40, 360, 680, 1000].includes(node.position.x), `unexpected x ${node.position.x} for ${node.id}`);
     assert.equal(typeof node.position.y, 'number');
   }
+  const stacked = nodes.filter((node) => node.type === 'curve' || node.type === 'combine');
+  const ys = new Set(stacked.map((node) => node.position.y));
+  assert.equal(ys.size, stacked.length, 'curves and combines must not share a fallback slot');
 });
 
 test('graphToConfig_preserves_position_of_hidden_nodes', () => {
