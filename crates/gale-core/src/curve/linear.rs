@@ -1,4 +1,4 @@
-use crate::curve::{Curve, EvalContext};
+use crate::curve::{Curve, EvalContext, Hysteresis, ResponseLimit};
 use crate::Id;
 
 pub struct LinearCurve {
@@ -7,6 +7,8 @@ pub struct LinearCurve {
     max_temp: f64,
     min_duty: f64,
     max_duty: f64,
+    hysteresis: Hysteresis,
+    response: ResponseLimit,
 }
 
 impl LinearCurve {
@@ -17,7 +19,19 @@ impl LinearCurve {
             max_temp,
             min_duty,
             max_duty,
+            hysteresis: Hysteresis::default(),
+            response: ResponseLimit::default(),
         }
+    }
+
+    pub fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
+        self.hysteresis = Hysteresis::new(up, down);
+        self
+    }
+
+    pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
+        self.response = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
+        self
     }
 
     fn duty_for(&self, temp: f64) -> f64 {
@@ -34,8 +48,9 @@ impl LinearCurve {
 
 impl Curve for LinearCurve {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64> {
-        let temp = ctx.sensor(&self.sensor)?;
-        Some(self.duty_for(temp))
+        let temp = self.hysteresis.apply(ctx.sensor(&self.sensor)?);
+        let target = self.duty_for(temp);
+        Some(self.response.apply(target, ctx.dt_secs))
     }
 }
 
@@ -60,6 +75,24 @@ mod tests {
         assert_eq!(eval(&mut c, Some(60.0)), Some(60.0));
         assert_eq!(eval(&mut c, Some(80.0)), Some(100.0));
         assert_eq!(eval(&mut c, Some(95.0)), Some(100.0));
+    }
+
+    #[test]
+    fn hysteresis_holds_the_effective_temp_inside_the_band() {
+        let mut c = LinearCurve::new("t".into(), 40.0, 80.0, 0.0, 100.0).with_hysteresis(2.0, 5.0);
+        assert_eq!(eval(&mut c, Some(60.0)), Some(50.0));
+        assert_eq!(eval(&mut c, Some(61.5)), Some(50.0));
+        assert_eq!(eval(&mut c, Some(56.0)), Some(50.0));
+        assert_eq!(eval(&mut c, Some(63.0)), Some(57.5));
+    }
+
+    #[test]
+    fn response_limits_the_rate_of_change() {
+        let mut c = LinearCurve::new("t".into(), 40.0, 80.0, 0.0, 100.0).with_response(10.0, 5.0);
+        assert_eq!(eval(&mut c, Some(40.0)), Some(0.0));
+        assert_eq!(eval(&mut c, Some(80.0)), Some(10.0));
+        assert_eq!(eval(&mut c, Some(80.0)), Some(20.0));
+        assert_eq!(eval(&mut c, Some(40.0)), Some(15.0));
     }
 
     #[test]

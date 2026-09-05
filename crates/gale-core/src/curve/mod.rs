@@ -15,6 +15,62 @@ pub trait Curve: Send {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64>;
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Hysteresis {
+    band: Option<(f64, f64)>,
+    effective_temp: Option<f64>,
+}
+
+impl Hysteresis {
+    pub fn new(up: f64, down: f64) -> Self {
+        Self {
+            band: Some((up, down)),
+            effective_temp: None,
+        }
+    }
+
+    pub fn apply(&mut self, temp: f64) -> f64 {
+        let Some((up, down)) = self.band else {
+            return temp;
+        };
+        match self.effective_temp {
+            Some(eff) if temp <= eff + up && temp >= eff - down => eff,
+            _ => {
+                self.effective_temp = Some(temp);
+                temp
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ResponseLimit {
+    rates: Option<(f64, f64)>,
+    last_output: Option<f64>,
+}
+
+impl ResponseLimit {
+    pub fn new(rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
+        Self {
+            rates: Some((rise_pct_per_sec, fall_pct_per_sec)),
+            last_output: None,
+        }
+    }
+
+    pub fn apply(&mut self, target: f64, dt_secs: f64) -> f64 {
+        let Some((rise, fall)) = self.rates else {
+            return target;
+        };
+        let output = match self.last_output {
+            None => target,
+            Some(prev) if target > prev => prev + (target - prev).min(rise * dt_secs),
+            Some(prev) => prev - (prev - target).min(fall * dt_secs),
+        };
+        self.last_output = Some(output);
+        output
+    }
+}
+
 #[derive(Default)]
 pub struct CurveSet {
     curves: HashMap<Id, RefCell<Box<dyn Curve>>>,

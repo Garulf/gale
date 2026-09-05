@@ -165,13 +165,19 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
             max_temp,
             min_duty,
             max_duty,
-        } => Box::new(LinearCurve::new(
-            sensor.clone(),
-            *min_temp,
-            *max_temp,
-            *min_duty,
-            *max_duty,
-        )),
+            hysteresis,
+            response,
+        } => {
+            let mut c =
+                LinearCurve::new(sensor.clone(), *min_temp, *max_temp, *min_duty, *max_duty);
+            if let Some(h) = hysteresis {
+                c = c.with_hysteresis(h.up, h.down);
+            }
+            if let Some(r) = response {
+                c = c.with_response(r.rise_pct_per_sec, r.fall_pct_per_sec);
+            }
+            Box::new(c)
+        }
         CurveConfig::Mix { sources, mode } => Box::new(MixCurve {
             sources: sources.clone(),
             mode: *mode,
@@ -190,13 +196,14 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
             off_temp,
             on_duty,
             off_duty,
-        } => Box::new(TriggerCurve::new(
-            sensor.clone(),
-            *on_temp,
-            *off_temp,
-            *on_duty,
-            *off_duty,
-        )),
+            response,
+        } => {
+            let mut c = TriggerCurve::new(sensor.clone(), *on_temp, *off_temp, *on_duty, *off_duty);
+            if let Some(r) = response {
+                c = c.with_response(r.rise_pct_per_sec, r.fall_pct_per_sec);
+            }
+            Box::new(c)
+        }
         CurveConfig::Target {
             sensor,
             target_temp,

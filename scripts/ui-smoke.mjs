@@ -587,6 +587,8 @@ async function main() {
         max_temp: 80,
         min_duty: 20,
         max_duty: 100,
+        hysteresis: null,
+        response: null,
       });
       await setPanelInput(page, 'node-type', 'point');
       await saveGraph(page);
