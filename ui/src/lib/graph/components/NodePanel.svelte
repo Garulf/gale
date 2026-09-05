@@ -12,7 +12,7 @@
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow } = $props();
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -62,6 +62,17 @@
   let nodeName = $derived(nameOf(node));
   let nameDraft = $state('');
   let nameError = $state('');
+
+  let rowLabelError = $state('');
+
+  async function commitRowLabel(handle, value) {
+    rowLabelError = '';
+    try {
+      await onRenameRow(node.id, handle, value.trim());
+    } catch (err) {
+      rowLabelError = err.message;
+    }
+  }
 
   let presetName = $derived(node && node.type === 'curve' ? presetNameFor(node.data.curve.config, $presets) : '');
   let presetError = $state('');
@@ -315,13 +326,13 @@
     if (node.type === 'deviceSensor') {
       return node.data.deviceSensor.rows.map((row) => {
         const reading = sensorDisplay(tempValue($snapshot, node.id, row.handle), row.kind);
-        return { label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}` };
+        return { handle: row.handle, label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}` };
       });
     }
     if (node.type === 'deviceControl') {
       return node.data.deviceControl.rows.map((row) => {
         const value = dutyValue($snapshot, row.handle);
-        return { label: row.label, kind: 'duty', text: value === null ? '—' : `${Math.round(value)} %` };
+        return { handle: row.handle, label: row.label, kind: 'duty', text: value === null ? '—' : `${Math.round(value)} %` };
       });
     }
     return [];
@@ -395,11 +406,26 @@
     {#if onClose}<button type="button" class="btn close" aria-label="Close" onclick={onClose}>×</button>{/if}
   </div>
   <div class="list">
-    {#each deviceRows as row}
-      <div class="list-row"><span>{row.label}</span><span class="mono {row.kind}">{row.text}</span></div>
+    {#each deviceRows as row (row.handle)}
+      <div class="list-row">
+        <input
+          type="text"
+          class="row-label"
+          aria-label="Label for {row.handle}"
+          data-testid="row-label"
+          data-handle={row.handle}
+          value={row.label}
+          onchange={(e) => commitRowLabel(row.handle, e.target.value)}
+          onkeydown={blurOnEnter}
+        />
+        <span class="mono {row.kind}">{row.text}</span>
+      </div>
     {/each}
   </div>
-  <p class="note">Hardware nodes have no editable fields. Channels appear here as ports; unwired channels are folded on the canvas.</p>
+  {#if rowLabelError}
+    <p class="error">{rowLabelError}</p>
+  {/if}
+  <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. Unwired channels are folded on the canvas.</p>
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
 {:else if node.type === 'virtual'}
   {@const config = node.data.virtual.config}
@@ -568,6 +594,23 @@
 
   .actions .delete {
     margin-left: auto;
+  }
+
+  .row-label {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 6px;
+    color: inherit;
+    font: inherit;
+  }
+
+  .row-label:hover,
+  .row-label:focus {
+    border-color: var(--line2);
+    background: var(--surface2);
   }
 
   .preset-row {

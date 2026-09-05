@@ -3,7 +3,7 @@
   import { SvelteFlow, Background } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
-  import { getConfig, putConfig, getInventory } from '../lib/api.js';
+  import { getConfig, putConfig, getInventory, putLabel, deleteLabel } from '../lib/api.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { refreshConfig } from '../lib/config.js';
   import { page, graphFocus } from '../lib/page.js';
@@ -341,6 +341,37 @@
     }
   }
 
+  function labelsByHandle(inv) {
+    const labels = new Map();
+    for (const sensor of inv.sensors || []) labels.set(sensor.id, sensor.label);
+    for (const control of inv.controls || []) labels.set(control.id, control.label);
+    return labels;
+  }
+
+  function withInventoryLabels(currentNodes, inv) {
+    const labels = labelsByHandle(inv);
+    return currentNodes.map((node) => {
+      if (node.type !== 'deviceSensor' && node.type !== 'deviceControl') return node;
+      const key = node.type;
+      const rows = node.data[key].rows.map((row) => (labels.has(row.handle) ? { ...row, label: labels.get(row.handle) } : row));
+      return { ...node, data: { [key]: { ...node.data[key], rows } } };
+    });
+  }
+
+  async function renameDeviceRow(nodeId, handle, label) {
+    if (label) {
+      await putLabel(handle, label);
+    } else {
+      await deleteLabel(handle).catch((err) => {
+        if (!err.message.startsWith('404')) throw err;
+      });
+    }
+    inventory = await getInventory();
+    nodes = withInventoryLabels(nodes, inventory);
+    history = history.map((entry) => ({ ...entry, nodes: withInventoryLabels(entry.nodes, inventory) }));
+    future = future.map((entry) => ({ ...entry, nodes: withInventoryLabels(entry.nodes, inventory) }));
+  }
+
   function applyCurvePreset(id, preset) {
     applyEdit(applyPreset(nodes, edges, id, preset));
   }
@@ -577,6 +608,7 @@
       onRetypeNode={retypeNode}
       onApplyPreset={applyCurvePreset}
       onDuplicateNode={duplicateGraphNode}
+      onRenameRow={renameDeviceRow}
       onHideNode={hideNode}
     />
     {#if saveWarnings.length > 0}
@@ -604,6 +636,7 @@
           onRetypeNode={retypeNode}
           onApplyPreset={applyCurvePreset}
           onDuplicateNode={duplicateGraphNode}
+          onRenameRow={renameDeviceRow}
           onHideNode={hideNode}
           onClose={() => (sheetOpen = false)}
         />

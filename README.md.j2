@@ -95,6 +95,9 @@ comes back attached to the node it concerns.
 Curve nodes can load a shape from a preset. Quiet, Balanced and Performance ship
 built in, and Save as stores the node's current shape under `[presets.<name>]` in
 config.toml so it follows the config file and can be loaded onto any other curve.
+Hardware channels can be renamed from the device node panel; the names are stored
+under `[labels]` keyed by sensor or control id and apply to the dashboard, the graph
+and the CLI inventory alike. Clearing a label restores the hardware name.
 
 ### Virtual sensors
 

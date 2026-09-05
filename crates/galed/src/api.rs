@@ -34,6 +34,7 @@ pub fn router(ctx: ApiContext) -> Router {
     let api = Router::new()
         .route("/status", get(status))
         .route("/inventory", get(inventory))
+        .route("/labels/*id", put(put_label).delete(delete_label))
         .route("/config", get(get_config).put(put_config))
         .route("/config.toml", get(get_config_toml))
         .route("/presets", get(get_presets))
@@ -159,9 +160,24 @@ fn virtual_sensor_infos(config: &GaleConfig) -> Vec<VirtualSensorInfo> {
         .collect()
 }
 
+fn apply_labels(inventory: &mut Inventory, labels: &BTreeMap<Id, String>) {
+    for sensor in &mut inventory.sensors {
+        if let Some(label) = labels.get(&sensor.id) {
+            sensor.label = label.clone();
+        }
+    }
+    for control in &mut inventory.controls {
+        if let Some(label) = labels.get(&control.id) {
+            control.label = label.clone();
+        }
+    }
+}
+
 async fn inventory(State(ctx): State<ApiContext>) -> Response {
-    let hardware = ctx.inventory.read().unwrap().clone();
-    let virtual_sensors = virtual_sensor_infos(&ctx.host.config());
+    let config = ctx.host.config();
+    let mut hardware = ctx.inventory.read().unwrap().clone();
+    apply_labels(&mut hardware, &config.labels);
+    let virtual_sensors = virtual_sensor_infos(&config);
     Json(InventoryResponse {
         hardware,
         virtual_sensors,
@@ -193,6 +209,43 @@ async fn get_config(State(ctx): State<ApiContext>) -> Response {
 async fn get_config_toml(State(ctx): State<ApiContext>) -> Response {
     match redacted_config(&ctx).to_toml() {
         Ok(toml) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], toml).into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+#[derive(Deserialize)]
+struct LabelBody {
+    label: String,
+}
+
+async fn put_label(
+    State(ctx): State<ApiContext>,
+    Path(id): Path<String>,
+    Json(body): Json<LabelBody>,
+) -> Response {
+    let label = body.label.trim().to_string();
+    if label.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "label must not be empty; delete the label to restore the hardware name",
+        )
+            .into_response();
+    }
+    let mut config = ctx.host.config();
+    config.labels.insert(id, label);
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn delete_label(State(ctx): State<ApiContext>, Path(id): Path<String>) -> Response {
+    let mut config = ctx.host.config();
+    if config.labels.remove(&id).is_none() {
+        return (StatusCode::NOT_FOUND, format!("no label set for '{id}'")).into_response();
+    }
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => config_error_response(error),
     }
 }
@@ -981,6 +1034,111 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert!(json["api"]["api_key"].is_null());
+    }
+
+    fn make_router_with_inventory(inventory: Inventory) -> (axum::Router, Arc<EngineHost>) {
+        let handle = BackendHandle::spawn(Box::new(NullBackend));
+        let pool = BackendPool::new(vec![handle]);
+        let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(ConfigStore::new(dir.path().join("config.toml")));
+        std::mem::forget(dir);
+        let ctx = ApiContext {
+            host: host.clone(),
+            store,
+            inventory: Arc::new(RwLock::new(inventory)),
+            api_key: None,
+        };
+        (router(ctx), host)
+    }
+
+    fn label_request(method: &str, id: &str, body: Option<&str>) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(format!("/api/labels/{id}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.unwrap_or("").to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn labels_override_inventory_names_and_delete_restores_them() {
+        let inventory = Inventory {
+            sensors: vec![gale_hw::SensorInfo {
+                id: "hwmon/x/temp1".to_string(),
+                label: "CPUTIN".to_string(),
+                kind: gale_hw::SensorKind::Temp,
+            }],
+            controls: vec![gale_hw::ControlInfo {
+                id: "hwmon/x/pwm1".to_string(),
+                label: "pwm1".to_string(),
+            }],
+        };
+        let (router, host) = make_router_with_inventory(inventory);
+        let response = router
+            .clone()
+            .oneshot(label_request(
+                "PUT",
+                "hwmon/x/temp1",
+                Some(r#"{"label":" CPU die "}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = router
+            .clone()
+            .oneshot(label_request(
+                "PUT",
+                "hwmon/x/pwm1",
+                Some(r#"{"label":"Front intake"}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.config().labels["hwmon/x/temp1"], "CPU die");
+
+        let json = body_json(
+            router
+                .clone()
+                .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(json["sensors"][0]["label"], "CPU die");
+        assert_eq!(json["controls"][0]["label"], "Front intake");
+
+        let response = router
+            .clone()
+            .oneshot(label_request("DELETE", "hwmon/x/temp1", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let json = body_json(
+            router
+                .clone()
+                .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(json["sensors"][0]["label"], "CPUTIN");
+
+        let response = router
+            .clone()
+            .oneshot(label_request("DELETE", "hwmon/x/temp1", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = router
+            .oneshot(label_request(
+                "PUT",
+                "hwmon/x/temp1",
+                Some(r#"{"label":"   "}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     fn preset_request(method: &str, name: &str, body: Option<&str>) -> Request<Body> {
