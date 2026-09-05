@@ -8,6 +8,8 @@ pub enum MixMode {
     Max,
     Min,
     Avg,
+    Sum,
+    Subtract,
 }
 
 pub struct MixCurve {
@@ -17,6 +19,14 @@ pub struct MixCurve {
 
 impl Curve for MixCurve {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64> {
+        if self.mode == MixMode::Subtract {
+            let first = ctx.resolve(self.sources.first()?)?;
+            let rest: f64 = self.sources[1..]
+                .iter()
+                .filter_map(|id| ctx.resolve(id))
+                .sum();
+            return Some(first - rest);
+        }
         let values: Vec<f64> = self
             .sources
             .iter()
@@ -29,6 +39,8 @@ impl Curve for MixCurve {
             MixMode::Max => values.iter().copied().fold(f64::MIN, f64::max),
             MixMode::Min => values.iter().copied().fold(f64::MAX, f64::min),
             MixMode::Avg => values.iter().sum::<f64>() / values.len() as f64,
+            MixMode::Sum => values.iter().sum(),
+            MixMode::Subtract => unreachable!("handled above"),
         })
     }
 }
@@ -71,6 +83,16 @@ mod tests {
         assert_eq!(eval(MixMode::Max, &["a", "b"]), Some(60.0));
         assert_eq!(eval(MixMode::Min, &["a", "b"]), Some(20.0));
         assert_eq!(eval(MixMode::Avg, &["a", "b"]), Some(40.0));
+    }
+
+    #[test]
+    fn sum_adds_available_sources_and_subtract_takes_the_rest_from_the_first() {
+        assert_eq!(eval(MixMode::Sum, &["a", "b"]), Some(80.0));
+        assert_eq!(eval(MixMode::Sum, &["a", "dead"]), Some(20.0));
+        assert_eq!(eval(MixMode::Subtract, &["b", "a"]), Some(40.0));
+        assert_eq!(eval(MixMode::Subtract, &["b", "dead"]), Some(60.0));
+        assert_eq!(eval(MixMode::Subtract, &["dead", "a"]), None);
+        assert_eq!(eval(MixMode::Subtract, &[]), None);
     }
 
     #[test]

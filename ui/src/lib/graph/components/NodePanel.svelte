@@ -25,7 +25,7 @@
     onUpdateData(id, updater, takeSnapshot);
   }
 
-  const MIX_MODES = ['max', 'min', 'avg'];
+  const MIX_MODES = ['max', 'min', 'avg', 'sum', 'subtract'];
 
   function newPointId() {
     return crypto.randomUUID();
@@ -463,7 +463,7 @@
       {#each virtualInputs as input (input.handle)}
         <div class="list-row"><span class="swatch temp"></span><span>{input.label}</span><span class="mono temp">{fmt1(input.value)}°</span></div>
       {/each}
-      <span class="tip">{config.type === 'offset' || config.type === 'delta' ? 'Wire one temperature port into this node.' : 'Wire more temperature ports into this node to add inputs.'}</span>
+      <span class="tip">{config.type === 'offset' || config.type === 'delta' ? 'Wire one temperature port into this node.' : config.type === 'subtract' ? 'The first input is the base; every further input is subtracted from it.' : 'Wire more temperature ports into this node to add inputs.'}</span>
     </div>
   {/if}
   {#if config.type === 'offset'}

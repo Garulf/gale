@@ -54,8 +54,8 @@ the next release. Corsair and NVIDIA GPU control work today.
 - NVIDIA GPU fan control via NVML
 - A REST and WebSocket API served alongside an embedded web UI, no separate
   frontend to install
-- Curve types: point, linear, trigger, target, flat, mix, and sync
-- Virtual sensors: max, min, mean (optionally smoothed over a window), offset and
+- Curve types: point, linear, trigger, target, flat, mix (max, min, avg, sum, subtract), and sync
+- Virtual sensors: max, min, mean (optionally smoothed over a window), sum, subtract, offset and
   delta nodes that combine or transform sensors before a curve reads them, plus
   webhook nodes that take their value from an HTTP POST
 - Graph editor: one canvas per profile wiring device sensors, virtual sensors, curves

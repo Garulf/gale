@@ -181,6 +181,12 @@ pub enum VirtualSensorConfig {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         window_s: Option<f64>,
     },
+    Sum {
+        inputs: Vec<Id>,
+    },
+    Subtract {
+        inputs: Vec<Id>,
+    },
     Offset {
         input: Id,
         add: f64,
@@ -204,6 +210,8 @@ impl VirtualSensorConfig {
             VirtualSensorConfig::Max { .. } => "max",
             VirtualSensorConfig::Min { .. } => "min",
             VirtualSensorConfig::Mean { .. } => "mean",
+            VirtualSensorConfig::Sum { .. } => "sum",
+            VirtualSensorConfig::Subtract { .. } => "subtract",
             VirtualSensorConfig::Offset { .. } => "offset",
             VirtualSensorConfig::Delta { .. } => "delta",
             VirtualSensorConfig::Webhook { .. } => "webhook",
@@ -214,7 +222,9 @@ impl VirtualSensorConfig {
         match self {
             VirtualSensorConfig::Max { inputs }
             | VirtualSensorConfig::Min { inputs }
-            | VirtualSensorConfig::Mean { inputs, .. } => inputs.clone(),
+            | VirtualSensorConfig::Mean { inputs, .. }
+            | VirtualSensorConfig::Sum { inputs }
+            | VirtualSensorConfig::Subtract { inputs } => inputs.clone(),
             VirtualSensorConfig::Offset { input, .. }
             | VirtualSensorConfig::Delta { input, .. } => {
                 vec![input.clone()]
@@ -246,6 +256,8 @@ fn validate_virtual_sensor(
         VirtualSensorConfig::Max { .. }
             | VirtualSensorConfig::Min { .. }
             | VirtualSensorConfig::Mean { .. }
+            | VirtualSensorConfig::Sum { .. }
+            | VirtualSensorConfig::Subtract { .. }
     ) && inputs.is_empty()
     {
         return Err(ConfigError::Invalid(format!(
