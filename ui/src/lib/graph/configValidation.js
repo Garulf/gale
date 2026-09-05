@@ -4,6 +4,7 @@ function isBadNumber(value) {
   return value === null || value === undefined || typeof value !== 'number' || Number.isNaN(value);
 }
 
+const LINEAR_FIELDS = ['min_temp', 'max_temp', 'min_duty', 'max_duty'];
 const TRIGGER_FIELDS = ['on_temp', 'off_temp', 'on_duty', 'off_duty'];
 const TARGET_FIELDS = ['target_temp', 'step_pct_per_sec', 'min_duty', 'max_duty'];
 
@@ -24,6 +25,11 @@ export function curveValidationError(curveId, curve) {
     }
   } else if (curve.type === 'flat') {
     if (isBadNumber(curve.duty)) return `${label}: duty must be a number`;
+  } else if (curve.type === 'linear') {
+    for (const field of LINEAR_FIELDS) {
+      if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;
+    }
+    if (curve.max_temp < curve.min_temp) return `${label}: max_temp must not be below min_temp`;
   } else if (curve.type === 'trigger') {
     for (const field of TRIGGER_FIELDS) {
       if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;

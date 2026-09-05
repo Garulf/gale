@@ -11,9 +11,9 @@ import {
 import { defaultVirtualSensor } from '../sensors.js';
 import { defaultCurve } from './defaults.js';
 
-export const CURVE_TYPES = ['point', 'flat', 'mix', 'sync', 'trigger', 'target'];
+export const CURVE_TYPES = ['point', 'linear', 'flat', 'mix', 'sync', 'trigger', 'target'];
 
-const SENSOR_INPUT_CURVE_TYPES = ['point', 'trigger', 'target'];
+const SENSOR_INPUT_CURVE_TYPES = ['point', 'linear', 'trigger', 'target'];
 
 function nodeIdFor(kind, name) {
   if (kind === 'virtual') return virtualNodeId(name);

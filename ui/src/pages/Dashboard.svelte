@@ -7,7 +7,7 @@
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
-  import { curvePaths, curveScale, evalCurve, sparklinePath } from '../lib/curveMath.js';
+  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints } from '../lib/curveMath.js';
   import { shortDevice, overview, trendArrow, temperatureUnit } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
@@ -86,11 +86,12 @@
   }
 
   function chartFor(curve, liveDuty) {
-    if (!curve || curve.config.type !== 'point') return null;
+    const points = curvePoints(curve ? curve.config : null);
+    if (!points) return null;
     const temp = values[curve.config.sensor] ?? null;
-    const paths = curvePaths(curve.config.points, CHART_W, CHART_H, CHART_PAD);
+    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
     const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
-    const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(curve.config.points, temp);
+    const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(points, temp);
     return {
       ...paths,
       showDot: temp !== null,

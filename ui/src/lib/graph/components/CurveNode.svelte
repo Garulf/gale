@@ -4,7 +4,7 @@
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue } from '../liveValues.js';
-  import { curvePaths, curveScale, evalCurve, clamp } from '../../curveMath.js';
+  import { curvePaths, curveScale, evalCurve, clamp, curvePoints } from '../../curveMath.js';
 
   const CHART_W = 210;
   const CHART_H = 64;
@@ -34,10 +34,11 @@
   });
 
   let chart = $derived.by(() => {
-    if (config.type !== 'point') return null;
-    const paths = curvePaths(config.points, CHART_W, CHART_H, CHART_PAD);
+    const points = curvePoints(config);
+    if (!points) return null;
+    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
     const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
-    const duty = sensorTemp === null ? null : evalCurve(config.points, sensorTemp);
+    const duty = sensorTemp === null ? null : evalCurve(points, sensorTemp);
     return {
       ...paths,
       show: sensorTemp !== null,
@@ -48,6 +49,7 @@
 
   let summary = $derived.by(() => {
     if (config.type === 'flat') return `${config.duty}%`;
+    if (config.type === 'linear') return `${config.min_temp}°→${config.min_duty}% · ${config.max_temp}°→${config.max_duty}%`;
     if (config.type === 'trigger') return `${config.on_temp}° on · ${config.off_temp}° off`;
     if (config.type === 'target') return `hold ${config.target_temp}°`;
     return '';

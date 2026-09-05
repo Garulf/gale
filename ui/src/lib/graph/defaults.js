@@ -12,6 +12,8 @@ export function defaultCurve(type) {
       };
     case 'flat':
       return { type: 'flat', duty: 50 };
+    case 'linear':
+      return { type: 'linear', min_temp: 40, max_temp: 80, min_duty: 20, max_duty: 100 };
     case 'mix':
       return { type: 'mix', sources: [], mode: 'max' };
     case 'sync':

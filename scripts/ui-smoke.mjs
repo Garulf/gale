@@ -476,6 +476,23 @@ async function main() {
       await page.waitForSelector('[data-testid="preset-delete"]', { timeout: 5000 });
     });
 
+    await record('retyping the cpu curve to linear keeps its wiring and saves the new fields', async () => {
+      await setPanelInput(page, 'node-type', 'linear');
+      await page.waitForSelector('[data-node-id="curve:cpu"] .chart', { timeout: 5000 });
+      await saveGraph(page);
+      const config = await fetchConfig();
+      deepStrictEqual(config.profiles.default.curves.cpu, {
+        type: 'linear',
+        sensor: 'hwmon/nct6798/temp1',
+        min_temp: 40,
+        max_temp: 80,
+        min_duty: 20,
+        max_duty: 100,
+      });
+      await setPanelInput(page, 'node-type', 'point');
+      await saveGraph(page);
+    });
+
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {
       const addedId = await addVirtualNode(page);
       await renameSelectedVirtualNode(page, NEW_SENSOR_NAME);

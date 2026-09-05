@@ -507,6 +507,13 @@
       </div>
     {/snippet}
     {@render toggleBox('Response limiting', '%/s ramp', config.response !== null, toggleResponse, responseFields)}
+  {:else if config.type === 'linear'}
+    <div class="two">
+      <label class="field">from °C<input type="number" value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
+      <label class="field">at %<input type="number" min="0" max="100" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
+      <label class="field">to °C<input type="number" value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
+      <label class="field">at %<input type="number" min="0" max="100" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
+    </div>
   {:else if config.type === 'flat'}
     <label class="field">duty %<input type="number" min="0" max="100" value={config.duty} oninput={(e) => updateCurveField('duty', numberFromEvent(e))} /></label>
   {:else if config.type === 'trigger'}

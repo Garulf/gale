@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evalCurve, curvePaths, sparklinePath, nextPointTemp } from '../src/lib/curveMath.js';
+import { evalCurve, curvePaths, sparklinePath, nextPointTemp, curvePoints } from '../src/lib/curveMath.js';
 
 const points = [
   [70, 100],
@@ -32,4 +32,12 @@ test('nextPointTemp picks the middle of the widest gap and never lands on an exi
   assert.equal(nextPointTemp([49, 50]), 75);
   assert.equal(nextPointTemp([0, 100]), 50);
   assert.equal(nextPointTemp([]), 50);
+});
+
+test('curvePoints exposes point curves as-is and linear curves as their two ends', () => {
+  assert.deepEqual(curvePoints({ type: 'point', points: [[30, 20]] }), [[30, 20]]);
+  assert.deepEqual(curvePoints({ type: 'linear', min_temp: 40, max_temp: 80, min_duty: 20, max_duty: 100 }), [[40, 20], [80, 100]]);
+  assert.equal(curvePoints({ type: 'flat', duty: 50 }), null);
+  assert.equal(curvePoints(null), null);
+  assert.equal(evalCurve(curvePoints({ type: 'linear', min_temp: 40, max_temp: 80, min_duty: 20, max_duty: 100 }), 60), 60);
 });

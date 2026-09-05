@@ -308,3 +308,22 @@ test('configToGraph preserves each sensor row kind from the inventory', () => {
   assert.equal(rows.find((row) => row.handle === 'hwmon/chipA/temp1').kind, 'temp');
   assert.equal(rows.find((row) => row.handle === 'hwmon/chipA/fan1').kind, 'rpm');
 });
+
+test('linear curves round-trip through the graph with a sensor edge like point curves', () => {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {},
+        curves: { ramp: { type: 'linear', sensor: 'hwmon/chipA/temp1', min_temp: 40, max_temp: 80, min_duty: 20, max_duty: 100 } },
+        assignments: { 'hwmon/chipA/pwm1': 'ramp' },
+      },
+    },
+  };
+  const inventory = { sensors: [{ id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' }], controls: [{ id: 'hwmon/chipA/pwm1', label: 'Fan' }] };
+  const { nodes, edges } = configToGraph(config, inventory, 'default');
+  assert.ok(edges.some((edge) => edge.target === 'curve:ramp' && edge.targetHandle === 'sensor'));
+  const back = graphToConfig(nodes, edges, config, 'default');
+  assert.deepEqual(back.profiles.default.curves, config.profiles.default.curves);
+});

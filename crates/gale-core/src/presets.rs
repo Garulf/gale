@@ -15,6 +15,12 @@ pub enum CurvePreset {
     Flat {
         duty: f64,
     },
+    Linear {
+        min_temp: f64,
+        max_temp: f64,
+        min_duty: f64,
+        max_duty: f64,
+    },
     Trigger {
         on_temp: f64,
         off_temp: f64,
@@ -89,6 +95,10 @@ fn shape_error(name: &str, preset: &CurvePreset) -> Option<String> {
         CurvePreset::Flat { duty } => {
             (!duty_in_range(*duty)).then(|| format!("{label}: duty must be between 0 and 100"))
         }
+        CurvePreset::Linear {
+            min_duty, max_duty, ..
+        } => (!duty_in_range(*min_duty) || !duty_in_range(*max_duty))
+            .then(|| format!("{label}: min_duty and max_duty must be between 0 and 100")),
         CurvePreset::Trigger {
             on_duty, off_duty, ..
         } => (!duty_in_range(*on_duty) || !duty_in_range(*off_duty))
@@ -195,6 +205,16 @@ mod tests {
                 step_pct_per_sec: 5.0,
                 min_duty: 80.0,
                 max_duty: 20.0
+            }
+        )
+        .is_err());
+        assert!(validate_preset(
+            "l",
+            &CurvePreset::Linear {
+                min_temp: 40.0,
+                max_temp: 80.0,
+                min_duty: 20.0,
+                max_duty: 101.0
             }
         )
         .is_err());

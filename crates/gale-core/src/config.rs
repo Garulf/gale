@@ -400,6 +400,7 @@ impl ProfileConfig {
             .values()
             .filter_map(|curve| match curve {
                 CurveConfig::Point { sensor, .. } => Some(sensor.clone()),
+                CurveConfig::Linear { sensor, .. } => Some(sensor.clone()),
                 CurveConfig::Trigger { sensor, .. } => Some(sensor.clone()),
                 CurveConfig::Target { sensor, .. } => Some(sensor.clone()),
                 CurveConfig::Flat { .. } | CurveConfig::Mix { .. } | CurveConfig::Sync { .. } => {
@@ -432,6 +433,7 @@ impl ProfileConfig {
         };
         match curve {
             CurveConfig::Point { sensor, .. }
+            | CurveConfig::Linear { sensor, .. }
             | CurveConfig::Trigger { sensor, .. }
             | CurveConfig::Target { sensor, .. } => {
                 sensors.insert(sensor.clone());
@@ -474,6 +476,13 @@ pub enum CurveConfig {
     },
     Flat {
         duty: f64,
+    },
+    Linear {
+        sensor: Id,
+        min_temp: f64,
+        max_temp: f64,
+        min_duty: f64,
+        max_duty: f64,
     },
     Mix {
         sources: Vec<Id>,
