@@ -109,3 +109,15 @@ export function putPreset(name, preset) {
 export function deletePreset(name) {
   return requestJson(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
+
+export function putLabel(id, label) {
+  return requestJson(`/api/labels/${encodeIdPath(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label }),
+  });
+}
+
+export function deleteLabel(id) {
+  return requestJson(`/api/labels/${encodeIdPath(id)}`, { method: 'DELETE' });
+}

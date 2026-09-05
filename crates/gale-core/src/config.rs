@@ -37,6 +37,8 @@ pub struct GaleConfig {
     #[serde(default)]
     pub ui: UiConfig,
     #[serde(default)]
+    pub labels: BTreeMap<Id, String>,
+    #[serde(default)]
     pub presets: BTreeMap<String, CurvePreset>,
 }
 
@@ -534,6 +536,7 @@ impl GaleConfig {
             )]
             .into(),
             ui: UiConfig::default(),
+            labels: BTreeMap::new(),
             presets: BTreeMap::new(),
         }
     }

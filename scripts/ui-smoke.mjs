@@ -402,6 +402,42 @@ async function main() {
       assert(!fanText.includes('°C'), `fan1 row is still formatted as a temperature: ${fanText}`);
     });
 
+    await record('renaming a sensor channel updates the node, the inventory and the config, and clearing restores it', async () => {
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, SENSOR_NODE);
+      const labelSelector = `[data-testid="row-label"][data-handle="${TEMP1}"]`;
+      await page.waitForSelector(labelSelector, { timeout: 5000 });
+      await page.evaluate((selector) => {
+        const input = document.querySelector(selector);
+        input.value = 'CPU die';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }, labelSelector);
+      await page.waitForFunction(
+        (nodeId) => Array.from(document.querySelectorAll(`[data-node-id="${nodeId}"] .row`)).some((el) => el.textContent.includes('CPU die')),
+        { timeout: 5000 },
+        SENSOR_NODE
+      );
+      const inventory = await (await fetch(`${BASE_URL}/api/inventory`)).json();
+      assert(inventory.sensors.find((sensor) => sensor.id === TEMP1).label === 'CPU die', 'inventory did not pick up the label');
+      const config = await fetchConfig();
+      assert(config.labels[TEMP1] === 'CPU die', 'config.labels did not store the label');
+      await page.evaluate((selector) => {
+        const input = document.querySelector(selector);
+        input.value = '';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }, labelSelector);
+      await page.waitForFunction(
+        (nodeId, label) => Array.from(document.querySelectorAll(`[data-node-id="${nodeId}"] .row`)).some((el) => el.textContent.includes(label)),
+        { timeout: 5000 },
+        SENSOR_NODE,
+        SENSOR_LABEL
+      );
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+
     await record('virtual node exposes one more input handle than it has connections', async () => {
       await page.waitForSelector(handleSelector('virtual:combined', 'in-2'), { timeout: 5000 });
       const handles = await page.$$eval('[data-node-id="virtual:combined"] [data-handleid^="in-"]', (els) =>

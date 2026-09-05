@@ -32,3 +32,8 @@ points = [[35.0, 25.0], [75.0, 100.0]]
 # [presets.silent_case]
 # type = "point"
 # points = [[30.0, 20.0], [60.0, 40.0], [80.0, 100.0]]
+
+# Display names for hardware channels, keyed by sensor or control id.
+# [labels]
+# "hwmon/nct6798/temp1" = "CPU die"
+# "corsair/commander-pro-0805/fan1" = "Front intake"
