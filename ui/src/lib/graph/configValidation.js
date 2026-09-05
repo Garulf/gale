@@ -30,6 +30,9 @@ export function curveValidationError(curveId, curve) {
       if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;
     }
     if (curve.max_temp < curve.min_temp) return `${label}: max_temp must not be below min_temp`;
+  } else if (curve.type === 'offset') {
+    if (isBadNumber(curve.add)) return `${label}: add must be a number`;
+    if (isBadNumber(curve.scale)) return `${label}: scale must be a number`;
   } else if (curve.type === 'trigger') {
     for (const field of TRIGGER_FIELDS) {
       if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;

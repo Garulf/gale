@@ -35,9 +35,10 @@ test('sensorNodeId, controlNodeId, virtualNodeId, curveNodeId, combineNodeId pre
 });
 
 test('COMBINE_TYPES and isCombineType', () => {
-  assert.deepEqual(COMBINE_TYPES, ['mix', 'sync']);
+  assert.deepEqual(COMBINE_TYPES, ['mix', 'sync', 'offset']);
   assert.equal(isCombineType('mix'), true);
   assert.equal(isCombineType('sync'), true);
+  assert.equal(isCombineType('offset'), true);
   assert.equal(isCombineType('point'), false);
 });
 

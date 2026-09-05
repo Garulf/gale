@@ -1,6 +1,7 @@
 pub mod flat;
 pub mod linear;
 pub mod mix;
+pub mod offset;
 pub mod point;
 pub mod sync;
 pub mod target;

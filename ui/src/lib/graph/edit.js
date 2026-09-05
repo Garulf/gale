@@ -3,6 +3,7 @@ import {
   curveNodeId,
   combineNodeId,
   isCombineType,
+  isSingleInputCombineType,
   isSingleInputVirtualType,
   isZeroInputVirtualType,
   nodeKind,
@@ -11,7 +12,7 @@ import {
 import { defaultVirtualSensor } from '../sensors.js';
 import { defaultCurve } from './defaults.js';
 
-export const CURVE_TYPES = ['point', 'linear', 'flat', 'mix', 'sync', 'trigger', 'target'];
+export const CURVE_TYPES = ['point', 'linear', 'flat', 'mix', 'sync', 'offset', 'trigger', 'target'];
 
 const SENSOR_INPUT_CURVE_TYPES = ['point', 'linear', 'trigger', 'target'];
 
@@ -92,8 +93,9 @@ function curveHandleRemap(oldType, newType) {
   if (SENSOR_INPUT_CURVE_TYPES.includes(oldType) && SENSOR_INPUT_CURVE_TYPES.includes(newType)) {
     return keepHandle;
   }
-  if (oldType === 'mix' && newType === 'sync') return (handle) => (handle === 'in-0' ? 'in' : null);
-  if (oldType === 'sync' && newType === 'mix') return (handle) => (handle === 'in' ? 'in-0' : null);
+  if (oldType === 'mix' && isSingleInputCombineType(newType)) return (handle) => (handle === 'in-0' ? 'in' : null);
+  if (isSingleInputCombineType(oldType) && newType === 'mix') return (handle) => (handle === 'in' ? 'in-0' : null);
+  if (isSingleInputCombineType(oldType) && isSingleInputCombineType(newType)) return keepHandle;
   if (oldType === newType) return keepHandle;
   return () => null;
 }

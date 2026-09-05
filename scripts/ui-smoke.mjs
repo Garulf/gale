@@ -207,9 +207,9 @@ async function addVirtualNode(page) {
   await page.evaluate(() => {
     document.querySelector('.gale-toolbar .add-node-menu > button').click();
   });
-  await page.waitForSelector('[data-testid="add-node-virtual"]', { timeout: 5000 });
+  await page.waitForSelector('[data-testid="add-node-virtual-max"]', { timeout: 5000 });
   await page.evaluate(() => {
-    document.querySelector('[data-testid="add-node-virtual"]').click();
+    document.querySelector('[data-testid="add-node-virtual-max"]').click();
   });
   await page.waitForFunction(
     (n) => document.querySelectorAll('[data-node-id^="virtual:"]').length > n,
@@ -491,6 +491,24 @@ async function main() {
       });
       await setPanelInput(page, 'node-type', 'point');
       await saveGraph(page);
+    });
+
+    await record('the palette adds a duty offset node under the combine id namespace', async () => {
+      await page.evaluate(() => {
+        document.querySelector('.gale-toolbar .add-node-menu > button').click();
+      });
+      await page.waitForSelector('[data-testid="add-node-combine-offset"]', { timeout: 5000 });
+      await page.evaluate(() => {
+        document.querySelector('[data-testid="add-node-combine-offset"]').click();
+      });
+      await page.waitForSelector('[data-node-id="combine:combine_1"]', { timeout: 5000 });
+      const title = await page.$eval('[data-node-id="combine:combine_1"] h4', (el) => el.textContent);
+      assert(title.includes('duty · offset'), `unexpected node title: ${title}`);
+      await page.click('.gale-panel .delete');
+      await page.waitForFunction(() => !document.querySelector('[data-node-id="combine:combine_1"]'), { timeout: 5000 });
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
     });
 
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {

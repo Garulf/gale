@@ -538,8 +538,14 @@
   <div class="stat-card">
     <span class="eyebrow">Output duty</span>
     <span class="big mono duty">{fmtInt(liveOutputDuty)}%</span>
-    <span class="sub">{config.type === 'mix' ? `${config.mode} of ${combineSources.join(', ') || 'nothing yet'}` : `follows ${combineSources[0] || 'nothing yet'}`} → {outputTargets.map((target) => target.label).join(', ') || 'unassigned'}</span>
+    <span class="sub">{config.type === 'mix' ? `${config.mode} of ${combineSources.join(', ') || 'nothing yet'}` : config.type === 'offset' ? `${combineSources[0] || 'nothing yet'} × ${config.scale} + ${config.add}` : `follows ${combineSources[0] || 'nothing yet'}`} → {outputTargets.map((target) => target.label).join(', ') || 'unassigned'}</span>
   </div>
+  {#if config.type === 'offset'}
+    <div class="two">
+      <label class="field">add %<input type="number" value={config.add} oninput={(e) => updateCombineField('add', numberFromEvent(e))} /></label>
+      <label class="field">scale<input type="number" step="0.1" value={config.scale} oninput={(e) => updateCombineField('scale', numberFromEvent(e))} /></label>
+    </div>
+  {/if}
   {#if config.type === 'mix'}
     <div class="group">
       <span class="eyebrow">Mode</span>
