@@ -10,8 +10,9 @@
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
   import { nodeKind } from '../ids.js';
   import { shortDevice } from '../../dashboard.js';
+  import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onHideNode, onClose } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onHideNode, onClose } = $props();
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -61,6 +62,44 @@
   let nodeName = $derived(nameOf(node));
   let nameDraft = $state('');
   let nameError = $state('');
+
+  let presetName = $derived(node && node.type === 'curve' ? presetNameFor(node.data.curve.config, $presets) : '');
+  let presetError = $state('');
+  let isSavedPreset = $derived(presetName !== '' && presetName in $presets.user);
+
+  function loadPreset(name) {
+    const preset = $presets.builtin[name] || $presets.user[name];
+    if (!preset) return;
+    presetError = '';
+    onApplyPreset(node.id, preset);
+  }
+
+  async function saveAsPreset() {
+    const name = (window.prompt('Save preset as', isSavedPreset ? presetName : '') || '').trim();
+    if (!name) return;
+    if (name in $presets.user && !window.confirm(`Overwrite preset "${name}"?`)) return;
+    presetError = '';
+    try {
+      await savePreset(name, node.data.curve.config);
+    } catch (err) {
+      presetError = err.message;
+    }
+  }
+
+  async function deleteSavedPreset() {
+    if (!window.confirm(`Delete preset "${presetName}"?`)) return;
+    try {
+      await removePreset(presetName);
+      presetError = '';
+    } catch (err) {
+      if (err.message.startsWith('404')) {
+        presetError = '';
+        await refreshPresets();
+      } else {
+        presetError = err.message;
+      }
+    }
+  }
 
   $effect(() => {
     nameDraft = nodeName;
@@ -415,6 +454,30 @@
 {:else if node.type === 'curve'}
   {@const config = node.data.curve.config}
   {@render identity('duty', CURVE_TYPES, undefined)}
+  <div class="preset-row">
+    <select class="type" aria-label="Curve preset" data-testid="curve-preset" value={presetName} onchange={(e) => loadPreset(e.target.value)}>
+      <option value="">custom shape</option>
+      <optgroup label="Built-in">
+        {#each Object.keys($presets.builtin) as name (name)}
+          <option value={name}>{name}</option>
+        {/each}
+      </optgroup>
+      {#if Object.keys($presets.user).length > 0}
+        <optgroup label="Saved">
+          {#each Object.keys($presets.user).sort() as name (name)}
+            <option value={name}>{name}</option>
+          {/each}
+        </optgroup>
+      {/if}
+    </select>
+    <button type="button" class="btn" data-testid="preset-save" onclick={saveAsPreset}>Save as</button>
+    {#if isSavedPreset}
+      <button type="button" class="btn danger" data-testid="preset-delete" onclick={deleteSavedPreset}>Delete</button>
+    {/if}
+  </div>
+  {#if presetError}
+    <p class="error">{presetError}</p>
+  {/if}
   <div class="two">
     <div class="stat-card">
       <span class="eyebrow">Input</span>
@@ -484,6 +547,17 @@
 {/if}
 
 <style>
+  .preset-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .preset-row select {
+    flex: 1;
+    min-width: 0;
+  }
+
   .empty {
     display: flex;
     flex-direction: column;
