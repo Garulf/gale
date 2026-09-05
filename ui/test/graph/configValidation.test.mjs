@@ -137,3 +137,11 @@ test('configValidationError reports an undefined virtual reference from a curve'
     "curve 'cpu' references undefined virtual sensor 'virtual/missing'"
   );
 });
+
+test('curveValidationError checks hysteresis and response on linear and trigger curves too', () => {
+  const linear = { type: 'linear', min_temp: 40, max_temp: 80, min_duty: 20, max_duty: 100, hysteresis: { up: 'x', down: 5 }, response: null };
+  assert.match(curveValidationError('ramp', linear), /hysteresis up/);
+  const trigger = { type: 'trigger', on_temp: 60, off_temp: 50, on_duty: 100, off_duty: 20, response: { rise_pct_per_sec: 10, fall_pct_per_sec: null } };
+  assert.match(curveValidationError('kick', trigger), /response fall/);
+  assert.equal(curveValidationError('ok', { ...trigger, response: null }), '');
+});

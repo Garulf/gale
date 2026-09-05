@@ -531,6 +531,10 @@ pub enum CurveConfig {
         max_temp: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        hysteresis: Option<HysteresisConfig>,
+        #[serde(default)]
+        response: Option<ResponseConfig>,
     },
     Mix {
         sources: Vec<Id>,
@@ -545,6 +549,8 @@ pub enum CurveConfig {
         off_temp: f64,
         on_duty: f64,
         off_duty: f64,
+        #[serde(default)]
+        response: Option<ResponseConfig>,
     },
     Target {
         sensor: Id,
@@ -762,6 +768,7 @@ mode = "max"
                         off_temp: 50.0,
                         on_duty: 100.0,
                         off_duty: 20.0,
+                        response: None,
                     },
                 ),
                 (

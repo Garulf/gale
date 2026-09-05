@@ -386,6 +386,26 @@
   {/if}
 {/snippet}
 
+{#snippet smoothing(withHysteresis)}
+  {@const config = node.data.curve.config}
+  {#snippet hysteresisFields()}
+    <div class="two">
+      <label class="field">up<input type="number" value={config.hysteresis.up} oninput={(e) => updateHysteresisField('up', numberFromEvent(e))} />°</label>
+      <label class="field">down<input type="number" value={config.hysteresis.down} oninput={(e) => updateHysteresisField('down', numberFromEvent(e))} />°</label>
+    </div>
+  {/snippet}
+  {#snippet responseFields()}
+    <div class="two">
+      <label class="field">rise<input type="number" value={config.response.rise_pct_per_sec} oninput={(e) => updateResponseField('rise_pct_per_sec', numberFromEvent(e))} />%/s</label>
+      <label class="field">fall<input type="number" value={config.response.fall_pct_per_sec} oninput={(e) => updateResponseField('fall_pct_per_sec', numberFromEvent(e))} />%/s</label>
+    </div>
+  {/snippet}
+  {#if withHysteresis}
+    {@render toggleBox('Hysteresis', 'avoid flutter', config.hysteresis !== null, toggleHysteresis, hysteresisFields)}
+  {/if}
+  {@render toggleBox('Response limiting', '%/s ramp', config.response !== null, toggleResponse, responseFields)}
+{/snippet}
+
 {#snippet toggleBox(label, hint, checked, onToggle, content)}
   <div class="box">
     <label class="toggle">
@@ -549,20 +569,7 @@
 
   {#if config.type === 'point'}
     <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} />
-    {#snippet hysteresisFields()}
-      <div class="two">
-        <label class="field">up<input type="number" value={config.hysteresis.up} oninput={(e) => updateHysteresisField('up', numberFromEvent(e))} />°</label>
-        <label class="field">down<input type="number" value={config.hysteresis.down} oninput={(e) => updateHysteresisField('down', numberFromEvent(e))} />°</label>
-      </div>
-    {/snippet}
-    {@render toggleBox('Hysteresis', 'avoid flutter', config.hysteresis !== null, toggleHysteresis, hysteresisFields)}
-    {#snippet responseFields()}
-      <div class="two">
-        <label class="field">rise<input type="number" value={config.response.rise_pct_per_sec} oninput={(e) => updateResponseField('rise_pct_per_sec', numberFromEvent(e))} />%/s</label>
-        <label class="field">fall<input type="number" value={config.response.fall_pct_per_sec} oninput={(e) => updateResponseField('fall_pct_per_sec', numberFromEvent(e))} />%/s</label>
-      </div>
-    {/snippet}
-    {@render toggleBox('Response limiting', '%/s ramp', config.response !== null, toggleResponse, responseFields)}
+    {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">
       <label class="field">from °C<input type="number" value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
@@ -570,6 +577,7 @@
       <label class="field">to °C<input type="number" value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
+    {@render smoothing(true)}
   {:else if config.type === 'flat'}
     <label class="field">duty %<input type="number" min="0" max="100" value={config.duty} oninput={(e) => updateCurveField('duty', numberFromEvent(e))} /></label>
   {:else if config.type === 'trigger'}
@@ -579,6 +587,7 @@
       <label class="field">off °C<input type="number" value={config.off_temp} oninput={(e) => updateCurveField('off_temp', numberFromEvent(e))} /></label>
       <label class="field">off %<input type="number" value={config.off_duty} oninput={(e) => updateCurveField('off_duty', numberFromEvent(e))} /></label>
     </div>
+    {@render smoothing(false)}
   {:else if config.type === 'target'}
     <div class="two">
       <label class="field">target °C<input type="number" value={config.target_temp} oninput={(e) => updateCurveField('target_temp', numberFromEvent(e))} /></label>

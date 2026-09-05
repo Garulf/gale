@@ -1,13 +1,11 @@
-use crate::curve::{Curve, EvalContext};
+use crate::curve::{Curve, EvalContext, Hysteresis, ResponseLimit};
 use crate::Id;
 
 pub struct PointCurve {
     sensor: Id,
     points: Vec<(f64, f64)>,
-    hysteresis: Option<(f64, f64)>,
-    effective_temp: Option<f64>,
-    response: Option<(f64, f64)>,
-    last_output: Option<f64>,
+    hysteresis: Hysteresis,
+    response: ResponseLimit,
 }
 
 impl PointCurve {
@@ -16,47 +14,19 @@ impl PointCurve {
         Self {
             sensor,
             points,
-            hysteresis: None,
-            effective_temp: None,
-            response: None,
-            last_output: None,
+            hysteresis: Hysteresis::default(),
+            response: ResponseLimit::default(),
         }
     }
 
     pub fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
-        self.hysteresis = Some((up, down));
+        self.hysteresis = Hysteresis::new(up, down);
         self
     }
 
     pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
-        self.response = Some((rise_pct_per_sec, fall_pct_per_sec));
+        self.response = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
         self
-    }
-
-    fn apply_response(&mut self, target: f64, dt_secs: f64) -> f64 {
-        let Some((rise, fall)) = self.response else {
-            return target;
-        };
-        let output = match self.last_output {
-            None => target,
-            Some(prev) if target > prev => prev + (target - prev).min(rise * dt_secs),
-            Some(prev) => prev - (prev - target).min(fall * dt_secs),
-        };
-        self.last_output = Some(output);
-        output
-    }
-
-    fn apply_hysteresis(&mut self, temp: f64) -> f64 {
-        let Some((up, down)) = self.hysteresis else {
-            return temp;
-        };
-        match self.effective_temp {
-            Some(eff) if temp <= eff + up && temp >= eff - down => eff,
-            _ => {
-                self.effective_temp = Some(temp);
-                temp
-            }
-        }
     }
 
     fn duty_for(&self, temp: f64) -> Option<f64> {
@@ -76,9 +46,9 @@ impl PointCurve {
 
 impl Curve for PointCurve {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64> {
-        let temp = self.apply_hysteresis(ctx.sensor(&self.sensor)?);
+        let temp = self.hysteresis.apply(ctx.sensor(&self.sensor)?);
         let target = self.duty_for(temp)?;
-        Some(self.apply_response(target, ctx.dt_secs))
+        Some(self.response.apply(target, ctx.dt_secs))
     }
 }
 
