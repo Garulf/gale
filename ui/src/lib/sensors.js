@@ -1,5 +1,6 @@
 export const VIRTUAL_PREFIX = 'virtual/';
-export const SENSOR_TYPES = ['max', 'min', 'mean', 'offset', 'delta', 'webhook'];
+const MULTI_INPUT_TYPES = ['max', 'min', 'mean', 'sum', 'subtract'];
+export const SENSOR_TYPES = ['max', 'min', 'mean', 'sum', 'subtract', 'offset', 'delta', 'webhook'];
 
 export function virtualId(name) {
   return `${VIRTUAL_PREFIX}${name}`;
@@ -39,6 +40,10 @@ export function defaultVirtualSensor(type) {
       return { type: 'min', inputs: [] };
     case 'mean':
       return { type: 'mean', inputs: [], window_s: null };
+    case 'sum':
+      return { type: 'sum', inputs: [] };
+    case 'subtract':
+      return { type: 'subtract', inputs: [] };
     case 'offset':
       return { type: 'offset', input: '', add: 0, scale: 1 };
     case 'delta':
@@ -77,7 +82,7 @@ export function virtualSensorValidationError(name, sensor) {
   const label = `Sensor "${name}"`;
   if (!name) return `${label}: name must not be empty`;
   if (name.includes('/')) return `${label}: name must not contain "/"`;
-  if (sensor.type === 'max' || sensor.type === 'min' || sensor.type === 'mean') {
+  if (MULTI_INPUT_TYPES.includes(sensor.type)) {
     if (sensor.inputs.length === 0) return `${label}: at least one input is required`;
     if (sensor.type === 'mean' && sensor.window_s != null) {
       if (isBadNumber(sensor.window_s) || sensor.window_s <= 0) {

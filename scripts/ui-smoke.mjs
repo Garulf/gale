@@ -450,6 +450,10 @@ async function main() {
         { timeout: 5000 },
         SENSOR_NODE,
         SENSOR_LABEL
+      );
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
     });
 
     await record('control limits save from the device panel and clear back out', async () => {
