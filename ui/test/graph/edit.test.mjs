@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CURVE_TYPES, nameInUse, renameNode, changeVirtualType, changeCurveType } from '../../src/lib/graph/edit.js';
+import { CURVE_TYPES, nameInUse, renameNode, changeVirtualType, changeCurveType, applyPreset } from '../../src/lib/graph/edit.js';
 
 function edge(source, sourceHandle, target, targetHandle, kind) {
   return {
@@ -174,4 +174,25 @@ test('changeCurveType from combine to a point curve moves back to the curve kind
   assert.equal(result.nodes.find((n) => n.id === 'curve:both').type, 'curve');
   assert.equal(result.edges.some((e) => e.target === 'curve:both'), false);
   assert.equal(result.edges.find((e) => e.source === 'curve:both').target, 'control:hwmon/x');
+});
+
+test('applyPreset replaces the curve config in place when the type matches', () => {
+  const { nodes, edges } = fixture();
+  const preset = { type: 'point', points: [[30, 20], [50, 30], [85, 100]], hysteresis: null, response: null };
+  const result = applyPreset(nodes, edges, 'curve:cpu', preset);
+  assert.equal(result.id, 'curve:cpu');
+  assert.deepEqual(result.nodes.find((node) => node.id === 'curve:cpu').data.curve.config, preset);
+  assert.deepEqual(result.edges, edges);
+  assert.notEqual(result.nodes.find((node) => node.id === 'curve:cpu').data.curve.config.points, preset.points);
+});
+
+test('applyPreset across types goes through the retype path so edges are remapped', () => {
+  const { nodes, edges } = fixture();
+  const preset = { type: 'flat', duty: 35 };
+  const result = applyPreset(nodes, edges, 'curve:cpu', preset);
+  const node = result.nodes.find((candidate) => candidate.id === 'curve:cpu');
+  assert.equal(node.type, 'curve');
+  assert.deepEqual(node.data.curve.config, preset);
+  assert.equal(result.edges.some((edge) => edge.target === 'curve:cpu'), false);
+  assert.equal(result.edges.some((edge) => edge.source === 'curve:cpu'), true);
 });

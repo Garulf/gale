@@ -27,3 +27,8 @@ sensor = "virtual/cpu_hot"
 points = [[35.0, 25.0], [75.0, 100.0]]
 
 [profiles.default.assignments]
+
+# Saved curve shapes. Load them onto any curve node from the graph editor.
+# [presets.silent_case]
+# type = "point"
+# points = [[30.0, 20.0], [60.0, 40.0], [80.0, 100.0]]

@@ -10,8 +10,10 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use gale_core::build::validate_profiles;
 use gale_core::config::{virtual_id, ConfigError, GaleConfig};
+use gale_core::presets::{self, CurvePreset};
 use gale_hw::{Id, Inventory};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 use subtle::ConstantTimeEq;
 
@@ -34,6 +36,8 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/inventory", get(inventory))
         .route("/config", get(get_config).put(put_config))
         .route("/config.toml", get(get_config_toml))
+        .route("/presets", get(get_presets))
+        .route("/presets/:name", put(put_preset).delete(delete_preset))
         .route("/warnings", get(get_warnings))
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
@@ -189,6 +193,58 @@ async fn get_config(State(ctx): State<ApiContext>) -> Response {
 async fn get_config_toml(State(ctx): State<ApiContext>) -> Response {
     match redacted_config(&ctx).to_toml() {
         Ok(toml) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], toml).into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+#[derive(Serialize)]
+struct PresetsResponse {
+    builtin: BTreeMap<String, CurvePreset>,
+    user: BTreeMap<String, CurvePreset>,
+}
+
+async fn get_presets(State(ctx): State<ApiContext>) -> Response {
+    Json(PresetsResponse {
+        builtin: presets::builtin(),
+        user: ctx.host.config().presets,
+    })
+    .into_response()
+}
+
+async fn put_preset(
+    State(ctx): State<ApiContext>,
+    Path(name): Path<String>,
+    Json(preset): Json<CurvePreset>,
+) -> Response {
+    if let Err(error) = presets::validate_preset(&name, &preset) {
+        return config_error_response(error);
+    }
+    let mut config = ctx.host.config();
+    config.presets.insert(name, preset);
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn delete_preset(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
+    if presets::is_builtin_name(&name) {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("preset '{name}' is built in and cannot be deleted"),
+        )
+            .into_response();
+    }
+    let mut config = ctx.host.config();
+    if config.presets.remove(&name).is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("preset '{name}' does not exist"),
+        )
+            .into_response();
+    }
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => config_error_response(error),
     }
 }
@@ -925,6 +981,116 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert!(json["api"]["api_key"].is_null());
+    }
+
+    fn preset_request(method: &str, name: &str, body: Option<&str>) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(format!("/api/presets/{name}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.unwrap_or("").to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn get_presets_lists_builtins_and_empty_user_map() {
+        let (router, _host) = make_router(None);
+        let response = router
+            .oneshot(Request::get("/api/presets").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["builtin"]["Quiet"]["type"], "point");
+        assert_eq!(json["builtin"].as_object().unwrap().len(), 3);
+        assert_eq!(json["user"].as_object().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn put_preset_creates_overwrites_and_delete_removes() {
+        let (router, host) = make_router(None);
+        let response = router
+            .clone()
+            .oneshot(preset_request(
+                "PUT",
+                "mine",
+                Some(r#"{"type":"flat","duty":40}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            matches!(host.config().presets["mine"], CurvePreset::Flat { duty } if duty == 40.0)
+        );
+
+        let response = router
+            .clone()
+            .oneshot(preset_request(
+                "PUT",
+                "mine",
+                Some(r#"{"type":"flat","duty":55}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            matches!(host.config().presets["mine"], CurvePreset::Flat { duty } if duty == 55.0)
+        );
+
+        let json = body_json(
+            router
+                .clone()
+                .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(json["presets"]["mine"]["duty"], 55.0);
+
+        let response = router
+            .clone()
+            .oneshot(preset_request("DELETE", "mine", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(host.config().presets.is_empty());
+
+        let response = router
+            .oneshot(preset_request("DELETE", "mine", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn preset_endpoints_protect_builtin_names_and_reject_bad_shapes() {
+        let (router, host) = make_router(None);
+        let response = router
+            .clone()
+            .oneshot(preset_request(
+                "PUT",
+                "quiet",
+                Some(r#"{"type":"flat","duty":40}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let response = router
+            .clone()
+            .oneshot(preset_request("DELETE", "Quiet", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let response = router
+            .oneshot(preset_request(
+                "PUT",
+                "bad",
+                Some(r#"{"type":"point","points":[]}"#),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(host.config().presets.is_empty());
     }
 
     #[tokio::test]

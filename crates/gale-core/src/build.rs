@@ -9,11 +9,13 @@ use crate::curve::target::TargetCurve;
 use crate::curve::trigger::TriggerCurve;
 use crate::curve::{Curve, CurveSet};
 use crate::engine::FanEngine;
+use crate::presets::validate_presets;
 use crate::r#virtual::VirtualSensors;
 use crate::Id;
 
 pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
     validate_hardware(config)?;
+    validate_presets(config)?;
 
     let profile = config.profiles.get(&config.active_profile).ok_or_else(|| {
         ConfigError::Invalid(format!(
@@ -36,6 +38,7 @@ pub fn build_engine(config: &GaleConfig) -> Result<FanEngine, ConfigError> {
 
 pub fn validate_profiles(config: &GaleConfig) -> Result<(), ConfigError> {
     validate_hardware(config)?;
+    validate_presets(config)?;
     if !config.profiles.contains_key(&config.active_profile) {
         return Err(ConfigError::Invalid(format!(
             "active_profile '{}' is not defined",

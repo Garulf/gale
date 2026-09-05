@@ -114,3 +114,15 @@ export function changeCurveType(nodes, edges, id, type) {
     edges: repointEdges(edges, id, newId, curveHandleRemap(oldType, type)),
   };
 }
+
+export function applyPreset(nodes, edges, id, preset) {
+  const retyped = changeCurveType(nodes, edges, id, preset.type);
+  const config = JSON.parse(JSON.stringify(preset));
+  return {
+    id: retyped.id,
+    edges: retyped.edges,
+    nodes: retyped.nodes.map((node) =>
+      node.id === retyped.id ? { ...node, data: { curve: { id: node.data.curve.id, config } } } : node
+    ),
+  };
+}

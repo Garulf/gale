@@ -15,7 +15,8 @@
   import { defaultCurve } from '../lib/graph/defaults.js';
   import { configValidationError } from '../lib/graph/configValidation.js';
   import { collectNodeWarnings, attributeWarning } from '../lib/graph/nodeWarnings.js';
-  import { renameNode, changeVirtualType, changeCurveType, nameInUse } from '../lib/graph/edit.js';
+  import { renameNode, changeVirtualType, changeCurveType, nameInUse, applyPreset } from '../lib/graph/edit.js';
+  import { refreshPresets } from '../lib/presets.js';
   import { shortDevice } from '../lib/dashboard.js';
   import DeviceSensorNode from '../lib/graph/components/DeviceSensorNode.svelte';
   import DeviceControlNode from '../lib/graph/components/DeviceControlNode.svelte';
@@ -104,6 +105,7 @@
   async function load() {
     error = '';
     saveWarnings = [];
+    refreshPresets();
     try {
       const [cfg, inv] = await Promise.all([getConfig(), getInventory()]);
       config = cfg;
@@ -302,6 +304,10 @@
     const edit = nodeKind(id) === 'virtual' ? changeVirtualType(nodes, edges, id, type) : changeCurveType(nodes, edges, id, type);
     if (edit.nodes === nodes) return;
     applyEdit(edit);
+  }
+
+  function applyCurvePreset(id, preset) {
+    applyEdit(applyPreset(nodes, edges, id, preset));
   }
 
   function deleteNode(id) {
@@ -531,6 +537,7 @@
       onDeleteNode={deleteNode}
       onRenameNode={renameGraphNode}
       onRetypeNode={retypeNode}
+      onApplyPreset={applyCurvePreset}
       onHideNode={hideNode}
     />
     {#if saveWarnings.length > 0}
@@ -556,6 +563,7 @@
           onDeleteNode={deleteNode}
           onRenameNode={renameGraphNode}
           onRetypeNode={retypeNode}
+          onApplyPreset={applyCurvePreset}
           onHideNode={hideNode}
           onClose={() => (sheetOpen = false)}
         />

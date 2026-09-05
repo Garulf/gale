@@ -1,4 +1,5 @@
 use crate::curve::mix::MixMode;
+use crate::presets::CurvePreset;
 use crate::Id;
 use serde::de::Error as _;
 use serde::ser::SerializeMap;
@@ -35,6 +36,8 @@ pub struct GaleConfig {
     pub profiles: BTreeMap<String, ProfileConfig>,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub presets: BTreeMap<String, CurvePreset>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -522,6 +525,7 @@ impl GaleConfig {
             )]
             .into(),
             ui: UiConfig::default(),
+            presets: BTreeMap::new(),
         }
     }
 }
