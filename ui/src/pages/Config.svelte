@@ -63,6 +63,8 @@
         return (curve.points || []).map(([temp, duty]) => `${temp}→${duty}`).join('  ');
       case 'flat':
         return `${curve.duty}%`;
+      case 'linear':
+        return `${curve.min_temp}°→${curve.min_duty}%  ${curve.max_temp}°→${curve.max_duty}%`;
       case 'trigger':
         return `on ${curve.on_temp}°→${curve.on_duty}%  off ${curve.off_temp}°→${curve.off_duty}%`;
       case 'target':

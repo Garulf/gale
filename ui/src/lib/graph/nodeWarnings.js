@@ -3,7 +3,7 @@ import { virtualId } from '../sensors.js';
 
 const ID_CHAR = /[A-Za-z0-9_./-]/;
 const TEMP_CONSUMERS = new Set(['curve', 'virtual']);
-const SENSOR_CURVE_TYPES = new Set(['point', 'trigger', 'target']);
+const SENSOR_CURVE_TYPES = new Set(['point', 'linear', 'trigger', 'target']);
 
 function containsId(message, id) {
   let from = 0;

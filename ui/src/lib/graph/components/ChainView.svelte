@@ -2,7 +2,7 @@
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, isOverridden, sensorDisplay } from '../liveValues.js';
   import { buildChains, chainDevices, chainMatchesFilter, stepKey } from '../chains.js';
-  import { curvePaths, curveScale, evalCurve, clamp } from '../../curveMath.js';
+  import { curvePaths, curveScale, evalCurve, clamp, curvePoints } from '../../curveMath.js';
   import { shortDevice } from '../../dashboard.js';
 
   const CHART_W = 220;
@@ -55,10 +55,11 @@
       const controlEdge = edges.find((edge) => edge.source === node.id && edge.target.startsWith('control:'));
       const duty = controlEdge ? dutyValue(snap, controlEdge.targetHandle) : null;
       let chart = null;
-      if (config.type === 'point') {
-        const paths = curvePaths(config.points, CHART_W, CHART_H, CHART_PAD);
+      const points = curvePoints(config);
+      if (points) {
+        const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
         const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
-        const liveDuty = duty !== null ? duty : temp === null ? null : evalCurve(config.points, temp);
+        const liveDuty = duty !== null ? duty : temp === null ? null : evalCurve(points, temp);
         chart = { ...paths, show: temp !== null, dotX: temp === null ? 0 : scale.x(clamp(temp, 0, 100)), dotY: liveDuty === null ? 0 : scale.y(liveDuty) };
       }
       return { title: node.data.curve.id, sub: `${config.type} curve`, value: duty === null ? '—' : String(Math.round(duty)), unit: '%', kind: 'duty', editable: true, chart };

@@ -33,8 +33,8 @@ function fixture() {
   return { nodes, edges };
 }
 
-test('CURVE_TYPES lists the six curve types', () => {
-  assert.deepEqual(CURVE_TYPES, ['point', 'flat', 'mix', 'sync', 'trigger', 'target']);
+test('CURVE_TYPES lists the seven curve types', () => {
+  assert.deepEqual(CURVE_TYPES, ['point', 'linear', 'flat', 'mix', 'sync', 'trigger', 'target']);
 });
 
 test('nameInUse treats curve and combine ids as one namespace and ignores the node itself', () => {

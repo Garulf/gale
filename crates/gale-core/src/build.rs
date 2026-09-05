@@ -2,6 +2,7 @@ use crate::config::{
     virtual_name, ConfigError, CorsairReleaseMode, CurveConfig, GaleConfig, ProfileConfig,
 };
 use crate::curve::flat::FlatCurve;
+use crate::curve::linear::LinearCurve;
 use crate::curve::mix::MixCurve;
 use crate::curve::point::PointCurve;
 use crate::curve::sync::SyncCurve;
@@ -113,6 +114,7 @@ fn curve_references(curve: &CurveConfig) -> Vec<&str> {
 fn curve_sensor(curve: &CurveConfig) -> Option<&Id> {
     match curve {
         CurveConfig::Point { sensor, .. } => Some(sensor),
+        CurveConfig::Linear { sensor, .. } => Some(sensor),
         CurveConfig::Trigger { sensor, .. } => Some(sensor),
         CurveConfig::Target { sensor, .. } => Some(sensor),
         _ => None,
@@ -140,6 +142,19 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
             Box::new(c)
         }
         CurveConfig::Flat { duty } => Box::new(FlatCurve { duty: *duty }),
+        CurveConfig::Linear {
+            sensor,
+            min_temp,
+            max_temp,
+            min_duty,
+            max_duty,
+        } => Box::new(LinearCurve::new(
+            sensor.clone(),
+            *min_temp,
+            *max_temp,
+            *min_duty,
+            *max_duty,
+        )),
         CurveConfig::Mix { sources, mode } => Box::new(MixCurve {
             sources: sources.clone(),
             mode: *mode,

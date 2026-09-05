@@ -15,6 +15,8 @@ import {
 import { VIRTUAL_PREFIX, isVirtualId, virtualId, virtualSensorInputs } from '../sensors.js';
 import { tachSensorFor } from '../tach.js';
 
+const SENSOR_INPUT_CURVE_TYPES = ['point', 'linear', 'trigger', 'target'];
+
 const COLUMN_X = { sensor: 40, virtual: 360, curve: 680, combine: 680, control: 1000 };
 const ROW_START = 40;
 const ROW_HEIGHT = 240;
@@ -153,7 +155,7 @@ export function configToGraph(config, inventory, profileName) {
       data: { [combine ? 'combine' : 'curve']: { id, config: curveConfigWithoutWiring(curveConfig) } },
     });
 
-    if (curveConfig.type === 'point' || curveConfig.type === 'trigger' || curveConfig.type === 'target') {
+    if (SENSOR_INPUT_CURVE_TYPES.includes(curveConfig.type)) {
       if (curveConfig.sensor) {
         const { source, sourceHandle } = resolveSensorSource(curveConfig.sensor);
         edges.push(makeEdge(source, sourceHandle, nodeId, 'sensor', 'temp'));
@@ -234,7 +236,7 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
     const curveConfig = { ...stored };
     const incoming = edges.filter((edge) => edge.target === node.id);
 
-    if (curveConfig.type === 'point' || curveConfig.type === 'trigger' || curveConfig.type === 'target') {
+    if (SENSOR_INPUT_CURVE_TYPES.includes(curveConfig.type)) {
       const edge = incoming.find((candidate) => candidate.targetHandle === 'sensor');
       curveConfig.sensor = edge ? refIdForSource(edge) : '';
     } else if (curveConfig.type === 'sync') {

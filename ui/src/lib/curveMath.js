@@ -67,3 +67,15 @@ export function nextPointTemp(temps) {
   }
   return sorted.includes(best.mid) ? null : best.mid;
 }
+
+export function curvePoints(config) {
+  if (!config) return null;
+  if (config.type === 'point') return config.points;
+  if (config.type === 'linear') {
+    return [
+      [config.min_temp, config.min_duty],
+      [config.max_temp, config.max_duty],
+    ];
+  }
+  return null;
+}
