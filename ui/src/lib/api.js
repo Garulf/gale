@@ -93,3 +93,19 @@ export function getWarnings() {
 export function getWebhookUrl(name) {
   return requestJson(`/api/webhook-url/${encodeURIComponent(name)}`);
 }
+
+export function getPresets() {
+  return requestJson('/api/presets');
+}
+
+export function putPreset(name, preset) {
+  return requestJson(`/api/presets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preset),
+  });
+}
+
+export function deletePreset(name) {
+  return requestJson(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
