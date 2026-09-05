@@ -34,6 +34,7 @@
   let editingProfile = $state('');
   let nodes = $state.raw([]);
   let edges = $state.raw([]);
+  let savedEdgeIds = $state.raw(new Set());
   let selectedNodeId = $state('');
   let dirty = $state(false);
   let history = $state([]);
@@ -78,6 +79,7 @@
 
   let nodeWarnings = $derived(collectNodeWarnings(nodes, edges, [...$warnings, ...saveWarnings]));
   setContext('galeNodeWarnings', () => nodeWarnings);
+  setContext('galeEdgeSaved', (edgeId) => savedEdgeIds.has(edgeId));
 
   let previousPage = 'graph';
   const unsubscribePage = page.subscribe((value) => {
@@ -114,6 +116,7 @@
       const graph = configToGraph(config, inventory, editingProfile);
       nodes = graph.nodes;
       edges = toFlowEdges(graph.edges, showEdgeLabels);
+      savedEdgeIds = new Set(edges.map((edge) => edge.id));
       selectedNodeId = '';
       history = [];
       future = [];
@@ -420,6 +423,7 @@
       saveWarnings = (result && result.warnings) || [];
       const saved = await getConfig();
       config = saved;
+      savedEdgeIds = new Set(edges.map((edge) => edge.id));
       dirty = false;
       savedAt = Date.now();
       await Promise.all([refreshWarnings(), refreshConfig()]);
