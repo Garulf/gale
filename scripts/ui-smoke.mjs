@@ -503,6 +503,28 @@ async function main() {
       await saveGraph(page);
     });
 
+    await record('duplicating the cpu curve adds an unwired copy and pasting with the keyboard adds another', async () => {
+      await page.click('[data-testid="node-duplicate"]');
+      await page.waitForSelector('[data-node-id="curve:cpu_copy"]', { timeout: 5000 });
+      assert(!(await page.$('g.svelte-flow__edge[data-id*="curve:cpu_copy"]')), 'the copy should have no edges');
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.activeElement && document.activeElement.blur();
+      });
+      await page.keyboard.down('Control');
+      await page.keyboard.press('c');
+      await page.keyboard.press('v');
+      await page.keyboard.up('Control');
+      await page.waitForSelector('[data-node-id="curve:cpu_copy_2"]', { timeout: 5000 });
+      for (const id of ['curve:cpu_copy_2', 'curve:cpu_copy']) {
+        await page.evaluate((nodeId) => {
+          document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }, id);
+        await page.click('.gale-panel .delete');
+        await page.waitForFunction((nodeId) => !document.querySelector(`[data-node-id="${nodeId}"]`), { timeout: 5000 }, id);
+      }
+    });
+
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {
       const addedId = await addVirtualNode(page);
       await renameSelectedVirtualNode(page, NEW_SENSOR_NAME);
