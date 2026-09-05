@@ -38,6 +38,10 @@ pub enum CurvePreset {
         step_pct_per_sec: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        deadband: Option<f64>,
+        #[serde(default)]
+        idle_temp: Option<f64>,
     },
 }
 
@@ -210,7 +214,9 @@ mod tests {
                 target_temp: 60.0,
                 step_pct_per_sec: 5.0,
                 min_duty: 80.0,
-                max_duty: 20.0
+                max_duty: 20.0,
+                deadband: None,
+                idle_temp: None
             }
         )
         .is_err());

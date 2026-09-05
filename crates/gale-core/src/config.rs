@@ -574,6 +574,10 @@ pub enum CurveConfig {
         step_pct_per_sec: f64,
         min_duty: f64,
         max_duty: f64,
+        #[serde(default)]
+        deadband: Option<f64>,
+        #[serde(default)]
+        idle_temp: Option<f64>,
     },
 }
 
@@ -796,6 +800,8 @@ mode = "max"
                         step_pct_per_sec: 5.0,
                         min_duty: 20.0,
                         max_duty: 100.0,
+                        deadband: None,
+                        idle_temp: None,
                     },
                 ),
                 ("flat".to_string(), CurveConfig::Flat { duty: 50.0 }),
