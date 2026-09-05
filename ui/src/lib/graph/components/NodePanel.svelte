@@ -239,6 +239,13 @@
     return value === null || value === undefined ? '—' : String(Math.round(value));
   }
 
+  function optionalNumberFromEvent(event) {
+    const raw = event.target.value.trim();
+    if (raw === '') return null;
+    const value = Number(raw);
+    return Number.isNaN(value) ? null : value;
+  }
+
   function updateCurveField(field, value) {
     updateNodeField(node.id, (data) => ({
       ...data,
@@ -594,6 +601,10 @@
       <label class="field">step %/s<input type="number" value={config.step_pct_per_sec} oninput={(e) => updateCurveField('step_pct_per_sec', numberFromEvent(e))} /></label>
       <label class="field">min %<input type="number" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
       <label class="field">max %<input type="number" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
+    </div>
+    <div class="two">
+      <label class="field" title="hold the duty while the temperature is within this many degrees of the target">deadband °<input type="number" min="0" step="0.5" placeholder="0.5" value={config.deadband ?? ''} oninput={(e) => updateCurveField('deadband', optionalNumberFromEvent(e))} /></label>
+      <label class="field" title="at or below this temperature drop straight to min duty">idle °C<input type="number" placeholder="off" value={config.idle_temp ?? ''} oninput={(e) => updateCurveField('idle_temp', optionalNumberFromEvent(e))} /></label>
     </div>
   {/if}
   <button type="button" class="btn danger delete" onclick={() => onDeleteNode(node.id)}>Delete node</button>

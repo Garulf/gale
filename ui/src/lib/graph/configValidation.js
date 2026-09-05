@@ -45,6 +45,8 @@ export function curveValidationError(curveId, curve) {
     for (const field of TARGET_FIELDS) {
       if (isBadNumber(curve[field])) return `${label}: ${field} must be a number`;
     }
+    if (curve.deadband != null && (isBadNumber(curve.deadband) || curve.deadband < 0)) return `${label}: deadband must be zero or more`;
+    if (curve.idle_temp != null && isBadNumber(curve.idle_temp)) return `${label}: idle_temp must be a number`;
   }
   return '';
 }

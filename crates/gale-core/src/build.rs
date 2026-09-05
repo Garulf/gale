@@ -204,13 +204,24 @@ fn instantiate(curve: &CurveConfig) -> Box<dyn Curve> {
             step_pct_per_sec,
             min_duty,
             max_duty,
-        } => Box::new(TargetCurve::new(
-            sensor.clone(),
-            *target_temp,
-            *step_pct_per_sec,
-            *min_duty,
-            *max_duty,
-        )),
+            deadband,
+            idle_temp,
+        } => {
+            let mut c = TargetCurve::new(
+                sensor.clone(),
+                *target_temp,
+                *step_pct_per_sec,
+                *min_duty,
+                *max_duty,
+            );
+            if let Some(deadband) = deadband {
+                c = c.with_deadband(*deadband);
+            }
+            if let Some(idle) = idle_temp {
+                c = c.with_idle_temp(*idle);
+            }
+            Box::new(c)
+        }
     }
 }
 
