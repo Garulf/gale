@@ -967,7 +967,7 @@
 
   .limits {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 6px;
     padding: 0 0 8px 12px;
   }
@@ -1242,7 +1242,7 @@
 
   .segmented {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     border: 1px solid var(--line);
     border-radius: var(--r);
     overflow: hidden;
