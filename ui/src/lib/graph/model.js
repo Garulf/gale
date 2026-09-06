@@ -15,6 +15,7 @@ import {
 } from './ids.js';
 import { VIRTUAL_PREFIX, isVirtualId, virtualId, virtualSensorInputs } from '../sensors.js';
 import { tachSensorFor } from '../tach.js';
+import { pruneGroups } from './groups.js';
 
 const SENSOR_INPUT_CURVE_TYPES = ['point', 'linear', 'trigger', 'target'];
 
@@ -221,7 +222,19 @@ export function configToGraph(config, inventory, profileName) {
     };
   });
 
-  return { nodes, edges };
+  const storedGroups = (config.ui && config.ui.groups && config.ui.groups[profileName]) || {};
+  const groups = pruneGroups(
+    Object.entries(storedGroups).map(([id, group]) => ({
+      id,
+      name: group.name || `Group ${id.replace(/^g/, '')}`,
+      position: { x: (group.position || [0, 0])[0], y: (group.position || [0, 0])[1] },
+      members: group.members || [],
+      parent: group.parent || null,
+    })),
+    nodes
+  );
+
+  return { nodes, edges, groups };
 }
 
 function refIdForSource(edge) {
@@ -231,7 +244,7 @@ function refIdForSource(edge) {
   return nodeName(edge.source);
 }
 
-export function graphToConfig(nodes, edges, baseConfig, profileName) {
+export function graphToConfig(nodes, edges, baseConfig, profileName, groups = []) {
   const config = structuredClone(baseConfig);
   if (!config.profiles) config.profiles = {};
 
@@ -300,6 +313,18 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
     ...deviceNodes.filter((node) => node.hidden === true).map((node) => node.id),
     ...deviceNodes.flatMap((node) => node.data[node.type].rows.filter((row) => row.hidden === true).map((row) => row.handle)),
   ];
+
+  if (!config.ui.groups) config.ui.groups = {};
+  const storedGroups = {};
+  for (const group of groups) {
+    storedGroups[group.id] = {
+      name: group.name,
+      position: [group.position.x, group.position.y],
+      members: [...group.members],
+      ...(group.parent ? { parent: group.parent } : {}),
+    };
+  }
+  config.ui.groups[profileName] = storedGroups;
 
   return config;
 }

@@ -398,3 +398,32 @@ test('withWiredRows follows edge changes and returns the same array when nothing
   assert.notEqual(unwired, nodes);
   assert.equal(unwired.find((node) => node.id === 'sensor:hwmon/chipA').data.deviceSensor.rows[0].wired, false);
 });
+
+test('configToGraph reads ui.groups into group objects and prunes members that do not exist', () => {
+  const config = fixtureBConfig();
+  config.ui = {
+    groups: {
+      default: {
+        g1: { name: 'Zone', position: [300, 40], members: ['curve:cpu', 'curve:ghost'] },
+        g2: { name: 'Empty', position: [0, 0], members: ['curve:nothing'] },
+      },
+    },
+  };
+  const { groups } = configToGraph(config, fixtureBInventory(), 'default');
+  assert.deepEqual(groups, [{ id: 'g1', name: 'Zone', position: { x: 300, y: 40 }, members: ['curve:cpu'], parent: null }]);
+});
+
+test('configToGraph without ui.groups yields an empty groups array', () => {
+  const { groups } = configToGraph(fixtureBConfig(), fixtureBInventory(), 'default');
+  assert.deepEqual(groups, []);
+});
+
+test('graphToConfig writes ui.groups for the profile and leaves other profiles alone', () => {
+  const config = fixtureBConfig();
+  config.ui = { groups: { other: { g1: { name: 'Keep', position: [1, 2], members: ['curve:x'] } } } };
+  const { nodes, edges } = configToGraph(config, fixtureBInventory(), 'default');
+  const groups = [{ id: 'g1', name: 'Zone', position: { x: 300, y: 40 }, members: ['curve:cpu'], parent: null }];
+  const wire = graphToConfig(nodes, edges, config, 'default', groups);
+  assert.deepEqual(wire.ui.groups.default, { g1: { name: 'Zone', position: [300, 40], members: ['curve:cpu'] } });
+  assert.deepEqual(wire.ui.groups.other, { g1: { name: 'Keep', position: [1, 2], members: ['curve:x'] } });
+});
