@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/Garulf/gale/compare/gale-v0.6.0...gale-v0.6.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* polish sweep across MQTT, PawnIO backends and the graph editor ([aef0b21](https://github.com/Garulf/gale/commit/aef0b21def154fb3645e1726dcc1d9b204c56801))
+* polish sweep across MQTT, PawnIO backends and the graph editor ([43a3887](https://github.com/Garulf/gale/commit/43a3887e4b8afd9064c39b34669c4f095582e98b))
+
 ## [0.6.0](https://github.com/Garulf/gale/compare/gale-v0.5.0...gale-v0.6.0) (2026-09-06)
 
 
