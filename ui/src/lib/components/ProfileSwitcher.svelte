@@ -3,8 +3,8 @@
   import { daemonConfig, refreshConfig } from '../config.js';
   import { activateProfile } from '../api.js';
   import { refreshWarnings } from '../warnings.js';
-  import { createProfile } from '../api.js';
-  import { openInGraph } from '../page.js';
+  import { createProfile, deleteProfile } from '../api.js';
+  import { page } from '../page.js';
 
   let { compact = false } = $props();
 
@@ -29,11 +29,24 @@
     open = false;
     const name = (window.prompt('New profile name') || '').trim();
     if (!name) return;
+    if (!window.confirm(`Create "${name}" and switch to it? It starts empty, so fans fall back to hardware control until you wire curves.`)) return;
     error = '';
     try {
       await createProfile(name);
+      await activateProfile(name);
+      await Promise.all([refreshConfig(), refreshWarnings()]);
+      page.set('graph');
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  async function remove(name) {
+    if (!window.confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
+    error = '';
+    try {
+      await deleteProfile(name);
       await refreshConfig();
-      openInGraph({ profile: name });
     } catch (err) {
       error = err.message;
     }
@@ -59,10 +72,15 @@
   {#if open}
     <div class="menu" role="listbox">
       {#each profiles as name}
-        <button type="button" role="option" aria-selected={name === active} onclick={() => pick(name)}>
-          <span>{name}</span>
-          {#if name === active}<span class="active mono">ACTIVE</span>{/if}
-        </button>
+        <div class="entry">
+          <button type="button" role="option" aria-selected={name === active} onclick={() => pick(name)}>
+            <span>{name}</span>
+            {#if name === active}<span class="active mono">ACTIVE</span>{/if}
+          </button>
+          {#if name !== active}
+            <button type="button" class="remove" aria-label="Delete profile {name}" title="Delete profile" data-testid="profile-delete-{name}" onclick={() => remove(name)}>×</button>
+          {/if}
+        </div>
       {/each}
       {#if profiles.length === 0}
         <span class="empty">No profiles loaded.</span>
@@ -160,6 +178,25 @@
 
   .compact .menu {
     left: auto;
+  }
+
+  .entry {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+  }
+
+  .entry > button:first-child {
+    flex: 1;
+  }
+
+  .entry .remove {
+    padding: 0 8px;
+    color: var(--muted);
+  }
+
+  .entry .remove:hover {
+    color: var(--warn);
   }
 
   .menu button {

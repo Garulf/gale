@@ -8,6 +8,10 @@ fn main() {
         .init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.first().map(String::as_str), Some("--version" | "-V")) {
+        println!("galed {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if args.first().map(String::as_str) == Some("restore") {
         let path = journal_path_from_args(&args);
         let restored = galed::claims_journal::run_restore(&path);

@@ -3,12 +3,12 @@
   import { SvelteFlow, Background } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
-  import { getConfig, putConfig, getInventory, putLabel, deleteLabel, createProfile, deleteProfile, activateProfile } from '../lib/api.js';
+  import { getConfig, putConfig, getInventory, putLabel, deleteLabel } from '../lib/api.js';
   import { snapshot } from '../lib/store.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { refreshConfig } from '../lib/config.js';
   import { page, graphFocus } from '../lib/page.js';
-  import { configToGraph, graphToConfig, edgeInto, replaceEdge } from '../lib/graph/model.js';
+  import { configToGraph, graphToConfig, edgeInto, replaceEdge, withWiredRows } from '../lib/graph/model.js';
   import { isValidConnection } from '../lib/graph/validate.js';
   import { autoLayout } from '../lib/graph/layout.js';
   import { nodeKind, edgeId } from '../lib/graph/ids.js';
@@ -46,6 +46,52 @@
   let saving = $state(false);
   let savedAt = $state(0);
   let mobileView = $state('chains');
+  const PANEL_WIDTH_KEY = 'gale.graph.panelWidth';
+  const PANEL_MIN = 260;
+  const PANEL_MAX = 720;
+  let panelWidth = $state(readPanelWidth());
+  let resizing = $state(false);
+
+  function readPanelWidth() {
+    try {
+      const stored = Number(localStorage.getItem(PANEL_WIDTH_KEY));
+      if (Number.isFinite(stored) && stored >= PANEL_MIN && stored <= PANEL_MAX) return stored;
+    } catch (err) {
+      return 330;
+    }
+    return 330;
+  }
+
+  function clampPanelWidth(width) {
+    const viewportMax = Math.min(PANEL_MAX, Math.max(PANEL_MIN, window.innerWidth - 480));
+    return Math.min(viewportMax, Math.max(PANEL_MIN, Math.round(width)));
+  }
+
+  function startPanelResize(event) {
+    event.preventDefault();
+    resizing = true;
+    const startX = event.clientX;
+    const startWidth = panelWidth;
+    const move = (moveEvent) => {
+      panelWidth = clampPanelWidth(startWidth + (startX - moveEvent.clientX));
+    };
+    const stop = () => {
+      resizing = false;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      try {
+        localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth));
+      } catch (err) {
+        return;
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  }
+
+  function onViewportResize() {
+    panelWidth = clampPanelWidth(panelWidth);
+  }
   let sheetOpen = $state(false);
   const mobileQuery = window.matchMedia('(max-width: 720px)');
   let isMobile = $state(mobileQuery.matches);
@@ -122,8 +168,7 @@
       const [cfg, inv] = await Promise.all([getConfig(), getInventory()]);
       config = cfg;
       inventory = inv;
-      const requested = $graphFocus && $graphFocus.profile;
-      editingProfile = requested && cfg.profiles[requested] ? requested : editingProfile && cfg.profiles[editingProfile] ? editingProfile : cfg.active_profile;
+      editingProfile = cfg.active_profile;
       const graph = configToGraph(config, inventory, editingProfile);
       nodes = graph.nodes;
       edges = toFlowEdges(graph.edges, showEdgeLabels);
@@ -138,7 +183,6 @@
     }
   }
 
-  let profileNames = $derived(config ? Object.keys(config.profiles).sort() : []);
   let activeProfile = $derived($snapshot ? $snapshot.active_profile : config ? config.active_profile : '');
 
   function rebuildGraph(profile) {
@@ -153,46 +197,29 @@
     dirty = false;
   }
 
-  function switchProfile(name) {
-    if (!config || !config.profiles[name] || name === editingProfile) return;
-    if (dirty && !window.confirm('You have unsaved changes on this profile. Switch without saving?')) return;
-    rebuildGraph(name);
-  }
+  let profileChangedTo = $state('');
 
-  async function createGraphProfile() {
-    const name = (window.prompt('New profile name') || '').trim();
-    if (!name) return;
-    if (dirty && !window.confirm('You have unsaved changes on this profile. Continue without saving?')) return;
-    error = '';
-    try {
-      await createProfile(name);
-      config = await getConfig();
-      await refreshConfig();
-      rebuildGraph(name);
-    } catch (err) {
-      error = err.message;
+  $effect(() => {
+    const rewired = withWiredRows(nodes, edges);
+    if (rewired !== nodes) nodes = rewired;
+  });
+
+  $effect(() => {
+    const active = activeProfile;
+    if (!config || !active || active === editingProfile) return;
+    if (dirty) {
+      profileChangedTo = active;
+    } else {
+      profileChangedTo = '';
+      reloadForActiveProfile();
     }
-  }
+  });
 
-  async function deleteGraphProfile() {
-    if (!window.confirm(`Delete profile "${editingProfile}"? This cannot be undone.`)) return;
-    error = '';
+  async function reloadForActiveProfile() {
     try {
-      await deleteProfile(editingProfile);
       config = await getConfig();
-      await Promise.all([refreshConfig(), refreshWarnings()]);
       rebuildGraph(config.active_profile);
-    } catch (err) {
-      error = err.message;
-    }
-  }
-
-  async function activateEditingProfile() {
-    if (dirty && !window.confirm('Save the profile before activating it? Unsaved changes are not applied. Activate anyway?')) return;
-    error = '';
-    try {
-      await activateProfile(editingProfile);
-      await Promise.all([refreshConfig(), refreshWarnings()]);
+      profileChangedTo = '';
     } catch (err) {
       error = err.message;
     }
@@ -592,9 +619,9 @@
   });
 </script>
 
-<svelte:window onkeydown={onClipboardKey} />
+<svelte:window onkeydown={onClipboardKey} onresize={onViewportResize} />
 
-<section class="gale-graph-page" data-mobile-view={mobileView}>
+<section class="gale-graph-page" data-mobile-view={mobileView} style="--gale-panel-width: {panelWidth}px">
   <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
     <SvelteFlow
       bind:nodes
@@ -614,13 +641,6 @@
       <Background gap={20} size={1} />
       <GraphToolbar
         {showEdgeLabels}
-        profiles={profileNames}
-        {editingProfile}
-        {activeProfile}
-        onSwitchProfile={switchProfile}
-        onCreateProfile={createGraphProfile}
-        onDeleteProfile={deleteGraphProfile}
-        onActivateProfile={activateEditingProfile}
         canUndo={history.length > 0}
         canRedo={future.length > 0}
         {saving}
@@ -657,7 +677,7 @@
   <div class="gale-chains" class:mobile-hidden={mobileView !== 'chains'}>
     <div class="chains-head">
       <div class="page-title">
-        <span class="eyebrow">Profile · {editingProfile}{#if editingProfile !== activeProfile} · not active{/if}</span>
+        <span class="eyebrow">Profile · {editingProfile}</span>
         <h1>Graph</h1>
       </div>
       <div class="chains-actions">
@@ -677,7 +697,11 @@
     </div>
   </div>
 
-  <aside class="gale-panel">
+  <aside class="gale-panel" class:resizing>
+    <div class="resize-handle" class:active={resizing} role="separator" aria-orientation="vertical" aria-label="Resize panel" data-testid="panel-resize" onpointerdown={startPanelResize}></div>
+    {#if profileChangedTo}
+      <p class="notice">Active profile is now "{profileChangedTo}". You have unsaved edits here. <button type="button" class="btn" data-testid="graph-reload-profile" onclick={reloadForActiveProfile}>Discard and switch</button></p>
+    {/if}
     {#if error}
       <p class="error">{error}</p>
     {/if}

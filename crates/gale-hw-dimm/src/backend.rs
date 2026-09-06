@@ -41,7 +41,11 @@ impl DimmModule {
     }
 
     pub fn id(&self) -> Id {
-        format!("{PREFIX}/{}/temp", self.slot())
+        if self.port == 0 {
+            format!("{PREFIX}/{}/temp", self.slot())
+        } else {
+            format!("{PREFIX}/{}-bus{}/temp", self.slot(), self.port)
+        }
     }
 
     pub fn label(&self) -> String {
@@ -49,7 +53,11 @@ impl DimmModule {
             ModuleKind::Ddr4 { .. } => "DDR4",
             ModuleKind::Ddr5 => "DDR5",
         };
-        format!("DIMM {} ({kind})", self.slot())
+        if self.port == 0 {
+            format!("DIMM {} ({kind})", self.slot())
+        } else {
+            format!("DIMM {} ({kind}, bus {})", self.slot(), self.port)
+        }
     }
 }
 
@@ -412,7 +420,8 @@ mod tests {
                 kind: ModuleKind::Ddr5
             }]
         );
-        assert_eq!(modules[0].label(), "DIMM 4 (DDR5)");
+        assert_eq!(modules[0].label(), "DIMM 4 (DDR5, bus 1)");
+        assert_eq!(modules[0].id(), "dimm/4-bus1/temp");
     }
 
     #[test]

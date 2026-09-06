@@ -459,6 +459,7 @@ async fn delete_profile(State(ctx): State<ApiContext>, Path(name): Path<String>)
         tracing::debug!(positions = graph.len(), profile = %name, "dropped saved layout with profile");
     }
     config.ui.hidden.remove(&name);
+    config.ui.compact.remove(&name);
     match apply_and_persist(&ctx, config).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => config_error_response(error),

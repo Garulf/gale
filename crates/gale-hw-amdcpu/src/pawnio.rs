@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use gale_hw::Backend;
-
 use gale_pawnio::modules::AMDFAMILY17;
 use gale_pawnio::mutex::PCI_BUS_MUTEX;
 use gale_pawnio::{Module, NamedMutex, PawnIoError};
@@ -76,8 +74,26 @@ pub fn probe() -> Result<AmdCpuBackend, AmdCpuStatus> {
         identity.model,
         &identity.brand,
     );
-    backend
-        .enumerate()
-        .map_err(|e| AmdCpuStatus::Io(e.to_string()))?;
+    enumerate_with_retries(&mut backend).map_err(AmdCpuStatus::Io)?;
     Ok(backend)
+}
+
+const PROBE_ATTEMPTS: usize = 5;
+const PROBE_RETRY_DELAY: Duration = Duration::from_millis(200);
+
+fn enumerate_with_retries(backend: &mut dyn gale_hw::Backend) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 1..=PROBE_ATTEMPTS {
+        match backend.enumerate() {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                last = error.to_string();
+                tracing::debug!(attempt, %last, "probe attempt failed");
+                if attempt < PROBE_ATTEMPTS {
+                    std::thread::sleep(PROBE_RETRY_DELAY);
+                }
+            }
+        }
+    }
+    Err(last)
 }

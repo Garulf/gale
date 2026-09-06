@@ -8,7 +8,7 @@
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
   import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints } from '../lib/curveMath.js';
-  import { shortDevice, overview, trendArrow, temperatureUnit } from '../lib/dashboard.js';
+  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
 
@@ -101,9 +101,10 @@
   }
 
   function chartFor(curve, liveDuty) {
-    const points = curvePoints(curve ? curve.config : null);
+    const drawn = curve && profile ? chartCurve(curve.id, profile.curves, values) : null;
+    const points = curvePoints(drawn ? drawn.config : null);
     if (!points) return null;
-    const temp = values[curve.config.sensor] ?? null;
+    const temp = values[drawn.config.sensor] ?? null;
     const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
     const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
     const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(points, temp);
@@ -112,6 +113,9 @@
       showDot: temp !== null,
       dotX: temp === null ? 0 : scale.x(Math.min(100, Math.max(0, temp))),
       dotY: duty === null ? 0 : scale.y(duty),
+      sensor: sensorLabel(drawn.config.sensor, inventory.sensors),
+      via: drawn.via ? `${drawn.via} → ${drawn.id}` : '',
+      temp,
     };
   }
 
@@ -282,8 +286,8 @@
                     <circle cx={fan.chart.dotX} cy={fan.chart.dotY} r="4" class="dot" />
                   {/if}
                 </svg>
-                <span class="chart-tag left mono">{fan.input} {fan.temp}</span>
-                <span class="chart-tag right mono">{fan.curveName} · {fan.curveKind}</span>
+                <span class="chart-tag left mono">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fmtTemp(fan.chart.temp)}°`}</span>
+                <span class="chart-tag right mono">{fan.chart.via || `${fan.curveName} · ${fan.curveKind}`}</span>
               </div>
             {:else}
               <div class="chart empty mono">

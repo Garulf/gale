@@ -97,14 +97,38 @@ impl EngineHost {
         let Some(profile) = config.profiles.get(&config.active_profile) else {
             return warnings;
         };
+        warnings.extend(Self::unwired_curve_warnings(profile));
         warnings.extend(
             profile
                 .hardware_sensors_used()
                 .into_iter()
-                .filter(|sensor| !known.contains(sensor))
+                .filter(|sensor| !sensor.is_empty() && !known.contains(sensor))
                 .map(|sensor| format!("referenced sensor not found on hardware: {sensor}")),
         );
         warnings
+    }
+
+    fn unwired_curve_warnings(profile: &ProfileConfig) -> Vec<String> {
+        use gale_core::config::CurveConfig;
+        profile
+            .curves
+            .iter()
+            .filter_map(|(id, curve)| {
+                let unwired = match curve {
+                    CurveConfig::Point { sensor, .. }
+                    | CurveConfig::Linear { sensor, .. }
+                    | CurveConfig::Trigger { sensor, .. }
+                    | CurveConfig::Target { sensor, .. } => sensor.is_empty(),
+                    CurveConfig::Sync { source } | CurveConfig::Offset { source, .. } => {
+                        source.is_empty()
+                    }
+                    CurveConfig::Mix { sources, .. } => sources.is_empty(),
+                    CurveConfig::Flat { .. } => false,
+                };
+                unwired
+                    .then(|| format!("curve '{id}' has no input wired and will fail safe to 100%"))
+            })
+            .collect()
     }
 
     fn window_warnings(profile: &ProfileConfig, tick_interval_ms: u64) -> Vec<String> {

@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use gale_hw::Backend;
-
 use gale_pawnio::modules::SMBUSPIIX4;
 use gale_pawnio::mutex::SMBUS_MUTEX;
 use gale_pawnio::{Module, NamedMutex};
@@ -94,11 +92,29 @@ pub fn probe() -> Result<DimmBackend, DimmStatus> {
     let module = Module::load(&SMBUSPIIX4).map_err(DimmStatus::PawnIo)?;
     let mutex = NamedMutex::open(SMBUS_MUTEX).map_err(DimmStatus::Io)?;
     let mut backend = DimmBackend::new(Box::new(PawnIoSmbus { module, mutex }));
-    backend
-        .enumerate()
-        .map_err(|e| DimmStatus::Io(e.to_string()))?;
+    enumerate_with_retries(&mut backend).map_err(DimmStatus::Io)?;
     if backend.modules().is_empty() {
         return Err(DimmStatus::NoModules);
     }
     Ok(backend)
+}
+
+const PROBE_ATTEMPTS: usize = 5;
+const PROBE_RETRY_DELAY: Duration = Duration::from_millis(200);
+
+fn enumerate_with_retries(backend: &mut dyn gale_hw::Backend) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 1..=PROBE_ATTEMPTS {
+        match backend.enumerate() {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                last = error.to_string();
+                tracing::debug!(attempt, %last, "probe attempt failed");
+                if attempt < PROBE_ATTEMPTS {
+                    std::thread::sleep(PROBE_RETRY_DELAY);
+                }
+            }
+        }
+    }
+    Err(last)
 }

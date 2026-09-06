@@ -114,7 +114,10 @@ fn base(
 ) -> serde_json::Map<String, Value> {
     let mut map = serde_json::Map::new();
     map.insert("name".into(), json!(name));
-    map.insert("unique_id".into(), json!(format!("gale_{unique}")));
+    map.insert(
+        "unique_id".into(),
+        json!(format!("gale_{}_{unique}", slug(&device.hostname))),
+    );
     map.insert("availability_topic".into(), json!(topics.availability()));
     map.insert("device".into(), device.json());
     map
@@ -283,6 +286,10 @@ pub struct StateTracker {
 }
 
 impl StateTracker {
+    pub fn forget(&mut self, topic: &str) {
+        self.published.remove(topic);
+    }
+
     pub fn messages(
         &mut self,
         topics: &Topics,
@@ -370,12 +377,64 @@ async fn apply(ctx: &ApiContext, snapshot: &Snapshot, command: Command) {
     }
 }
 
+fn discovery_fingerprint(config: &GaleConfig) -> String {
+    let virtuals: Vec<String> = virtual_infos(config).into_iter().map(|v| v.id).collect();
+    format!(
+        "{:?}|{:?}|{:?}",
+        config.profiles.keys().collect::<Vec<_>>(),
+        virtuals,
+        config.labels
+    )
+}
+
+async fn announce(
+    client: &AsyncClient,
+    ctx: &ApiContext,
+    cfg: &MqttConfig,
+    topics: &Topics,
+    device: &Device,
+) {
+    let config = ctx.host.config();
+    let inventory = ctx.inventory.read().unwrap().clone();
+    let profiles: Vec<String> = config.profiles.keys().cloned().collect();
+    for (topic, payload) in discovery(
+        cfg,
+        &inventory,
+        &virtual_infos(&config),
+        &config.labels,
+        &profiles,
+        device,
+    ) {
+        if let Err(error) = client
+            .publish(topic, QoS::AtLeastOnce, true, payload.to_string())
+            .await
+        {
+            tracing::warn!(%error, "mqtt discovery publish failed");
+            return;
+        }
+    }
+    for topic in topics.subscriptions() {
+        let _ = client.subscribe(topic, QoS::AtLeastOnce).await;
+    }
+    let _ = client
+        .publish(topics.availability(), QoS::AtLeastOnce, true, "online")
+        .await;
+}
+
 pub async fn run(ctx: ApiContext, cfg: MqttConfig) {
-    let hostname = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "host".to_string());
-    let device = Device { hostname };
-    let topics = Topics::new(&cfg);
+    let hostname = gethostname::gethostname()
+        .to_string_lossy()
+        .trim()
+        .to_string();
+    let device = std::sync::Arc::new(Device {
+        hostname: if hostname.is_empty() {
+            "host".to_string()
+        } else {
+            hostname
+        },
+    });
+    let cfg = std::sync::Arc::new(cfg);
+    let topics = std::sync::Arc::new(Topics::new(&cfg));
     let mut options = MqttOptions::new(cfg.client_id.clone(), cfg.host.clone(), cfg.port);
     options.set_keep_alive(Duration::from_secs(30));
     if let (Some(user), Some(pass)) = (&cfg.username, &cfg.password) {
@@ -387,7 +446,7 @@ pub async fn run(ctx: ApiContext, cfg: MqttConfig) {
         QoS::AtLeastOnce,
         true,
     ));
-    let (client, mut eventloop) = AsyncClient::new(options, 64);
+    let (client, mut eventloop) = AsyncClient::new(options, 256);
     let mut receiver = ctx.host.subscribe();
     let mut tracker = StateTracker::default();
     let mut control_ids: Vec<Id> = ctx
@@ -398,34 +457,33 @@ pub async fn run(ctx: ApiContext, cfg: MqttConfig) {
         .iter()
         .map(|c| c.id.clone())
         .collect();
+    let mut fingerprint = String::new();
+    let mut ticks_since_check = 0u32;
+    let spawn_announce = |client: &AsyncClient| {
+        let client = client.clone();
+        let ctx = ctx.clone();
+        let cfg = cfg.clone();
+        let topics = topics.clone();
+        let device = device.clone();
+        tokio::spawn(async move { announce(&client, &ctx, &cfg, &topics, &device).await });
+    };
     loop {
         tokio::select! {
             event = eventloop.poll() => match event {
                 Ok(Event::Incoming(Packet::ConnAck(_))) => {
                     tracing::info!(host = %cfg.host, port = cfg.port, "mqtt connected");
-                    let config = ctx.host.config();
-                    let inventory = ctx.inventory.read().unwrap().clone();
-                    control_ids = inventory.controls.iter().map(|c| c.id.clone()).collect();
-                    let profiles: Vec<String> = config.profiles.keys().cloned().collect();
-                    for (topic, payload) in discovery(&cfg, &inventory, &virtual_infos(&config), &config.labels, &profiles, &device) {
-                        let _ = client.publish(topic, QoS::AtLeastOnce, true, payload.to_string()).await;
-                    }
-                    for topic in topics.subscriptions() {
-                        let _ = client.subscribe(topic, QoS::AtLeastOnce).await;
-                    }
-                    let _ = client.publish(topics.availability(), QoS::AtLeastOnce, true, "online").await;
+                    control_ids = ctx.inventory.read().unwrap().controls.iter().map(|c| c.id.clone()).collect();
+                    fingerprint = discovery_fingerprint(&ctx.host.config());
                     tracker = StateTracker::default();
-                    let snapshot = receiver.borrow().clone();
-                    for (topic, payload) in tracker.messages(&topics, &snapshot, &control_ids, std::time::Instant::now()) {
-                        let _ = client.publish(topic, QoS::AtMostOnce, true, payload).await;
-                    }
+                    spawn_announce(&client);
                 }
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     let payload = String::from_utf8_lossy(&publish.payload).to_string();
                     if let Some(command) = parse_command(&cfg, &control_ids, &publish.topic, &payload) {
                         tracing::info!(topic = %publish.topic, ?command, "mqtt command");
                         let snapshot = receiver.borrow().clone();
-                        apply(&ctx, &snapshot, command).await;
+                        let ctx = ctx.clone();
+                        tokio::spawn(async move { apply(&ctx, &snapshot, command).await });
                     }
                 }
                 Ok(_) => {}
@@ -438,9 +496,21 @@ pub async fn run(ctx: ApiContext, cfg: MqttConfig) {
                 if changed.is_err() {
                     return;
                 }
+                ticks_since_check += 1;
+                if ticks_since_check >= 5 {
+                    ticks_since_check = 0;
+                    let current = discovery_fingerprint(&ctx.host.config());
+                    if current != fingerprint {
+                        fingerprint = current;
+                        tracing::info!("mqtt discovery refreshed after a config change");
+                        spawn_announce(&client);
+                    }
+                }
                 let snapshot = receiver.borrow_and_update().clone();
                 for (topic, payload) in tracker.messages(&topics, &snapshot, &control_ids, std::time::Instant::now()) {
-                    let _ = client.try_publish(topic, QoS::AtMostOnce, true, payload);
+                    if client.try_publish(topic.clone(), QoS::AtMostOnce, true, payload).is_err() {
+                        tracker.forget(&topic);
+                    }
                 }
             }
         }
@@ -530,6 +600,7 @@ mod tests {
         assert_eq!(temp["state_topic"], "gale/sensor/hwmon_x_temp1/state");
         assert_eq!(temp["availability_topic"], "gale/status");
         assert_eq!(temp["device"]["identifiers"][0], "gale_albedo");
+        assert_eq!(temp["unique_id"], "gale_albedo_hwmon_x_temp1");
         assert_eq!(out[1].1["unit_of_measurement"], "RPM");
         assert!(out[1].1.get("device_class").is_none());
         assert_eq!(out[3].1["unit_of_measurement"], "°C/min");
@@ -624,6 +695,13 @@ mod tests {
                 "gale/control/hwmon_x_pwm1/manual".to_string(),
                 "ON".to_string()
             )]
+        );
+        tracker.forget("gale/control/hwmon_x_pwm1/manual");
+        assert_eq!(
+            tracker
+                .messages(&topics, &snapshot, &ids, start + Duration::from_secs(3))
+                .len(),
+            1
         );
         assert_eq!(
             tracker
