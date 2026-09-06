@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDeltaRate, isOverridden, sensorDisplay } from '../../src/lib/graph/liveValues.js';
+import { formatDeltaRate, isOverridden, sensorDisplay, curveOutput } from '../../src/lib/graph/liveValues.js';
 
 test('formatDeltaRate formats a rate in degrees per minute', () => {
   assert.equal(formatDeltaRate(2.5), '2.5 C/min');
@@ -35,8 +35,6 @@ test('sensorDisplay splits a reading into text and unit by kind', () => {
   assert.deepEqual(sensorDisplay(45.4, 'duty'), { text: '45', unit: '%' });
   assert.deepEqual(sensorDisplay(null, 'duty'), { text: '—', unit: '%' });
 });
-
-import { curveOutput } from '../../src/lib/graph/liveValues.js';
 
 test('curveOutput reads the daemon-published output for a curve id', () => {
   assert.equal(curveOutput({ curves: { cpu: 42.4 } }, 'cpu'), 42.4);

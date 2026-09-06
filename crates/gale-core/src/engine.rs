@@ -105,6 +105,7 @@ mod tests {
     use crate::config::ProfileConfig;
     use crate::curve::flat::FlatCurve;
     use crate::curve::point::PointCurve;
+    use crate::curve::target::TargetCurve;
     use crate::curve::CurveSet;
     use std::collections::HashMap;
 
@@ -354,6 +355,24 @@ mod tests {
 
         engine.tick(&mut sensors(&[("t", Some(50.0))]), 1.0);
         assert_eq!(engine.curve_outputs()["cpu"], 60.0);
+    }
+
+    #[test]
+    fn unassigned_stateful_curves_track_live_conditions_every_tick() {
+        let mut set = CurveSet::new();
+        set.insert(
+            "hold".into(),
+            Box::new(TargetCurve::new("t".into(), 40.0, 10.0, 20.0, 60.0)),
+        );
+        let mut engine = FanEngine::new(set, HashMap::new());
+        engine.tick(&mut sensors(&[("t", Some(50.0))]), 1.0);
+        let first = engine.curve_outputs()["hold"];
+        engine.tick(&mut sensors(&[("t", Some(50.0))]), 1.0);
+        let second = engine.curve_outputs()["hold"];
+        assert!(
+            second > first,
+            "a target curve above its setpoint keeps ramping while unassigned"
+        );
     }
 
     #[test]

@@ -15,7 +15,6 @@ use tokio::sync::watch;
 pub struct Snapshot {
     pub sensors: HashMap<Id, Option<f64>>,
     pub duties: HashMap<Id, f64>,
-    #[serde(default)]
     pub curves: HashMap<Id, f64>,
     pub manual: HashMap<Id, f64>,
     pub overrides: HashSet<Id>,
