@@ -687,6 +687,34 @@ async function main() {
       });
     });
 
+    await record('a flat curve shows a slider on the node and in the panel, and the panel toggle hides it', async () => {
+      await setPanelInput(page, 'node-type', 'flat');
+      await page.waitForSelector('[data-node-id="curve:cpu"] [data-testid="node-flat-slider"] input', { timeout: 5000 });
+      await page.evaluate(() => {
+        const slider = document.querySelector('[data-node-id="curve:cpu"] [data-testid="node-flat-slider"] input');
+        slider.value = '63';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.waitForFunction(() => document.querySelector('[data-testid="flat-duty"]').value === '63', { timeout: 5000 });
+      await setPanelInput(page, 'flat-slider', '71');
+      await page.waitForFunction(() => document.querySelector('[data-node-id="curve:cpu"] [data-testid="node-flat-slider"] input').value === '71', { timeout: 5000 });
+      await page.click('[data-testid="node-controls-toggle"]');
+      await page.waitForFunction(() => !document.querySelector('[data-node-id="curve:cpu"] [data-testid="node-flat-slider"]'), { timeout: 5000 });
+      await saveGraph(page);
+      const config = await fetchConfig();
+      assert(config.profiles.default.curves.cpu.duty === 71, `duty did not save: ${JSON.stringify(config.profiles.default.curves.cpu)}`);
+      assert(config.ui.compact.default.includes('curve:cpu'), 'compact flag did not save');
+      await page.click('[data-testid="node-controls-toggle"]');
+      await setPanelInput(page, 'node-type', 'point');
+      await fitView(page);
+      await dragConnection(page, handleSelector(SENSOR_NODE, TEMP1), handleSelector('curve:cpu', 'sensor'));
+      await page.waitForSelector(`g.svelte-flow__edge[data-id="${SENSOR_NODE}:${TEMP1}->curve:cpu:sensor"]`, { timeout: 5000 });
+      await saveGraph(page);
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {
       const addedId = await addVirtualNode(page);
       await renameSelectedVirtualNode(page, NEW_SENSOR_NAME);

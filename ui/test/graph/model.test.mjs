@@ -373,3 +373,18 @@ test('hidden channel ids round-trip through ui.hidden next to hidden node ids', 
   const back = graphToConfig(nodes, edges, config, 'default');
   assert.deepEqual(back.ui.hidden.default, ['control:hwmon/chipA', 'hwmon/chipA/temp2']);
 });
+
+test('compact node ids round-trip through ui.compact per profile', () => {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: { default: { sensors: {}, curves: { fixed: { type: 'flat', duty: 40 } }, assignments: {} } },
+    ui: { graph: {}, hidden: {}, compact: { default: ['curve:fixed'] } },
+  };
+  const { nodes, edges } = configToGraph(config, { sensors: [], controls: [] }, 'default');
+  assert.equal(nodes.find((node) => node.id === 'curve:fixed').compact, true);
+  const back = graphToConfig(nodes, edges, config, 'default');
+  assert.deepEqual(back.ui.compact.default, ['curve:fixed']);
+  const expanded = nodes.map((node) => ({ ...node, compact: false }));
+  assert.deepEqual(graphToConfig(expanded, edges, config, 'default').ui.compact.default, []);
+});

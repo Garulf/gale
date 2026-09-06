@@ -77,10 +77,19 @@
   }
 
   setContext('galeHideNode', hideNode);
+  setContext('galeUpdateNodeData', (id, updater, shouldSnapshot) => updateNodeData(id, updater, shouldSnapshot));
+
+  function toggleCompact(id) {
+    snapshotHistory();
+    nodes = nodes.map((node) => (node.id === id ? { ...node, compact: node.compact !== true } : node));
+    dirty = true;
+    future = [];
+  }
 
   let nodeWarnings = $derived(collectNodeWarnings(nodes, edges, [...$warnings, ...saveWarnings]));
   setContext('galeNodeWarnings', () => nodeWarnings);
   setContext('galeEdgeSaved', (edgeId) => savedEdgeIds.has(edgeId));
+  setContext('galeNodeCompact', (nodeId) => nodes.some((node) => node.id === nodeId && node.compact === true));
 
   let previousPage = 'graph';
   const unsubscribePage = page.subscribe((value) => {
@@ -219,6 +228,7 @@
         type: node.type,
         position: { x: node.position.x, y: node.position.y },
         hidden: node.hidden === true,
+        compact: node.compact === true,
         data: cloneData(node.data),
       })),
       edges: rawEdges.map((edge) => ({
@@ -684,6 +694,7 @@
       onDuplicateNode={duplicateGraphNode}
       onRenameRow={renameDeviceRow}
       onToggleRow={toggleRowHidden}
+      onToggleCompact={toggleCompact}
       onHideNode={hideNode}
     />
     {#if saveWarnings.length > 0}
@@ -713,6 +724,7 @@
           onDuplicateNode={duplicateGraphNode}
           onRenameRow={renameDeviceRow}
           onToggleRow={toggleRowHidden}
+          onToggleCompact={toggleCompact}
           onHideNode={hideNode}
           onClose={() => (sheetOpen = false)}
         />

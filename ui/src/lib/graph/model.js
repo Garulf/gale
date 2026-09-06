@@ -107,6 +107,7 @@ export function configToGraph(config, inventory, profileName) {
   const nodeSpecs = [];
 
   const hiddenIds = (config.ui && config.ui.hidden && config.ui.hidden[profileName]) || [];
+  const compactIds = (config.ui && config.ui.compact && config.ui.compact[profileName]) || [];
   const sensorsByDevice = groupByDevice(inventory.sensors || []);
   for (const [device, rows] of sensorsByDevice) {
     nodeSpecs.push({
@@ -193,6 +194,7 @@ export function configToGraph(config, inventory, profileName) {
       type: spec.type,
       position,
       hidden: hiddenIds.includes(spec.id),
+      compact: compactIds.includes(spec.id),
       data: spec.data,
     };
   });
@@ -262,6 +264,8 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
   if (!config.ui) config.ui = { graph: {}, hidden: {} };
   if (!config.ui.graph) config.ui.graph = {};
   if (!config.ui.hidden) config.ui.hidden = {};
+  if (!config.ui.compact) config.ui.compact = {};
+  config.ui.compact[profileName] = nodes.filter((node) => node.compact === true).map((node) => node.id);
 
   const graph = {};
   for (const node of nodes) {

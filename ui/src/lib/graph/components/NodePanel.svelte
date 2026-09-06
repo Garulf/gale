@@ -1,5 +1,6 @@
 <script>
   import { untrack } from 'svelte';
+  import { curvePoints as curvePointsFor } from '../../curveMath.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
   import { getWebhookUrl, putControlSettings } from '../../api.js';
@@ -13,7 +14,7 @@
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact } = $props();
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -635,7 +636,10 @@
     </div>
     {@render smoothing(true)}
   {:else if config.type === 'flat'}
-    <label class="field">duty %<input type="number" min="0" max="100" value={config.duty} oninput={(e) => updateCurveField('duty', numberFromEvent(e))} /></label>
+    <div class="slider-field">
+      <input type="range" min="0" max="100" step="1" data-testid="flat-slider" aria-label="Duty" value={config.duty} oninput={(e) => updateCurveField('duty', numberFromEvent(e))} />
+      <label class="field">duty %<input type="number" min="0" max="100" data-testid="flat-duty" value={config.duty} oninput={(e) => updateCurveField('duty', numberFromEvent(e))} /></label>
+    </div>
   {:else if config.type === 'trigger'}
     <div class="two">
       <label class="field">on °C<input type="number" value={config.on_temp} oninput={(e) => updateCurveField('on_temp', numberFromEvent(e))} /></label>
@@ -655,6 +659,12 @@
       <label class="field" title="hold the duty while the temperature is within this many degrees of the target">deadband °<input type="number" min="0" step="0.5" placeholder="0.5" value={config.deadband ?? ''} oninput={(e) => updateCurveField('deadband', optionalNumberFromEvent(e))} /></label>
       <label class="field" title="at or below this temperature drop straight to min duty">idle °C<input type="number" placeholder="off" value={config.idle_temp ?? ''} oninput={(e) => updateCurveField('idle_temp', optionalNumberFromEvent(e))} /></label>
     </div>
+  {/if}
+  {#if config.type === 'flat' || curvePointsFor(config)}
+    <label class="toggle compact-toggle">
+      <input type="checkbox" data-testid="node-controls-toggle" checked={node.compact !== true} onchange={() => onToggleCompact(node.id)} />
+      <span class="toggle-label">Show {config.type === 'flat' ? 'the slider' : 'the chart'} on the node</span>
+    </label>
   {/if}
   {@render nodeActions()}
 {:else if node.type === 'combine'}
@@ -685,6 +695,24 @@
 {/if}
 
 <style>
+  .slider-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .slider-field input[type='range'] {
+    flex: 1;
+  }
+
+  .slider-field .field input {
+    width: 64px;
+  }
+
+  .compact-toggle {
+    margin-top: 4px;
+  }
+
   .eye {
     display: inline-flex;
     align-items: center;

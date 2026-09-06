@@ -29,7 +29,7 @@ function rowCount(node, edges) {
 }
 
 export function measure(node, edges) {
-  const chart = node.type === 'curve' && node.data && curvePoints(node.data.curve.config) ? CHART_HEIGHT : 0;
+  const chart = node.type === 'curve' && node.data && node.compact !== true && curvePoints(node.data.curve.config) ? CHART_HEIGHT : 0;
   return { width: NODE_WIDTH, height: HEAD_HEIGHT + ROWS_PADDING + rowCount(node, edges) * ROW_HEIGHT + chart };
 }
 
