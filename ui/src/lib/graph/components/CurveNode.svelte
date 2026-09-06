@@ -5,12 +5,27 @@
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue } from '../liveValues.js';
   import { curvePaths, curveScale, evalCurve, clamp, curvePoints } from '../../curveMath.js';
+  import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
   const CHART_W = 210;
   const CHART_H = 64;
   const CHART_PAD = 4;
 
   let { id, data, selected } = $props();
+
+  const updateNodeData = getContext('galeUpdateNodeData');
+  const compactFlag = getContext('galeNodeCompact');
+  let compact = $derived(compactFlag ? compactFlag(id) : false);
+  const SLIDER_SNAPSHOT_DEBOUNCE_MS = 400;
+  let lastSliderEditAt = null;
+
+  function setFlatDuty(event) {
+    const duty = Number(event.target.value);
+    const now = Date.now();
+    const takeSnapshot = shouldSnapshotEdit(lastSliderEditAt, now, SLIDER_SNAPSHOT_DEBOUNCE_MS);
+    lastSliderEditAt = now;
+    updateNodeData(id, (current) => ({ ...current, curve: { ...current.curve, config: { ...current.curve.config, duty } } }), takeSnapshot);
+  }
 
   const nodeWarnings = getContext('galeNodeWarnings');
   let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
@@ -70,7 +85,13 @@
       </div>
     </div>
   {/if}
-  {#if chart}
+  {#if config.type === 'flat' && !compact}
+    <div class="row control nodrag" data-testid="node-flat-slider">
+      <input type="range" min="0" max="100" step="1" value={config.duty} aria-label="Duty" oninput={setFlatDuty} />
+      <span class="val duty mono">{Math.round(config.duty)}<span class="unit">%</span></span>
+    </div>
+  {/if}
+  {#if chart && !compact}
     <div class="chart">
       <svg viewBox="0 0 {CHART_W} {CHART_H}" preserveAspectRatio="none">
         <path d={chart.area} class="area" />

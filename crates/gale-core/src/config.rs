@@ -85,6 +85,8 @@ pub struct UiConfig {
     #[serde(default)]
     pub hidden: BTreeMap<String, Vec<String>>,
     #[serde(default)]
+    pub compact: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
     pub dashboard: DashboardUiConfig,
 }
 

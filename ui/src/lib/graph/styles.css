@@ -650,3 +650,14 @@
     bottom: 84px;
   }
 }
+
+.gale-canvas .node .row.control {
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.gale-canvas .node .row.control input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--duty, #f2a33a);
+}
