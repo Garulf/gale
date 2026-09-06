@@ -58,7 +58,7 @@ export function autoLayout(nodes, edges) {
       position: { x: laidOut.x, y: laidOut.y },
     };
   });
-  return pinDeviceColumns(positioned, edges);
+  return pinOuterColumns(positioned, edges);
 }
 
 const COLUMN_GAP = 80;
@@ -88,19 +88,19 @@ function stackColumn(column, x, top, edges) {
     });
 }
 
-function pinDeviceColumns(nodes, edges) {
+function pinOuterColumns(nodes, edges) {
   const middle = nodes.filter((node) => !isPinned(node));
-  const sensors = nodes.filter(pinsLeft);
-  const controls = nodes.filter(pinsRight);
-  if (sensors.length === 0 && controls.length === 0) return nodes;
+  const leftColumn = nodes.filter(pinsLeft);
+  const rightColumn = nodes.filter(pinsRight);
+  if (leftColumn.length === 0 && rightColumn.length === 0) return nodes;
 
   const anchor = middle.length > 0 ? middle : nodes;
   const left = Math.min(...anchor.map((node) => node.position.x));
   const right = Math.max(...anchor.map((node) => node.position.x));
   const top = Math.min(...anchor.map((node) => node.position.y));
 
-  const sensorColumn = stackColumn(sensors, left - NODE_WIDTH - COLUMN_GAP, top, edges);
-  const controlColumn = stackColumn(controls, right + NODE_WIDTH + COLUMN_GAP, top, edges);
-  const byId = new Map([...sensorColumn, ...controlColumn].map((node) => [node.id, node]));
+  const leftPlaced = stackColumn(leftColumn, left - NODE_WIDTH - COLUMN_GAP, top, edges);
+  const rightPlaced = stackColumn(rightColumn, right + NODE_WIDTH + COLUMN_GAP, top, edges);
+  const byId = new Map([...leftPlaced, ...rightPlaced].map((node) => [node.id, node]));
   return nodes.map((node) => byId.get(node.id) || node);
 }
