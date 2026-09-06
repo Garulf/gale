@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.5.0](https://github.com/Garulf/gale/compare/gale-v0.4.0...gale-v0.5.0) (2026-09-05)
+
+
+### Features
+
+* **controls:** per-control minimum, start and stop duty ([0784057](https://github.com/Garulf/gale/commit/0784057f61aaec636867921fc6a1341680f77a38))
+* **curves:** add a linear curve type ([7d98fa4](https://github.com/Garulf/gale/commit/7d98fa49496a6cd118bc46230e73744053733334))
+* **curves:** add a linear curve type ([e18021d](https://github.com/Garulf/gale/commit/e18021d08bd86ae6043c30edf4d68f2a70a79069))
+* **curves:** deadband and idle temperature on target curves ([f0575fc](https://github.com/Garulf/gale/commit/f0575fcbde80e035fe818857e9be68344d471319))
+* **curves:** hysteresis and response limiting on linear and trigger curves ([e0af217](https://github.com/Garulf/gale/commit/e0af2172cb1fccdeb885c0a4318208a219eb299a))
+* **dashboard:** edit mode to hide sensors and fans ([6f550de](https://github.com/Garulf/gale/commit/6f550de1c190cd1fd51f41f94ac97886294984aa))
+* **dashboard:** edit mode to hide sensors and fans ([0b1fb06](https://github.com/Garulf/gale/commit/0b1fb06c237267a4a9ec10e216da9dd9e06d5432))
+* FanControl parity for control limits, mix functions and curve smoothing ([1d707e7](https://github.com/Garulf/gale/commit/1d707e7028bbeefd900238805de26af76ce9feec))
+* **graph:** node palette by operation and a duty offset curve ([33c1e96](https://github.com/Garulf/gale/commit/33c1e96c4d18a0b293bef439fbe121d80cc64da9))
+* **graph:** node palette by operation and a duty offset curve ([4f4749b](https://github.com/Garulf/gale/commit/4f4749b166a8cf61614fb55fe284dce01cb25ec5))
+* **labels:** rename hardware sensors and fans ([b3668f5](https://github.com/Garulf/gale/commit/b3668f55eb5ba1774b5429e9f241c732a1166287))
+* **labels:** rename hardware sensors and fans ([25a40a6](https://github.com/Garulf/gale/commit/25a40a60023b813732bb2cf025a731e07b0ddd17))
+* **operators:** sum and subtract for mix curves and virtual sensors ([85a8499](https://github.com/Garulf/gale/commit/85a84996aee9033991fd23e3904a2f6c8b339eab))
+* **presets:** add curve presets to the config model with three built-in shapes ([6822202](https://github.com/Garulf/gale/commit/68222028d83ad5c7316b109cf3226a2a41496695))
+* **presets:** curve presets with built-in Quiet, Balanced and Performance shapes ([10a7789](https://github.com/Garulf/gale/commit/10a7789bff30d927ee724c11b6ff7475191ed974))
+* **presets:** serve, save and delete curve presets over the API ([08d26c3](https://github.com/Garulf/gale/commit/08d26c399d1cf1cbb57bfce3132ec10cb5cbe0d5))
+* **presets:** smoke checks and docs for curve presets ([60f3f92](https://github.com/Garulf/gale/commit/60f3f92a51e8f57b5bf8a3648dd0b9af8ea1e58c))
+* **ui:** duplicate curve, combine and virtual nodes ([0795f6b](https://github.com/Garulf/gale/commit/0795f6bcffe3a27651e65eb0a4f07041e6df98a9))
+* **ui:** duplicate curve, combine and virtual nodes ([b0d1a03](https://github.com/Garulf/gale/commit/b0d1a033882589a0699b80f46756692d0045a289))
+* **ui:** load, save and delete curve presets from the node panel ([f3c8329](https://github.com/Garulf/gale/commit/f3c8329802a55145c822608ea1a7137726d169a8))
+* **ui:** preset store, api calls and applyPreset graph edit ([0714f18](https://github.com/Garulf/gale/commit/0714f18c3803ab40feab9bedfa078ec3a0ee515b))
+* **ui:** redesign the web UI around the instrument design direction ([8d77614](https://github.com/Garulf/gale/commit/8d77614d5522dbdd31d6b894b1f8e50d83646d5d))
+* **ui:** redesign the web UI around the instrument design direction ([f0d6d35](https://github.com/Garulf/gale/commit/f0d6d35186ff16e570d72d06b08a060e45ee56c6))
+
+
+### Bug Fixes
+
+* **ui:** hide edge value labels on connections not yet saved ([6e72b5a](https://github.com/Garulf/gale/commit/6e72b5afb243fd98c60b5ab674204f4407fabfef))
+* **ui:** hide edge value labels on connections not yet saved ([733d90b](https://github.com/Garulf/gale/commit/733d90b2a5eed09c8b03c5a5de9e5215d1c78128))
+* **ui:** resolve the review findings on the redesigned web UI ([e91cb17](https://github.com/Garulf/gale/commit/e91cb177a5059b5b467eb1c642b9d7f02606dbea))
+
 ## [0.4.0](https://github.com/Garulf/gale/compare/gale-v0.3.0...gale-v0.4.0) (2026-09-04)
 
 
