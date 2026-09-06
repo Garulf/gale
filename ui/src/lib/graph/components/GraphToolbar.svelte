@@ -15,6 +15,10 @@
     onDiscard,
     onToggleLabels,
     onAddNode,
+    scopeName = '',
+    onExitScope,
+    canGroup = false,
+    onGroup,
   } = $props();
 
   let addMenuOpen = $state(false);
@@ -29,6 +33,15 @@
     onAddNode(entry, centerPosition());
     addMenuOpen = false;
   }
+
+  let lastScope = $state('');
+
+  $effect(() => {
+    if (scopeName !== lastScope) {
+      lastScope = scopeName;
+      setTimeout(() => fitView(), 0);
+    }
+  });
 </script>
 
 <div class="gale-toolbar">
@@ -53,6 +66,16 @@
       <button type="button" disabled={!canRedo} onclick={onRedo}>Redo</button>
       <button type="button" onclick={onToggleLabels}>Labels {showEdgeLabels ? 'on' : 'off'}</button>
     </div>
+    <div class="group">
+      <button type="button" data-testid="graph-group" disabled={!canGroup} onclick={onGroup}>Group</button>
+    </div>
+    {#if scopeName}
+      <nav class="breadcrumb" aria-label="Graph scope">
+        <button type="button" data-testid="graph-scope-root" onclick={onExitScope}>Graph</button>
+        <span>›</span>
+        <strong data-testid="graph-scope-name">{scopeName}</strong>
+      </nav>
+    {/if}
   </div>
   <div>
     {#if dirty}

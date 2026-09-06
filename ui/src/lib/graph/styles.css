@@ -710,3 +710,19 @@
   opacity: 0.85;
   border-style: dotted;
 }
+
+.gale-toolbar .breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  font-size: 12px;
+}
+
+.gale-toolbar .breadcrumb button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+}

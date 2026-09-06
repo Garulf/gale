@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy, setContext, tick } from 'svelte';
+  import { onMount, onDestroy, setContext, tick, untrack } from 'svelte';
   import { SvelteFlow, Background } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
@@ -11,6 +11,18 @@
   import { configToGraph, graphToConfig, edgeInto, replaceEdge, withWiredRows } from '../lib/graph/model.js';
   import { isValidConnection } from '../lib/graph/validate.js';
   import { autoLayout } from '../lib/graph/layout.js';
+  import {
+    projectScope,
+    unprojectConnection,
+    createGroup,
+    ungroup,
+    setMembership,
+    renameMember,
+    dropMember,
+    groupOf,
+    isGroupNodeId,
+    isPortNodeId,
+  } from '../lib/graph/groups.js';
   import { nodeKind, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
@@ -24,6 +36,8 @@
   import VirtualNode from '../lib/graph/components/VirtualNode.svelte';
   import CurveNode from '../lib/graph/components/CurveNode.svelte';
   import CombineNode from '../lib/graph/components/CombineNode.svelte';
+  import GroupNode from '../lib/graph/components/GroupNode.svelte';
+  import PortNode from '../lib/graph/components/PortNode.svelte';
   import GaleEdge from '../lib/graph/components/GaleEdge.svelte';
   import NodePanel from '../lib/graph/components/NodePanel.svelte';
   import GraphToolbar from '../lib/graph/components/GraphToolbar.svelte';
@@ -35,6 +49,10 @@
   let editingProfile = $state('');
   let nodes = $state.raw([]);
   let edges = $state.raw([]);
+  let groups = $state.raw([]);
+  let scope = $state(null);
+  let viewNodes = $state.raw([]);
+  let viewEdges = $state.raw([]);
   let savedEdgeIds = $state.raw(new Set());
   let selectedNodeId = $state('');
   let dirty = $state(false);
@@ -104,8 +122,29 @@
     virtual: VirtualNode,
     curve: CurveNode,
     combine: CombineNode,
+    group: GroupNode,
+    port: PortNode,
   };
   const edgeTypes = { gale: GaleEdge };
+
+  function carryCanvasState(previous, next) {
+    const byId = new Map(previous.map((node) => [node.id, node]));
+    return next.map((node) => {
+      const old = byId.get(node.id);
+      if (!old) return node;
+      return { ...node, selected: old.selected === true, measured: old.measured, width: old.width, height: old.height };
+    });
+  }
+
+  $effect(() => {
+    if (scope && !groups.some((group) => group.id === scope)) {
+      scope = null;
+      return;
+    }
+    const view = projectScope(nodes, edges, groups, scope);
+    viewNodes = carryCanvasState(untrack(() => viewNodes), view.nodes);
+    viewEdges = toFlowEdges(view.edges, showEdgeLabels);
+  });
 
   function hideNode(id) {
     snapshotHistory();
@@ -172,6 +211,8 @@
       const graph = configToGraph(config, inventory, editingProfile);
       nodes = graph.nodes;
       edges = toFlowEdges(graph.edges, showEdgeLabels);
+      groups = graph.groups;
+      scope = null;
       savedEdgeIds = new Set(edges.map((edge) => edge.id));
       selectedNodeId = '';
       history = [];
@@ -190,6 +231,8 @@
     const graph = configToGraph(config, inventory, profile);
     nodes = graph.nodes;
     edges = toFlowEdges(graph.edges, showEdgeLabels);
+    groups = graph.groups;
+    scope = null;
     savedEdgeIds = new Set(edges.map((edge) => edge.id));
     selectedNodeId = '';
     history = [];
@@ -234,6 +277,8 @@
       target = attributeWarning(focus.warning, nodes, edges)[0] || '';
     }
     if (target && nodes.some((node) => node.id === target)) {
+      const owner = groupOf(groups, target);
+      if (owner !== scope) scope = owner;
       selectNode(target);
     }
   }
@@ -248,7 +293,7 @@
     return JSON.parse(JSON.stringify(value));
   }
 
-  function cloneGraph(rawNodes, rawEdges) {
+  function cloneGraph(rawNodes, rawEdges, rawGroups) {
     return {
       nodes: rawNodes.map((node) => ({
         id: node.id,
@@ -268,11 +313,12 @@
         class: edge.class,
         data: cloneData(edge.data),
       })),
+      groups: rawGroups.map((group) => ({ ...group, position: { ...group.position }, members: [...group.members] })),
     };
   }
 
   function snapshotHistory() {
-    history = [...history, cloneGraph(nodes, edges)];
+    history = [...history, cloneGraph(nodes, edges, groups)];
   }
 
   function pruneStaleSelection() {
@@ -283,22 +329,24 @@
 
   function undo() {
     if (history.length === 0) return;
-    future = [cloneGraph(nodes, edges), ...future];
+    future = [cloneGraph(nodes, edges, groups), ...future];
     const previous = history[history.length - 1];
     history = history.slice(0, -1);
     nodes = previous.nodes;
     edges = previous.edges;
+    groups = previous.groups;
     dirty = true;
     pruneStaleSelection();
   }
 
   function redo() {
     if (future.length === 0) return;
-    history = [...history, cloneGraph(nodes, edges)];
+    history = [...history, cloneGraph(nodes, edges, groups)];
     const next = future[0];
     future = future.slice(1);
     nodes = next.nodes;
     edges = next.edges;
+    groups = next.groups;
     dirty = true;
     pruneStaleSelection();
   }
@@ -307,7 +355,22 @@
     snapshotHistory();
   }
 
+  function writeBackPositions(sourceNodes) {
+    const positions = new Map(sourceNodes.map((node) => [node.id, node.position]));
+    nodes = nodes.map((node) => {
+      const position = positions.get(node.id);
+      return position && (position.x !== node.position.x || position.y !== node.position.y)
+        ? { ...node, position: { x: position.x, y: position.y } }
+        : node;
+    });
+    groups = groups.map((group) => {
+      const position = positions.get(`group:${group.id}`);
+      return position ? { ...group, position: { x: position.x, y: position.y } } : group;
+    });
+  }
+
   function onNodeDragStop() {
+    writeBackPositions(viewNodes);
     dirty = true;
     future = [];
   }
@@ -345,7 +408,9 @@
     future = [];
   }
 
-  function onBeforeConnect(connection) {
+  function onBeforeConnect(canvasConnection) {
+    const connection = unprojectConnection(canvasConnection);
+    if (!connection) return false;
     if (!isValidConnection(connection, nodes, edges)) return false;
     const newEdge = buildEdge(connection);
     const existing = edgeInto(edges, connection.target, connection.targetHandle);
@@ -360,18 +425,25 @@
     return false;
   }
 
-  function onBeforeDelete({ nodes: deletedNodes }) {
-    const blocksDelete = deletedNodes.some(
-      (node) => node.type === 'deviceSensor' || node.type === 'deviceControl'
+  function onBeforeDelete({ nodes: deletedNodes, edges: deletedEdges }) {
+    const removable = deletedNodes.filter(
+      (node) => node.type !== 'deviceSensor' && node.type !== 'deviceControl' && node.type !== 'group' && node.type !== 'port'
     );
-    if (blocksDelete) return false;
+    const edgeIds = new Set(deletedEdges.map((edge) => edge.id));
+    if (removable.length === 0 && edgeIds.size === 0) return false;
     snapshotHistory();
+    const removedIds = new Set(removable.map((node) => node.id));
+    edges = edges.filter((edge) => !edgeIds.has(edge.id) && !removedIds.has(edge.source) && !removedIds.has(edge.target));
+    nodes = nodes.filter((node) => !removedIds.has(node.id));
+    for (const id of removedIds) groups = dropMember(groups, id);
+    if (removedIds.has(selectedNodeId)) selectedNodeId = '';
     dirty = true;
     future = [];
-    return true;
+    return false;
   }
 
   function onNodeClick({ node }) {
+    if (node.type === 'port') return;
     selectedNodeId = node.id;
     sheetOpen = true;
   }
@@ -387,10 +459,11 @@
     future = [];
   }
 
-  function applyEdit(edit) {
+  function applyEdit(edit, previousId) {
     snapshotHistory();
     nodes = edit.nodes;
     edges = edit.edges;
+    if (previousId && previousId !== edit.id) groups = renameMember(groups, previousId, edit.id);
     if (selectedNodeId !== edit.id) selectedNodeId = edit.id;
     dirty = true;
     future = [];
@@ -398,14 +471,14 @@
 
   function renameGraphNode(id, name) {
     if (nameInUse(nodes, nodeKind(id), name, id)) return `Name "${name}" is already in use`;
-    applyEdit(renameNode(nodes, edges, id, name));
+    applyEdit(renameNode(nodes, edges, id, name), id);
     return '';
   }
 
   function retypeNode(id, type) {
     const edit = nodeKind(id) === 'virtual' ? changeVirtualType(nodes, edges, id, type) : changeCurveType(nodes, edges, id, type);
     if (edit.nodes === nodes) return;
-    applyEdit(edit);
+    applyEdit(edit, id);
   }
 
   const DUPLICATE_OFFSET = 40;
@@ -418,8 +491,74 @@
     if (!result) return;
     snapshotHistory();
     nodes = result.nodes;
+    groups = setMembership(groups, result.id, groupOf(groups, id));
     selectedNodeId = result.id;
     sheetOpen = true;
+    dirty = true;
+    future = [];
+  }
+
+  function enterGroup(id) {
+    if (!groups.some((group) => group.id === id)) return;
+    scope = id;
+    selectedNodeId = '';
+  }
+
+  function exitScope() {
+    scope = null;
+    selectedNodeId = '';
+  }
+
+  setContext('galeEnterGroup', enterGroup);
+
+  let selectedViewIds = $derived(viewNodes.filter((node) => node.selected === true).map((node) => node.id));
+  let canGroup = $derived(
+    scope === null && selectedViewIds.length >= 2 && selectedViewIds.every((id) => !isGroupNodeId(id) && !isPortNodeId(id))
+  );
+  let scopeName = $derived(scope ? (groups.find((group) => group.id === scope) || { name: '' }).name : '');
+
+  function centroid(ids) {
+    const picked = viewNodes.filter((node) => ids.includes(node.id));
+    const x = picked.reduce((sum, node) => sum + node.position.x, 0) / picked.length;
+    const y = picked.reduce((sum, node) => sum + node.position.y, 0) / picked.length;
+    return { x, y };
+  }
+
+  function groupSelection() {
+    if (!canGroup) return;
+    const result = createGroup(groups, selectedViewIds, centroid(selectedViewIds));
+    if (!result.id) return;
+    snapshotHistory();
+    groups = result.groups;
+    selectedNodeId = `group:${result.id}`;
+    sheetOpen = true;
+    dirty = true;
+    future = [];
+  }
+
+  function ungroupById(id) {
+    snapshotHistory();
+    groups = ungroup(groups, id);
+    if (scope === id) scope = null;
+    if (selectedNodeId === `group:${id}`) selectedNodeId = '';
+    dirty = true;
+    future = [];
+  }
+
+  function renameGroup(id, name) {
+    const trimmed = name.trim();
+    if (!trimmed) return 'Group name cannot be empty';
+    snapshotHistory();
+    groups = groups.map((group) => (group.id === id ? { ...group, name: trimmed } : group));
+    dirty = true;
+    future = [];
+    return '';
+  }
+
+  function setNodeGroup(nodeId, groupId) {
+    if (isGroupNodeId(nodeId) || isPortNodeId(nodeId)) return;
+    snapshotHistory();
+    groups = setMembership(groups, nodeId, groupId || null);
     dirty = true;
     future = [];
   }
@@ -429,8 +568,19 @@
   }
 
   function onClipboardKey(event) {
-    if (!(event.ctrlKey || event.metaKey) || isTypingTarget(event.target)) return;
+    if (isTypingTarget(event.target)) return;
+    if (event.key === 'Escape' && scope) {
+      exitScope();
+      event.preventDefault();
+      return;
+    }
+    if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
+    if (key === 'g') {
+      groupSelection();
+      event.preventDefault();
+      return;
+    }
     if (key === 'c' && selectedNodeId && nodeKind(selectedNodeId) !== 'sensor' && nodeKind(selectedNodeId) !== 'control') {
       copiedNodeId = selectedNodeId;
       event.preventDefault();
@@ -484,13 +634,14 @@
   }
 
   function applyCurvePreset(id, preset) {
-    applyEdit(applyPreset(nodes, edges, id, preset));
+    applyEdit(applyPreset(nodes, edges, id, preset), id);
   }
 
   function deleteNode(id) {
     snapshotHistory();
     edges = edges.filter((edge) => edge.source !== id && edge.target !== id);
     nodes = nodes.filter((node) => node.id !== id);
+    groups = dropMember(groups, id);
     if (selectedNodeId === id) selectedNodeId = '';
     sheetOpen = false;
     dirty = true;
@@ -499,7 +650,7 @@
 
   function runAutoLayout() {
     snapshotHistory();
-    nodes = autoLayout(nodes, edges);
+    writeBackPositions(autoLayout(viewNodes, viewEdges));
     dirty = true;
     future = [];
   }
@@ -582,7 +733,7 @@
     saveWarnings = [];
     try {
       config = await getConfig();
-      const wireConfig = graphToConfig(nodes, edges, config, editingProfile);
+      const wireConfig = graphToConfig(nodes, edges, config, editingProfile, groups);
       const invalid = configValidationError(wireConfig);
       if (invalid) {
         error = invalid;
@@ -607,7 +758,7 @@
     await load();
   }
 
-  let selectedNode = $derived(nodes.find((node) => node.id === selectedNodeId) || null);
+  let selectedNode = $derived(viewNodes.find((node) => node.id === selectedNodeId) || nodes.find((node) => node.id === selectedNodeId) || null);
   let hiddenNodes = $derived(nodes.filter((node) => node.hidden === true));
   let visibleNodes = $derived(nodes.filter((node) => node.hidden !== true));
 
@@ -624,11 +775,14 @@
 <section class="gale-graph-page" data-mobile-view={mobileView} style="--gale-panel-width: {panelWidth}px">
   <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
     <SvelteFlow
-      bind:nodes
-      bind:edges
+      bind:nodes={viewNodes}
+      bind:edges={viewEdges}
       {nodeTypes}
       {edgeTypes}
-      isValidConnection={(connection) => isValidConnection(connection, nodes, edges)}
+      isValidConnection={(connection) => {
+        const flat = unprojectConnection(connection);
+        return flat !== null && isValidConnection(flat, nodes, edges);
+      }}
       onbeforeconnect={onBeforeConnect}
       onnodedragstart={onNodeDragStart}
       onnodedragstop={onNodeDragStop}
@@ -652,6 +806,10 @@
         onDiscard={discard}
         onToggleLabels={toggleEdgeLabels}
         onAddNode={addPaletteNode}
+        {scopeName}
+        onExitScope={exitScope}
+        {canGroup}
+        onGroup={groupSelection}
       />
       <ZoomControls />
     </SvelteFlow>
@@ -720,6 +878,11 @@
       onToggleRow={toggleRowHidden}
       onToggleCompact={toggleCompact}
       onHideNode={hideNode}
+      {groups}
+      onRenameGroup={renameGroup}
+      onUngroup={ungroupById}
+      onEnterGroup={enterGroup}
+      onSetMembership={setNodeGroup}
     />
     {#if saveWarnings.length > 0}
       <ul class="save-warnings">
@@ -750,6 +913,11 @@
           onToggleRow={toggleRowHidden}
           onToggleCompact={toggleCompact}
           onHideNode={hideNode}
+          {groups}
+          onRenameGroup={renameGroup}
+          onUngroup={ungroupById}
+          onEnterGroup={enterGroup}
+          onSetMembership={setNodeGroup}
           onClose={() => (sheetOpen = false)}
         />
       </div>
