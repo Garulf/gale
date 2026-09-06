@@ -25,6 +25,8 @@ function rowCount(node, edges) {
     const handles = isSingleInputCombineType(data.combine.config.type) ? 1 : numberedInputCount(connectedHandles(node, edges)) + 1;
     return handles + 1;
   }
+  if (node.type === 'group') return Math.max(data.group.inputs.length, data.group.outputs.length, 1) + 1;
+  if (node.type === 'port') return 2;
   return 2;
 }
 
@@ -62,8 +64,16 @@ export function autoLayout(nodes, edges) {
 const COLUMN_GAP = 80;
 const STACK_GAP = 24;
 
-function isDevice(node) {
-  return node.type === 'deviceSensor' || node.type === 'deviceControl';
+function pinsLeft(node) {
+  return node.type === 'deviceSensor' || (node.type === 'port' && node.data.port.direction === 'in');
+}
+
+function pinsRight(node) {
+  return node.type === 'deviceControl' || (node.type === 'port' && node.data.port.direction === 'out');
+}
+
+function isPinned(node) {
+  return pinsLeft(node) || pinsRight(node);
 }
 
 function stackColumn(column, x, top, edges) {
@@ -79,9 +89,9 @@ function stackColumn(column, x, top, edges) {
 }
 
 function pinDeviceColumns(nodes, edges) {
-  const middle = nodes.filter((node) => !isDevice(node));
-  const sensors = nodes.filter((node) => node.type === 'deviceSensor');
-  const controls = nodes.filter((node) => node.type === 'deviceControl');
+  const middle = nodes.filter((node) => !isPinned(node));
+  const sensors = nodes.filter(pinsLeft);
+  const controls = nodes.filter(pinsRight);
   if (sensors.length === 0 && controls.length === 0) return nodes;
 
   const anchor = middle.length > 0 ? middle : nodes;
