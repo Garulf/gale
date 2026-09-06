@@ -15,7 +15,26 @@
     onDiscard,
     onToggleLabels,
     onAddNode,
+    profiles = [],
+    editingProfile = '',
+    activeProfile = '',
+    onSwitchProfile,
+    onCreateProfile,
+    onDeleteProfile,
+    onActivateProfile,
   } = $props();
+
+  const NEW_PROFILE = '__new__';
+
+  function onProfileChange(event) {
+    const value = event.target.value;
+    if (value === NEW_PROFILE) {
+      event.target.value = editingProfile;
+      onCreateProfile();
+    } else {
+      onSwitchProfile(value);
+    }
+  }
 
   let addMenuOpen = $state(false);
 
@@ -44,6 +63,18 @@
             {/each}
           {/each}
         </div>
+      {/if}
+    </div>
+    <div class="group profile-group">
+      <select aria-label="Profile being edited" data-testid="graph-profile" value={editingProfile} onchange={onProfileChange}>
+        {#each profiles as name (name)}
+          <option value={name}>{name}{name === activeProfile ? ' · active' : ''}</option>
+        {/each}
+        <option value={NEW_PROFILE}>+ New profile…</option>
+      </select>
+      {#if editingProfile !== activeProfile}
+        <button type="button" data-testid="graph-activate" onclick={onActivateProfile}>Activate</button>
+        <button type="button" class="discard" data-testid="graph-delete-profile" onclick={onDeleteProfile}>Delete profile</button>
       {/if}
     </div>
     <div class="group">

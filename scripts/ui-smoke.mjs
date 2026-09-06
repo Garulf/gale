@@ -665,6 +665,28 @@ async function main() {
       });
     });
 
+    await record('a new blank profile can be created, edited separately from the active one, and deleted', async () => {
+      await page.evaluate(() => {
+        window.prompt = () => 'smoke_profile';
+        window.confirm = () => true;
+      });
+      await setPanelInput(page, 'graph-profile', '__new__');
+      await page.waitForFunction(() => document.querySelector('[data-testid="graph-profile"]').value === 'smoke_profile', { timeout: 5000 });
+      const config = await fetchConfig();
+      assert(config.profiles.smoke_profile && Object.keys(config.profiles.smoke_profile.curves).length === 0, 'blank profile missing');
+      assert(config.active_profile === 'default', 'creating a profile must not activate it');
+      assert(!(await page.$('[data-node-id="curve:cpu"]')), 'the blank profile should show no curve nodes');
+      await page.waitForSelector('[data-testid="graph-delete-profile"]', { timeout: 5000 });
+      await page.click('[data-testid="graph-delete-profile"]');
+      await page.waitForFunction(() => document.querySelector('[data-testid="graph-profile"]').value === 'default', { timeout: 5000 });
+      await page.waitForSelector('[data-node-id="curve:cpu"]', { timeout: 5000 });
+      const after = await fetchConfig();
+      assert(!after.profiles.smoke_profile, 'profile was not deleted');
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+
     await record('adding a max node wired from two sensors saves the expected TOML', async () => {
       const addedId = await addVirtualNode(page);
       await renameSelectedVirtualNode(page, NEW_SENSOR_NAME);

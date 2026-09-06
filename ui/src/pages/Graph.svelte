@@ -3,7 +3,8 @@
   import { SvelteFlow, Background } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
-  import { getConfig, putConfig, getInventory, putLabel, deleteLabel } from '../lib/api.js';
+  import { getConfig, putConfig, getInventory, putLabel, deleteLabel, createProfile, deleteProfile, activateProfile } from '../lib/api.js';
+  import { snapshot } from '../lib/store.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { refreshConfig } from '../lib/config.js';
   import { page, graphFocus } from '../lib/page.js';
@@ -112,7 +113,8 @@
       const [cfg, inv] = await Promise.all([getConfig(), getInventory()]);
       config = cfg;
       inventory = inv;
-      editingProfile = cfg.active_profile;
+      const requested = $graphFocus && $graphFocus.profile;
+      editingProfile = requested && cfg.profiles[requested] ? requested : editingProfile && cfg.profiles[editingProfile] ? editingProfile : cfg.active_profile;
       const graph = configToGraph(config, inventory, editingProfile);
       nodes = graph.nodes;
       edges = toFlowEdges(graph.edges, showEdgeLabels);
@@ -122,6 +124,66 @@
       future = [];
       dirty = false;
       applyFocus();
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  let profileNames = $derived(config ? Object.keys(config.profiles).sort() : []);
+  let activeProfile = $derived($snapshot ? $snapshot.active_profile : config ? config.active_profile : '');
+
+  function rebuildGraph(profile) {
+    editingProfile = profile;
+    const graph = configToGraph(config, inventory, profile);
+    nodes = graph.nodes;
+    edges = toFlowEdges(graph.edges, showEdgeLabels);
+    savedEdgeIds = new Set(edges.map((edge) => edge.id));
+    selectedNodeId = '';
+    history = [];
+    future = [];
+    dirty = false;
+  }
+
+  function switchProfile(name) {
+    if (!config || !config.profiles[name] || name === editingProfile) return;
+    if (dirty && !window.confirm('You have unsaved changes on this profile. Switch without saving?')) return;
+    rebuildGraph(name);
+  }
+
+  async function createGraphProfile() {
+    const name = (window.prompt('New profile name') || '').trim();
+    if (!name) return;
+    if (dirty && !window.confirm('You have unsaved changes on this profile. Continue without saving?')) return;
+    error = '';
+    try {
+      await createProfile(name);
+      config = await getConfig();
+      await refreshConfig();
+      rebuildGraph(name);
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  async function deleteGraphProfile() {
+    if (!window.confirm(`Delete profile "${editingProfile}"? This cannot be undone.`)) return;
+    error = '';
+    try {
+      await deleteProfile(editingProfile);
+      config = await getConfig();
+      await Promise.all([refreshConfig(), refreshWarnings()]);
+      rebuildGraph(config.active_profile);
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  async function activateEditingProfile() {
+    if (dirty && !window.confirm('Save the profile before activating it? Unsaved changes are not applied. Activate anyway?')) return;
+    error = '';
+    try {
+      await activateProfile(editingProfile);
+      await Promise.all([refreshConfig(), refreshWarnings()]);
     } catch (err) {
       error = err.message;
     }
@@ -542,6 +604,13 @@
       <Background gap={20} size={1} />
       <GraphToolbar
         {showEdgeLabels}
+        profiles={profileNames}
+        {editingProfile}
+        {activeProfile}
+        onSwitchProfile={switchProfile}
+        onCreateProfile={createGraphProfile}
+        onDeleteProfile={deleteGraphProfile}
+        onActivateProfile={activateEditingProfile}
         canUndo={history.length > 0}
         canRedo={future.length > 0}
         {saving}
@@ -578,7 +647,7 @@
   <div class="gale-chains" class:mobile-hidden={mobileView !== 'chains'}>
     <div class="chains-head">
       <div class="page-title">
-        <span class="eyebrow">Profile · {editingProfile}</span>
+        <span class="eyebrow">Profile · {editingProfile}{#if editingProfile !== activeProfile} · not active{/if}</span>
         <h1>Graph</h1>
       </div>
       <div class="chains-actions">

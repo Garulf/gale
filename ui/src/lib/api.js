@@ -136,3 +136,11 @@ export function putControlSettings(id, settings) {
     body: JSON.stringify(settings),
   });
 }
+
+export function createProfile(name) {
+  return requestJson(`/api/profiles/${encodeURIComponent(name)}`, { method: 'PUT' });
+}
+
+export function deleteProfile(name) {
+  return requestJson(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
