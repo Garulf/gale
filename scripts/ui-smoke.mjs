@@ -663,6 +663,20 @@ async function main() {
       }
     });
 
+    await record('backspace on a device node deletes nothing, keeping its connections', async () => {
+      await fitView(page);
+      const before = await page.$$eval('.svelte-flow__edge', (els) => els.length);
+      assert(before > 0, 'expected at least one edge on the canvas');
+      const control = await centerOf(page, `[data-node-id="${CONTROL_NODE}"] h4`);
+      await page.mouse.click(control.x, control.y);
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.keyboard.press('Backspace');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const after = await page.$$eval('.svelte-flow__edge', (els) => els.length);
+      assert(after === before, `backspace on a device node changed the edge count from ${before} to ${after}`);
+      assert(await page.$(`[data-node-id="${CONTROL_NODE}"]`), 'the device node should still be on the canvas');
+    });
+
     await record('grouping two selected nodes folds them into one group node', async () => {
       await fitView(page);
       const ids = await page.$$eval('[data-node-id^="curve:"]', (els) => els.map((el) => el.getAttribute('data-node-id')).slice(0, 2));

@@ -157,7 +157,9 @@ pub struct DashboardUiConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GroupUiConfig {
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub position: [f64; 2],
     #[serde(default)]
     pub members: Vec<String>,
@@ -1813,6 +1815,23 @@ members = ["curve:rad_coolant", "combine:radiator_zone"]
 
         let bare = GaleConfig::from_toml(SAMPLE).unwrap();
         assert!(bare.ui.groups.is_empty());
+    }
+
+    #[test]
+    fn ui_group_without_name_or_position_parses_with_defaults() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default]
+
+[ui.groups.default.g2]
+members = ["curve:cpu"]
+"#;
+        let cfg = GaleConfig::from_toml(toml).unwrap();
+        let group = &cfg.ui.groups["default"]["g2"];
+        assert_eq!(group.name, "");
+        assert_eq!(group.position, [0.0, 0.0]);
+        assert_eq!(group.members, vec!["curve:cpu"]);
     }
 
     #[test]

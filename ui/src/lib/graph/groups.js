@@ -150,7 +150,7 @@ function projectRoot(nodes, edges, groups) {
     viewEdges.push(projected);
   }
 
-  const viewNodes = nodes.filter((node) => !groupByMember.has(node.id));
+  const viewNodes = nodes.filter((node) => !groupByMember.has(node.id)).map((node) => ({ ...node }));
   for (const group of groups) {
     const own = ports.get(group.id);
     viewNodes.push({
@@ -217,7 +217,10 @@ function projectGroup(nodes, edges, groups, scope) {
   }
 
   const memberNodes = nodes.filter((node) => members.has(node.id));
-  return { nodes: [...memberNodes, ...placePorts([...ports.values()], memberNodes)], edges: viewEdges };
+  return {
+    nodes: [...memberNodes.map((node) => ({ ...node })), ...placePorts([...ports.values()], memberNodes)],
+    edges: viewEdges,
+  };
 }
 
 export function projectScope(nodes, edges, groups, scope) {
@@ -226,8 +229,14 @@ export function projectScope(nodes, edges, groups, scope) {
 
 export function unprojectConnection(connection) {
   let { source, sourceHandle, target, targetHandle } = connection;
-  if (isGroupNodeId(source)) ({ nodeId: source, handle: sourceHandle } = parseGroupHandleId(sourceHandle));
-  if (isGroupNodeId(target)) ({ nodeId: target, handle: targetHandle } = parseGroupHandleId(targetHandle));
+  if (isGroupNodeId(source)) {
+    if (typeof sourceHandle !== 'string') return null;
+    ({ nodeId: source, handle: sourceHandle } = parseGroupHandleId(sourceHandle));
+  }
+  if (isGroupNodeId(target)) {
+    if (typeof targetHandle !== 'string') return null;
+    ({ nodeId: target, handle: targetHandle } = parseGroupHandleId(targetHandle));
+  }
   if (isPortNodeId(source)) {
     const parsed = parsePortNodeId(source);
     if (parsed.direction !== 'in') return null;

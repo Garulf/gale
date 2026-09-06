@@ -170,3 +170,26 @@ test('unprojectConnection maps group handles and ports back to flat endpoints an
   assert.equal(unprojectConnection({ source: 'port:out:combine:blend:in-0', sourceHandle: 'port', target: 'curve:cpu', targetHandle: 'sensor' }), null);
   assert.equal(unprojectConnection({ source: 'curve:cpu', sourceHandle: 'out', target: 'port:in:sensor:nvidia/0:nvidia/0/temp', targetHandle: 'port' }), null);
 });
+
+test('unprojectConnection returns null when a group endpoint has no handle id', () => {
+  assert.equal(
+    unprojectConnection({ source: 'group:g1', sourceHandle: null, target: 'curve:cpu', targetHandle: 'sensor' }),
+    null
+  );
+  assert.equal(
+    unprojectConnection({ source: 'group:g1', target: 'curve:cpu', targetHandle: 'sensor' }),
+    null
+  );
+  assert.equal(
+    unprojectConnection({ source: 'sensor:nvidia/0', sourceHandle: 'nvidia/0/temp', target: 'group:g1', targetHandle: null }),
+    null
+  );
+});
+
+test('projectScope never hands a member node object back to the caller', () => {
+  const { nodes, edges, groups } = zoneFixture();
+  const root = projectScope(nodes, edges, groups, null);
+  for (const node of root.nodes) assert.ok(!nodes.includes(node), `${node.id} aliases the flat node`);
+  const inside = projectScope(nodes, edges, groups, 'g1');
+  for (const node of inside.nodes) assert.ok(!nodes.includes(node), `${node.id} aliases the flat node`);
+});

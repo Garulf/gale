@@ -1,5 +1,5 @@
 <script>
-  import { untrack } from 'svelte';
+  import { getContext, untrack } from 'svelte';
   import { curvePoints as curvePointsFor } from '../../curveMath.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
@@ -15,6 +15,18 @@
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
   let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership } = $props();
+
+  const nodeWarnings = getContext('galeNodeWarnings');
+
+  function memberName(memberId) {
+    return memberId.slice(memberId.indexOf(':') + 1);
+  }
+
+  function groupMemberWarnings(members) {
+    if (!nodeWarnings) return [];
+    const all = nodeWarnings();
+    return members.flatMap((member) => (all[member] || []).map((message) => `${memberName(member)}: ${message}`));
+  }
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -545,6 +557,7 @@
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
 {:else if node.type === 'group'}
   {@const group = node.data.group}
+  {@const memberWarnings = groupMemberWarnings(group.members)}
   <div class="identity">
     <span class="kind group"></span>
     <input
@@ -563,11 +576,18 @@
   <ul class="members" data-testid="group-members">
     {#each group.members as member (member)}
       <li>
-        <span class="mono">{member.slice(member.indexOf(':') + 1)}</span>
+        <span class="mono">{memberName(member)}</span>
         <button type="button" class="btn" onclick={() => onSetMembership(member, '')}>Remove</button>
       </li>
     {/each}
   </ul>
+  {#if memberWarnings.length > 0}
+    <ul class="save-warnings" data-testid="group-warnings">
+      {#each memberWarnings as warning}
+        <li>{warning}</li>
+      {/each}
+    </ul>
+  {/if}
   <div class="actions">
     <button type="button" class="btn" data-testid="group-enter" onclick={() => onEnterGroup(group.id)}>Open</button>
     <button type="button" class="btn danger delete" data-testid="group-ungroup" onclick={() => onUngroup(group.id)}>Ungroup</button>
@@ -889,6 +909,13 @@
 
   .kind.duty {
     background: var(--duty);
+  }
+
+  .save-warnings {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: var(--warn);
+    font-size: 0.85rem;
   }
 
   .kind.group {

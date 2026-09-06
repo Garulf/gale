@@ -20,6 +20,7 @@
     renameMember,
     dropMember,
     groupOf,
+    groupNodeId,
     isGroupNodeId,
     isPortNodeId,
     groupIdOf,
@@ -132,7 +133,7 @@
     const byId = new Map(previous.map((node) => [node.id, node]));
     return next.map((node) => {
       const old = byId.get(node.id);
-      if (!old) return node;
+      if (!old) return { ...node };
       return { ...node, selected: node.selected === true || old.selected === true, measured: old.measured, width: old.width, height: old.height };
     });
   }
@@ -368,7 +369,7 @@
         : node;
     });
     groups = groups.map((group) => {
-      const position = positions.get(`group:${group.id}`);
+      const position = positions.get(groupNodeId(group.id));
       return position && (position.x !== group.position.x || position.y !== group.position.y)
         ? { ...group, position: { x: position.x, y: position.y } }
         : group;
@@ -431,11 +432,18 @@
     return false;
   }
 
+  function isRemovableType(type) {
+    return type !== 'deviceSensor' && type !== 'deviceControl' && type !== 'group' && type !== 'port';
+  }
+
   function onBeforeDelete({ nodes: deletedNodes, edges: deletedEdges }) {
-    const removable = deletedNodes.filter(
-      (node) => node.type !== 'deviceSensor' && node.type !== 'deviceControl' && node.type !== 'group' && node.type !== 'port'
+    const removable = deletedNodes.filter((node) => isRemovableType(node.type));
+    const refused = new Set(deletedNodes.filter((node) => !isRemovableType(node.type)).map((node) => node.id));
+    const edgeIds = new Set(
+      deletedEdges
+        .filter((edge) => edge.selected === true || (!refused.has(edge.source) && !refused.has(edge.target)))
+        .map((edge) => edge.id)
     );
-    const edgeIds = new Set(deletedEdges.map((edge) => edge.id));
     if (removable.length === 0 && edgeIds.size === 0) return false;
     snapshotHistory();
     const removedIds = new Set(removable.map((node) => node.id));
@@ -505,7 +513,8 @@
     if (!result) return;
     snapshotHistory();
     nodes = result.nodes;
-    groups = setMembership(groups, result.id, groupOf(groups, id));
+    const sourceGroup = groupOf(groups, id);
+    groups = setMembership(groups, result.id, scope && sourceGroup !== scope ? scope : sourceGroup);
     selectedNodeId = result.id;
     sheetOpen = true;
     dirty = true;
@@ -544,7 +553,7 @@
     if (!result.id) return;
     snapshotHistory();
     groups = result.groups;
-    selectedNodeId = `group:${result.id}`;
+    selectedNodeId = groupNodeId(result.id);
     sheetOpen = true;
     dirty = true;
     future = [];
@@ -554,7 +563,7 @@
     snapshotHistory();
     groups = ungroup(groups, id);
     if (scope === id) scope = null;
-    if (selectedNodeId === `group:${id}`) selectedNodeId = '';
+    if (selectedNodeId === groupNodeId(id)) selectedNodeId = '';
     dirty = true;
     future = [];
   }
