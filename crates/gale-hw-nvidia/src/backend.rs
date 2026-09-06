@@ -20,6 +20,7 @@ pub struct NvidiaBackend {
     sensors: HashMap<Id, SensorTarget>,
     controls: HashMap<Id, FanControl>,
     claimed: HashSet<Id>,
+    driver_controlled: HashSet<Id>,
 }
 
 impl NvidiaBackend {
@@ -38,6 +39,7 @@ impl NvidiaBackend {
             sensors: HashMap::new(),
             controls: HashMap::new(),
             claimed: HashSet::new(),
+            driver_controlled: HashSet::new(),
         }
     }
 }
@@ -71,6 +73,7 @@ impl Backend for NvidiaBackend {
         self.sensors.clear();
         self.controls.clear();
         self.claimed.clear();
+        self.driver_controlled.clear();
         let mut inventory = Inventory::default();
         let Some(facade) = &self.facade else {
             return Ok(inventory);
@@ -155,10 +158,6 @@ impl Backend for NvidiaBackend {
         if !pct.is_finite() {
             return Err(non_finite_error(id));
         }
-        let clamped = pct
-            .clamp(0.0, 100.0)
-            .clamp(control.min_duty, control.max_duty)
-            .round();
         let facade = self
             .facade
             .as_ref()
@@ -166,9 +165,24 @@ impl Backend for NvidiaBackend {
         let mut device = facade
             .device(control.gpu)
             .map_err(|error| device_error(id, error))?;
+        if pct <= 0.0 {
+            if !self.driver_controlled.contains(id) {
+                device
+                    .restore_fan_default(control.fan)
+                    .map_err(|error| device_error(id, error))?;
+                self.driver_controlled.insert(id.to_string());
+            }
+            self.claimed.insert(id.to_string());
+            return Ok(());
+        }
+        let clamped = pct
+            .clamp(0.0, 100.0)
+            .clamp(control.min_duty, control.max_duty)
+            .round();
         device
             .set_fan_duty(control.fan, clamped)
             .map_err(|error| device_error(id, error))?;
+        self.driver_controlled.remove(id);
         self.claimed.insert(id.to_string());
         Ok(())
     }
@@ -179,6 +193,9 @@ impl Backend for NvidiaBackend {
             .get(id)
             .ok_or_else(|| HwError::UnknownId(id.to_string()))?;
         if !self.claimed.remove(id) {
+            return Ok(());
+        }
+        if self.driver_controlled.remove(id) {
             return Ok(());
         }
         let facade = self
@@ -364,10 +381,51 @@ mod tests {
         backend.enumerate().unwrap();
         backend.set_duty("nvidia/0/fan0", 150.0).unwrap();
         assert_eq!(state.lock().unwrap().duty[&0], Some(100.0));
-        backend.set_duty("nvidia/0/fan0", -5.0).unwrap();
-        assert_eq!(state.lock().unwrap().duty[&0], Some(0.0));
         backend.set_duty("nvidia/0/fan0", 33.6).unwrap();
         assert_eq!(state.lock().unwrap().duty[&0], Some(34.0));
+    }
+
+    #[test]
+    fn zero_duty_hands_the_fan_back_to_the_driver_instead_of_writing() {
+        let (mut backend, state) = single_gpu(1);
+        state.lock().unwrap().fan_range.insert(0, (30.0, 100.0));
+        backend.enumerate().unwrap();
+
+        backend.set_duty("nvidia/0/fan0", 0.0).unwrap();
+        assert_eq!(state.lock().unwrap().duty[&0], Some(40.0));
+        assert_eq!(state.lock().unwrap().restored, vec![0]);
+
+        backend.set_duty("nvidia/0/fan0", -5.0).unwrap();
+        backend.set_duty("nvidia/0/fan0", 0.0).unwrap();
+        assert_eq!(state.lock().unwrap().restored, vec![0]);
+    }
+
+    #[test]
+    fn positive_duty_after_zero_reclaims_manual_control_and_zero_again_restores_again() {
+        let (mut backend, state) = single_gpu(1);
+        backend.enumerate().unwrap();
+
+        backend.set_duty("nvidia/0/fan0", 0.0).unwrap();
+        backend.set_duty("nvidia/0/fan0", 55.0).unwrap();
+        assert_eq!(state.lock().unwrap().duty[&0], Some(55.0));
+        assert_eq!(state.lock().unwrap().restored, vec![0]);
+
+        backend.set_duty("nvidia/0/fan0", 0.0).unwrap();
+        assert_eq!(state.lock().unwrap().restored, vec![0, 0]);
+    }
+
+    #[test]
+    fn release_after_zero_duty_does_not_restore_a_second_time() {
+        let (mut backend, state) = single_gpu(1);
+        backend.enumerate().unwrap();
+
+        backend.set_duty("nvidia/0/fan0", 0.0).unwrap();
+        backend.release("nvidia/0/fan0").unwrap();
+        assert_eq!(state.lock().unwrap().restored, vec![0]);
+
+        backend.set_duty("nvidia/0/fan0", 50.0).unwrap();
+        backend.release("nvidia/0/fan0").unwrap();
+        assert_eq!(state.lock().unwrap().restored, vec![0, 0]);
     }
 
     #[test]
