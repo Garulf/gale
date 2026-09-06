@@ -45,6 +45,10 @@ pub fn router(ctx: ApiContext) -> Router {
         .route("/presets", get(get_presets))
         .route("/presets/:name", put(put_preset).delete(delete_preset))
         .route("/warnings", get(get_warnings))
+        .route(
+            "/profiles/:name",
+            put(create_profile).delete(delete_profile),
+        )
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
         .route("/webhook/:token", post(post_webhook))
@@ -405,6 +409,55 @@ async fn put_config(State(ctx): State<ApiContext>, Json(mut config): Json<GaleCo
                 (StatusCode::OK, Json(WarningsResponse { warnings })).into_response()
             }
         }
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn create_profile(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
+    let name = name.trim().to_string();
+    if name.is_empty() || name.contains('/') {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "profile name must not be empty or contain '/'",
+        )
+            .into_response();
+    }
+    let mut config = ctx.host.config();
+    if config.profiles.contains_key(&name) {
+        return (
+            StatusCode::CONFLICT,
+            format!("profile '{name}' already exists"),
+        )
+            .into_response();
+    }
+    config
+        .profiles
+        .insert(name, gale_core::config::ProfileConfig::default());
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => config_error_response(error),
+    }
+}
+
+async fn delete_profile(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
+    let mut config = ctx.host.config();
+    if !config.profiles.contains_key(&name) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if config.active_profile == name {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("profile '{name}' is active; activate another profile first"),
+        )
+            .into_response();
+    }
+    config.profiles.remove(&name);
+    if let Some(graph) = config.ui.graph.remove(&name) {
+        tracing::debug!(positions = graph.len(), profile = %name, "dropped saved layout with profile");
+    }
+    config.ui.hidden.remove(&name);
+    match apply_and_persist(&ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => config_error_response(error),
     }
 }
@@ -1264,6 +1317,63 @@ points = [[30.0, 20.0], [70.0, 100.0]]
                     .body(Body::empty())
                     .unwrap(),
             )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    fn profile_request(method: &str, name: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(format!("/api/profiles/{name}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn profiles_can_be_created_blank_and_deleted_unless_active() {
+        let (router, host) = make_router(None);
+        let response = router
+            .clone()
+            .oneshot(profile_request("PUT", "blank"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let created = &host.config().profiles["blank"];
+        assert!(
+            created.curves.is_empty()
+                && created.assignments.is_empty()
+                && created.sensors.is_empty()
+        );
+
+        let response = router
+            .clone()
+            .oneshot(profile_request("PUT", "blank"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let response = router
+            .clone()
+            .oneshot(profile_request("PUT", "a%2Fb"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let response = router
+            .clone()
+            .oneshot(profile_request("DELETE", "p"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let response = router
+            .clone()
+            .oneshot(profile_request("DELETE", "blank"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(!host.config().profiles.contains_key("blank"));
+        let response = router
+            .oneshot(profile_request("DELETE", "blank"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);

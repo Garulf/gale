@@ -3,6 +3,8 @@
   import { daemonConfig, refreshConfig } from '../config.js';
   import { activateProfile } from '../api.js';
   import { refreshWarnings } from '../warnings.js';
+  import { createProfile } from '../api.js';
+  import { openInGraph } from '../page.js';
 
   let { compact = false } = $props();
 
@@ -18,6 +20,20 @@
     try {
       await activateProfile(name);
       await Promise.all([refreshConfig(), refreshWarnings()]);
+    } catch (err) {
+      error = err.message;
+    }
+  }
+
+  async function createNew() {
+    open = false;
+    const name = (window.prompt('New profile name') || '').trim();
+    if (!name) return;
+    error = '';
+    try {
+      await createProfile(name);
+      await refreshConfig();
+      openInGraph({ profile: name });
     } catch (err) {
       error = err.message;
     }
@@ -51,6 +67,7 @@
       {#if profiles.length === 0}
         <span class="empty">No profiles loaded.</span>
       {/if}
+      <button type="button" class="new" data-testid="profile-new" onclick={createNew}>+ New profile…</button>
     </div>
   {/if}
   {#if error}
@@ -169,6 +186,14 @@
   .active {
     font-size: 10px;
     color: var(--accent);
+  }
+
+  .menu .new {
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    margin-top: 2px;
+    padding-top: 10px;
+    color: var(--muted);
   }
 
   .empty {
