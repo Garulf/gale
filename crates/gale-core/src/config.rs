@@ -144,6 +144,8 @@ pub struct UiConfig {
     #[serde(default)]
     pub compact: BTreeMap<String, Vec<String>>,
     #[serde(default)]
+    pub groups: BTreeMap<String, BTreeMap<String, GroupUiConfig>>,
+    #[serde(default)]
     pub dashboard: DashboardUiConfig,
 }
 
@@ -151,6 +153,18 @@ pub struct UiConfig {
 pub struct DashboardUiConfig {
     #[serde(default)]
     pub hidden: Vec<Id>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GroupUiConfig {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub position: [f64; 2],
+    #[serde(default)]
+    pub members: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1774,6 +1788,53 @@ default = ["sensor:corsair/commander-pro-0805009c9327"]
             round_tripped.ui.graph["default"]["sensor:hwmon/nct6798"],
             [40.0, 120.0]
         );
+    }
+
+    #[test]
+    fn ui_groups_round_trip_and_default_empty() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default]
+
+[ui.groups.default.g1]
+name = "Radiator"
+position = [940.0, 120.0]
+members = ["curve:rad_coolant", "combine:radiator_zone"]
+"#;
+        let cfg = GaleConfig::from_toml(toml).unwrap();
+        let group = &cfg.ui.groups["default"]["g1"];
+        assert_eq!(group.name, "Radiator");
+        assert_eq!(group.position, [940.0, 120.0]);
+        assert_eq!(
+            group.members,
+            vec!["curve:rad_coolant", "combine:radiator_zone"]
+        );
+        assert_eq!(group.parent, None);
+
+        let rendered = cfg.to_toml().unwrap();
+        assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
+        assert!(rendered.contains("[ui.groups.default.g1]"));
+
+        let bare = GaleConfig::from_toml(SAMPLE).unwrap();
+        assert!(bare.ui.groups.is_empty());
+    }
+
+    #[test]
+    fn ui_group_without_name_or_position_parses_with_defaults() {
+        let toml = r#"
+active_profile = "default"
+
+[profiles.default]
+
+[ui.groups.default.g2]
+members = ["curve:cpu"]
+"#;
+        let cfg = GaleConfig::from_toml(toml).unwrap();
+        let group = &cfg.ui.groups["default"]["g2"];
+        assert_eq!(group.name, "");
+        assert_eq!(group.position, [0.0, 0.0]);
+        assert_eq!(group.members, vec!["curve:cpu"]);
     }
 
     #[test]

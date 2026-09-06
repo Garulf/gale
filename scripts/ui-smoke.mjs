@@ -663,6 +663,74 @@ async function main() {
       }
     });
 
+    await record('backspace on a device node deletes nothing, keeping its connections', async () => {
+      await fitView(page);
+      const before = await page.$$eval('.svelte-flow__edge', (els) => els.length);
+      assert(before > 0, 'expected at least one edge on the canvas');
+      const control = await centerOf(page, `[data-node-id="${CONTROL_NODE}"] h4`);
+      await page.mouse.click(control.x, control.y);
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.keyboard.press('Backspace');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const after = await page.$$eval('.svelte-flow__edge', (els) => els.length);
+      assert(after === before, `backspace on a device node changed the edge count from ${before} to ${after}`);
+      assert(await page.$(`[data-node-id="${CONTROL_NODE}"]`), 'the device node should still be on the canvas');
+    });
+
+    await record('grouping two selected nodes folds them into one group node', async () => {
+      await fitView(page);
+      const ids = await page.$$eval('[data-node-id^="curve:"]', (els) => els.map((el) => el.getAttribute('data-node-id')).slice(0, 2));
+      assert(ids.length === 2, 'need two curve nodes to group');
+      const first = await centerOf(page, `[data-node-id="${ids[0]}"] h4`);
+      const second = await centerOf(page, `[data-node-id="${ids[1]}"] h4`);
+      await page.mouse.click(first.x, first.y);
+      await page.keyboard.down('Control');
+      await page.mouse.click(second.x, second.y);
+      await page.keyboard.up('Control');
+      await page.waitForFunction(() => !document.querySelector('[data-testid="graph-group"]').disabled, { timeout: 5000 });
+      await page.click('[data-testid="graph-group"]');
+      await page.waitForSelector('[data-node-id^="group:"]', { timeout: 5000 });
+      for (const id of ids) assert(!(await page.$(`[data-node-id="${id}"]`)), `${id} should be hidden inside the group`);
+    });
+
+    await record('opening the group shows its members, at least one port and a breadcrumb; the breadcrumb returns', async () => {
+      await page.click('[data-testid="group-enter"]');
+      await page.waitForSelector('[data-testid="graph-scope-name"]', { timeout: 5000 });
+      await page.waitForSelector('[data-node-id^="curve:"]', { timeout: 5000 });
+      await page.waitForSelector('[data-node-id^="port:"]', { timeout: 5000 });
+      await page.click('[data-testid="graph-scope-root"]');
+      await page.waitForSelector('[data-node-id^="group:"]', { timeout: 5000 });
+      assert(!(await page.$('[data-testid="graph-scope-name"]')), 'breadcrumb should be gone at the root');
+    });
+
+    await record('the group survives save and reload', async () => {
+      await saveGraph(page);
+      const cfg = await fetchConfig();
+      const stored = cfg.ui && cfg.ui.groups && cfg.ui.groups[cfg.active_profile];
+      assert(stored && Object.keys(stored).length === 1, 'ui.groups should hold one group');
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.waitForSelector('h2', { timeout: 5000 });
+      const clickedGraph = await page.evaluate(() => {
+        const button = Array.from(document.querySelectorAll('nav button')).find((b) => b.textContent.trim() === 'Graph');
+        if (!button) return false;
+        button.click();
+        return true;
+      });
+      assert(clickedGraph, 'Graph nav button not found after reload');
+      await page.waitForSelector('.svelte-flow', { timeout: 5000 });
+      await page.waitForSelector('[data-node-id^="group:"]', { timeout: 10000 });
+    });
+
+    await record('ungroup restores the members', async () => {
+      const groupId = await page.$eval('[data-node-id^="group:"]', (el) => el.getAttribute('data-node-id'));
+      const center = await centerOf(page, `[data-node-id="${groupId}"] h4`);
+      await page.mouse.click(center.x, center.y);
+      await page.waitForSelector('[data-testid="group-ungroup"]', { timeout: 5000 });
+      await page.click('[data-testid="group-ungroup"]');
+      await page.waitForFunction(() => !document.querySelector('[data-node-id^="group:"]'), { timeout: 5000 });
+      await saveGraph(page);
+    });
+
     await record('the palette adds a duty offset node under the combine id namespace', async () => {
       await page.evaluate(() => {
         document.querySelector('.gale-toolbar .add-node-menu > button').click();

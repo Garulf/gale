@@ -1,5 +1,5 @@
 <script>
-  import { untrack } from 'svelte';
+  import { getContext, untrack } from 'svelte';
   import { curvePoints as curvePointsFor } from '../../curveMath.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
@@ -14,7 +14,19 @@
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership } = $props();
+
+  const nodeWarnings = getContext('galeNodeWarnings');
+
+  function memberName(memberId) {
+    return memberId.slice(memberId.indexOf(':') + 1);
+  }
+
+  function groupMemberWarnings(members) {
+    if (!nodeWarnings) return [];
+    const all = nodeWarnings();
+    return members.flatMap((member) => (all[member] || []).map((message) => `${memberName(member)}: ${message}`));
+  }
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -64,6 +76,7 @@
   let nodeName = $derived(nameOf(node));
   let nameDraft = $state('');
   let nameError = $state('');
+  let groupNameError = $state('');
 
   let rowLabelError = $state('');
 
@@ -142,8 +155,10 @@
   }
 
   $effect(() => {
+    void node?.id;
     nameDraft = nodeName;
     nameError = '';
+    groupNameError = '';
   });
 
   function commitName() {
@@ -412,6 +427,18 @@
   </div>
 {/snippet}
 
+{#snippet membership()}
+  <label class="field">
+    <span>Group</span>
+    <select data-testid="node-group" value={groups.find((group) => group.members.includes(node.id))?.id || ''} onchange={(e) => onSetMembership(node.id, e.target.value)}>
+      <option value="">None</option>
+      {#each groups as group (group.id)}
+        <option value={group.id}>{group.name}</option>
+      {/each}
+    </select>
+  </label>
+{/snippet}
+
 {#snippet smoothing(withHysteresis)}
   {@const config = node.data.curve.config}
   {#snippet hysteresisFields()}
@@ -526,7 +553,45 @@
   {:else}
     <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor. Both save immediately to config.toml.</p>
   {/if}
+  {@render membership()}
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
+{:else if node.type === 'group'}
+  {@const group = node.data.group}
+  {@const memberWarnings = groupMemberWarnings(group.members)}
+  <div class="identity">
+    <span class="kind group"></span>
+    <input
+      type="text"
+      class="name"
+      aria-label="Group name"
+      data-testid="group-name"
+      value={group.name}
+      onchange={(e) => (groupNameError = onRenameGroup(group.id, e.target.value))}
+      onkeydown={blurOnEnter}
+    />
+    {#if onClose}<button type="button" class="btn close" aria-label="Close" onclick={onClose}>×</button>{/if}
+  </div>
+  {#if groupNameError}<p class="error">{groupNameError}</p>{/if}
+  <p class="note">{group.members.length} nodes. Boundary connections appear as ports inside the group.</p>
+  <ul class="members" data-testid="group-members">
+    {#each group.members as member (member)}
+      <li>
+        <span class="mono">{memberName(member)}</span>
+        <button type="button" class="btn" onclick={() => onSetMembership(member, '')}>Remove</button>
+      </li>
+    {/each}
+  </ul>
+  {#if memberWarnings.length > 0}
+    <ul class="save-warnings" data-testid="group-warnings">
+      {#each memberWarnings as warning}
+        <li>{warning}</li>
+      {/each}
+    </ul>
+  {/if}
+  <div class="actions">
+    <button type="button" class="btn" data-testid="group-enter" onclick={() => onEnterGroup(group.id)}>Open</button>
+    <button type="button" class="btn danger delete" data-testid="group-ungroup" onclick={() => onUngroup(group.id)}>Ungroup</button>
+  </div>
 {:else if node.type === 'virtual'}
   {@const config = node.data.virtual.config}
   {@render identity('temp', SENSOR_TYPES, 'virtual-sensor-name')}
@@ -583,6 +648,7 @@
       {/if}
     </div>
   {/if}
+  {@render membership()}
   {@render nodeActions()}
 {:else if node.type === 'curve'}
   {@const config = node.data.curve.config}
@@ -666,6 +732,7 @@
       <span class="toggle-label">Show {config.type === 'flat' ? 'the slider' : 'the chart'} on the node</span>
     </label>
   {/if}
+  {@render membership()}
   {@render nodeActions()}
 {:else if node.type === 'combine'}
   {@const config = node.data.combine.config}
@@ -691,6 +758,7 @@
       </div>
     </div>
   {/if}
+  {@render membership()}
   {@render nodeActions()}
 {/if}
 
@@ -841,6 +909,17 @@
 
   .kind.duty {
     background: var(--duty);
+  }
+
+  .save-warnings {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: var(--warn);
+    font-size: 0.85rem;
+  }
+
+  .kind.group {
+    background: var(--accent);
   }
 
   .name {
@@ -1045,6 +1124,22 @@
   .delete {
     margin-top: auto;
     padding: 8px;
+  }
+
+  .members {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .members li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
   }
 
   @media (max-width: 720px) {
