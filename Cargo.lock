@@ -720,11 +720,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "gale-hw-amdcpu"
+version = "0.5.0"
+dependencies = [
+ "gale-hw",
+ "gale-pawnio",
+ "raw-cpuid",
+ "tracing",
+]
+
+[[package]]
+name = "gale-hw-asus-ec"
+version = "0.5.0"
+dependencies = [
+ "gale-hw",
+ "gale-pawnio",
+ "tracing",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "gale-hw-corsair"
 version = "0.5.0"
 dependencies = [
  "gale-hw",
  "hidapi",
+ "tracing",
+]
+
+[[package]]
+name = "gale-hw-dimm"
+version = "0.5.0"
+dependencies = [
+ "gale-hw",
+ "gale-pawnio",
  "tracing",
 ]
 
@@ -785,7 +814,10 @@ dependencies = [
  "futures",
  "gale-core",
  "gale-hw",
+ "gale-hw-amdcpu",
+ "gale-hw-asus-ec",
  "gale-hw-corsair",
+ "gale-hw-dimm",
  "gale-hw-hwmon",
  "gale-hw-nvidia",
  "gale-hw-superio",
@@ -1862,6 +1894,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
+]
+
+[[package]]
+name = "raw-cpuid"
+version = "11.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
+dependencies = [
+ "bitflags 2.13.1",
 ]
 
 [[package]]

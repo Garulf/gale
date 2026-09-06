@@ -28,6 +28,9 @@ gale-hw-hwmon = { path = "../gale-hw-hwmon" }
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8"
 gale-hw-superio = { path = "../gale-hw-superio" }
+gale-hw-amdcpu = { path = "../gale-hw-amdcpu" }
+gale-hw-dimm = { path = "../gale-hw-dimm" }
+gale-hw-asus-ec = { path = "../gale-hw-asus-ec" }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -46,6 +46,9 @@ the next release. Corsair and NVIDIA GPU control work today.
 - NVIDIA GPU fan control via NVML
 - A REST and WebSocket API served alongside an embedded web UI, no separate
   frontend to install
+- Windows sensors beyond the Super I/O chip, through the same PawnIO driver FanControl
+  uses: AMD Ryzen CPU temperatures (Tctl, Tdie, per-CCD), DDR4 and DDR5 DIMM
+  temperatures, and ASUS embedded-controller sensors such as the chipset fan
 - Curve types: point, linear, trigger, target, flat, and the duty operators max, min,
   average, sum, subtract, offset, and sync
 - Virtual sensors: max, min, mean (optionally smoothed over a window), sum, subtract, offset and
