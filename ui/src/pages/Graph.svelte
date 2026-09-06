@@ -68,7 +68,7 @@
   let mobileView = $state('chains');
   const PANEL_WIDTH_KEY = 'gale.graph.panelWidth';
   const PANEL_MIN = 260;
-  const PANEL_MAX = 720;
+  const PANEL_MAX = 1080;
   let panelWidth = $state(readPanelWidth());
   let resizing = $state(false);
 
