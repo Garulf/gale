@@ -687,3 +687,26 @@
     display: none;
   }
 }
+
+.node.group-kind {
+  border-style: dashed;
+}
+
+.node.group-kind .row.both {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.node.group-kind .row.both .in-label {
+  text-align: left;
+}
+
+.node.group-kind .row.both .out-label {
+  text-align: right;
+}
+
+.node.port-kind {
+  opacity: 0.85;
+  border-style: dotted;
+}
