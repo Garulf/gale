@@ -8,6 +8,22 @@ export function shortDevice(device) {
   return device;
 }
 
+const SPIN_SLOWEST_SECONDS = 6;
+const SPIN_FASTEST_SECONDS = 0.3;
+const SPIN_VISUAL_RATIO = 20;
+const DUTY_AT_SLOWEST_SECONDS = 40;
+
+export function spinPeriodSeconds(rpm, duty = null) {
+  if (rpm !== null && rpm !== undefined) {
+    if (rpm <= 0) return null;
+    const period = (60 / rpm) * SPIN_VISUAL_RATIO;
+    return Number(Math.min(SPIN_SLOWEST_SECONDS, Math.max(SPIN_FASTEST_SECONDS, period)).toFixed(2));
+  }
+  if (duty === null || duty === undefined || duty <= 0) return null;
+  const period = DUTY_AT_SLOWEST_SECONDS / duty;
+  return Number(Math.min(SPIN_SLOWEST_SECONDS, Math.max(SPIN_FASTEST_SECONDS, period)).toFixed(2));
+}
+
 export function temperatureUnit(virtualType) {
   return virtualType === 'delta' ? '°C/min' : '°C';
 }
