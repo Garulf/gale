@@ -1,5 +1,5 @@
 [package]
-name = "gale-hw-superio"
+name = "gale-hw-dimm"
 version.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
@@ -8,6 +8,3 @@ license = "GPL-3.0-or-later"
 gale-hw = { path = "../gale-hw" }
 gale-pawnio = { path = "../gale-pawnio" }
 tracing = "0.1"
-
-[features]
-testing = []

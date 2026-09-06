@@ -1,0 +1,7 @@
+Vendored from https://github.com/namazso/PawnIO.Modules/releases/download/0.2.11/release_0_2_11.zip
+
+zip SHA-256: 43608cb89bc84247fef1368a139013f7d043e17db6d6c8dfc9b46bf0905a81f4
+LpcIO.bin SHA-256: b3896a1cab0d808fca31fe2ebcae045d59dac690da87b17c858bb8da357eb45e
+AMDFamily17.bin SHA-256: dae74615761b78bdf064dfb3e136252ddcc6fc727d88f14738d0e5800d427a91
+SmbusPIIX4.bin SHA-256: 91f9b4b1c39e3d399ce48477a89d8f6bd3e58a2241064a4daec3a1513dff56e5
+LpcACPIEC.bin SHA-256: c38fd116e7aff4d1fdb0a494e296be0a6708e5a22fc72f14587442fb7f8f7906

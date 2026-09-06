@@ -9,5 +9,13 @@ Gale contains code derived from other projects:
 - LibreHardwareMonitor (https://github.com/LibreHardwareMonitor/LibreHardwareMonitor), MPL-2.0.
   The Nuvoton Super I/O driver in crates/gale-hw-superio is ported from
   LibreHardwareMonitorLib/Hardware/Motherboard/Lpc; those files keep their MPL-2.0 headers.
+- LibreHardwareMonitor, MPL-2.0 (same project as above): the AMD Zen temperature decode in
+  crates/gale-hw-amdcpu/src/decode.rs and the ASUS embedded-controller protocol and board
+  tables in crates/gale-hw-asus-ec are ported from LibreHardwareMonitorLib/Hardware/Cpu and
+  Hardware/Motherboard/Lpc/EC; those files keep their MPL-2.0 headers.
+- RAMSPDToolkit (https://github.com/Blacktempel/RAMSPDToolkit), MPL-2.0.
+  The DDR4/DDR5 SPD thermal sensor access in crates/gale-hw-dimm/src/spd.rs is ported from
+  RAMSPDToolkit/SPD; that file keeps its MPL-2.0 header.
 - PawnIO.Modules (https://github.com/namazso/PawnIO.Modules), LGPL-2.1.
-  crates/gale-hw-superio embeds the signed LpcIO module binary unmodified.
+  crates/gale-pawnio embeds the signed LpcIO, AMDFamily17, SmbusPIIX4 and LpcACPIEC module
+  binaries unmodified.

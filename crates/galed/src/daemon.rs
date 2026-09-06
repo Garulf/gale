@@ -89,6 +89,34 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
             );
         }
     }
+    #[cfg(windows)]
+    {
+        let dimm_enabled = config.hardware.dimm.enabled;
+        match tokio::task::spawn_blocking(gale_hw_amdcpu::probe).await {
+            Ok(Ok(backend)) => handles.push(BackendHandle::spawn(Box::new(backend))),
+            Ok(Err(status)) => {
+                tracing::info!(?status, "amd cpu backend unavailable");
+                platform_warnings.extend(status.warning_text());
+            }
+            Err(join_error) => tracing::warn!(%join_error, "amd cpu probe task panicked"),
+        }
+        match tokio::task::spawn_blocking(move || gale_hw_dimm::probe(dimm_enabled)).await {
+            Ok(Ok(backend)) => handles.push(BackendHandle::spawn(Box::new(backend))),
+            Ok(Err(status)) => {
+                tracing::info!(?status, "dimm backend unavailable");
+                platform_warnings.extend(status.warning_text());
+            }
+            Err(join_error) => tracing::warn!(%join_error, "dimm probe task panicked"),
+        }
+        match tokio::task::spawn_blocking(gale_hw_asus_ec::probe).await {
+            Ok(Ok(backend)) => handles.push(BackendHandle::spawn(Box::new(backend))),
+            Ok(Err(status)) => {
+                tracing::info!(?status, "asus ec backend unavailable");
+                platform_warnings.extend(status.warning_text());
+            }
+            Err(join_error) => tracing::warn!(%join_error, "asus ec probe task panicked"),
+        }
+    }
     let pool = BackendPool::new(handles);
     let inventory = pool.enumerate().await;
     tracing::info!(

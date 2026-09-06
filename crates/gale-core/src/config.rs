@@ -98,6 +98,24 @@ pub struct DashboardUiConfig {
 pub struct HardwareConfig {
     #[serde(default)]
     pub corsair: CorsairConfig,
+    #[serde(default)]
+    pub dimm: DimmConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DimmConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for DimmConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
