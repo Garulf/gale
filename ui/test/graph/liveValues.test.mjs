@@ -35,3 +35,15 @@ test('sensorDisplay splits a reading into text and unit by kind', () => {
   assert.deepEqual(sensorDisplay(45.4, 'duty'), { text: '45', unit: '%' });
   assert.deepEqual(sensorDisplay(null, 'duty'), { text: '—', unit: '%' });
 });
+
+import { curveOutput } from '../../src/lib/graph/liveValues.js';
+
+test('curveOutput reads the daemon-published output for a curve id', () => {
+  assert.equal(curveOutput({ curves: { cpu: 42.4 } }, 'cpu'), 42.4);
+});
+
+test('curveOutput is null for a missing curve, a missing map, or no snapshot', () => {
+  assert.equal(curveOutput({ curves: {} }, 'cpu'), null);
+  assert.equal(curveOutput({ duties: { pwm1: 10 } }, 'cpu'), null);
+  assert.equal(curveOutput(null, 'cpu'), null);
+});

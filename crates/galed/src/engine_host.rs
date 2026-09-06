@@ -15,6 +15,8 @@ use tokio::sync::watch;
 pub struct Snapshot {
     pub sensors: HashMap<Id, Option<f64>>,
     pub duties: HashMap<Id, f64>,
+    #[serde(default)]
+    pub curves: HashMap<Id, f64>,
     pub manual: HashMap<Id, f64>,
     pub overrides: HashSet<Id>,
     pub active_profile: String,
@@ -158,7 +160,7 @@ impl EngineHost {
 
     pub async fn tick(&self, dt_secs: f64) {
         let mut sensors = self.backend.read_all().await;
-        let (mut duties, manual, active_profile, assigned) = {
+        let (mut duties, curves, manual, active_profile, assigned) = {
             let mut state = self.state.lock().unwrap();
             state.webhooks.seed(&mut sensors, Instant::now());
             let mut duties = state.engine.tick(&mut sensors, dt_secs);
@@ -168,6 +170,7 @@ impl EngineHost {
             let assigned: HashSet<Id> = state.engine.assignments().keys().cloned().collect();
             (
                 duties,
+                state.engine.curve_outputs().clone(),
                 state.manual.clone(),
                 state.config.active_profile.clone(),
                 assigned,
@@ -207,6 +210,7 @@ impl EngineHost {
         self.snapshot_tx.send_replace(Snapshot {
             sensors,
             duties,
+            curves,
             manual,
             overrides,
             active_profile,
@@ -382,6 +386,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let snapshot = host.subscribe().borrow().clone();
         assert_eq!(snapshot.sensors["t1"], Some(50.0));
         assert_eq!(snapshot.duties["pwm1"], 60.0);
+        assert_eq!(snapshot.curves["cpu"], 60.0);
         assert_eq!(snapshot.active_profile, "p");
     }
 
