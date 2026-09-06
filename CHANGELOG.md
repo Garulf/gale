@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.0](https://github.com/Garulf/gale/compare/gale-v0.6.1...gale-v0.7.0) (2026-09-06)
+
+
+### Features
+
+* **config:** tolerate a ui.groups table for graph groups ([a390060](https://github.com/Garulf/gale/commit/a390060238c7a969b3614b43bf8e82c6fa251cec))
+* **ui:** graph groups with a breadcrumb sub-canvas ([dab6da0](https://github.com/Garulf/gale/commit/dab6da0809196eddb31c338a7570f20c61e0198c))
+* **ui:** group and port node components ([c7e440c](https://github.com/Garulf/gale/commit/c7e440c26c434d0b6fddc9d12adf8c569700bcaa))
+* **ui:** group editor and membership select in the node panel ([45a3865](https://github.com/Garulf/gale/commit/45a3865d9d434ddcadc4d6d214482e51eb8b2e88))
+* **ui:** group id and membership helpers for graph groups ([067e4fb](https://github.com/Garulf/gale/commit/067e4fb5720920b72caf903de2d52dbbda91a2dc))
+* **ui:** group nodes with a breadcrumb sub-canvas on the graph page ([55c165c](https://github.com/Garulf/gale/commit/55c165c3fa2ba66ef1a62d80b9854a71c990d7b9))
+* **ui:** lay out group and port nodes and pin ports to the outer columns ([1b9605d](https://github.com/Garulf/gale/commit/1b9605dbd91d2971465d979a12cef339323b1fcf))
+* **ui:** project the flat graph into root and group scopes ([b7224a6](https://github.com/Garulf/gale/commit/b7224a6f722cd3b31a1ef4711100344008183160))
+* **ui:** round-trip ui.groups through the graph model ([d57189f](https://github.com/Garulf/gale/commit/d57189f61c11ed84d38013340c8cb87d5c60c539))
+
+
+### Bug Fixes
+
+* **nvidia:** hand fans back to the driver at zero duty ([11ec5dc](https://github.com/Garulf/gale/commit/11ec5dccb8b13840c916300989163546e381749a))
+* **nvidia:** hand fans back to the driver at zero duty ([ca58799](https://github.com/Garulf/gale/commit/ca587994afd9122f0120a0f96c73f741482b0e49))
+* **ui:** clear the group name error when the selected node changes ([77b3f0b](https://github.com/Garulf/gale/commit/77b3f0bcc8998d2efb7c44861060f0ec18ea043f))
+* **ui:** harden graph group deletion, projection aliasing and edge cases ([28d5996](https://github.com/Garulf/gale/commit/28d59969ce98414bc083fdcc8925742234d6e0ae))
+* **ui:** keep group scope, selection and shortcuts consistent on the graph page ([4b215e8](https://github.com/Garulf/gale/commit/4b215e80549e27d6504dddcfb4b0541a601a9054))
+* **ui:** pin device nodes to the outer columns in auto layout ([7848d60](https://github.com/Garulf/gale/commit/7848d60a3610698c406d5df72edae4e781d1f288))
+
 ## [0.6.1](https://github.com/Garulf/gale/compare/gale-v0.6.0...gale-v0.6.1) (2026-09-06)
 
 
