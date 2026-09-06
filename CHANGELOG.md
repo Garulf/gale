@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0](https://github.com/Garulf/gale/compare/gale-v0.5.0...gale-v0.6.0) (2026-09-06)
+
+
+### Features
+
+* **graph:** eye toggle to hide a channel from the canvas ([b74e629](https://github.com/Garulf/gale/commit/b74e629a1284eacfa32bcfb2657611fde815f838))
+* **graph:** eye toggle to hide a channel from the canvas ([7d06b5b](https://github.com/Garulf/gale/commit/7d06b5b79ae36decd76bbea603eeeb2228965d91))
+* **graph:** flat curve slider on the node and in the panel, with a per-node hide toggle ([b2e1952](https://github.com/Garulf/gale/commit/b2e1952bee8b5aeac75d6c3c172c96d4e51aad6c))
+* **graph:** flat curve slider on the node and in the panel, with a per-node hide toggle ([0eedb43](https://github.com/Garulf/gale/commit/0eedb43743bc9984e8052c073cf5a5649978c7d3))
+* **hw:** native AMD CPU, DIMM and ASUS embedded-controller sensors over PawnIO ([a421ec9](https://github.com/Garulf/gale/commit/a421ec9566e1ec0b0015cf0a11a57e403c99521b))
+* **hw:** native AMD CPU, DIMM and ASUS embedded-controller sensors over PawnIO ([0b16af2](https://github.com/Garulf/gale/commit/0b16af232510d21088ffa8fda791a18a4349bbda))
+* **mqtt:** Home Assistant integration over MQTT discovery ([d630f68](https://github.com/Garulf/gale/commit/d630f68326ae7100c5cbac49d424418c466d3781))
+* **mqtt:** Home Assistant integration over MQTT discovery ([5b159f2](https://github.com/Garulf/gale/commit/5b159f29e8ca671a0cde66fdab4f9f475bb4d0ee))
+* **profiles:** create, delete and edit any profile from the UI ([f63a8d5](https://github.com/Garulf/gale/commit/f63a8d551d97a6ab8ee669bc5e2ba8154474fe6a))
+* **profiles:** create, delete and edit any profile from the UI ([fe1f432](https://github.com/Garulf/gale/commit/fe1f432a7ea775eb85d8c5fe9087092e833ad20e))
+
+
+### Bug Fixes
+
+* **dimm:** find DDR4 thermal sensors that the SPD does not advertise by probing the sensor address ([5e24b5d](https://github.com/Garulf/gale/commit/5e24b5dcfc348079104750aa1b6d22b8b7e0ffd3))
+
 ## [0.5.0](https://github.com/Garulf/gale/compare/gale-v0.4.0...gale-v0.5.0) (2026-09-05)
 
 

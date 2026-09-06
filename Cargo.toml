@@ -3,5 +3,5 @@ resolver = "2"
 members = ["crates/gale-core", "crates/gale-hw", "crates/gale-pawnio", "crates/gale-hw-amdcpu", "crates/gale-hw-dimm", "crates/gale-hw-asus-ec", "crates/gale-hw-hwmon", "crates/gale-hw-corsair", "crates/gale-hw-nvidia", "crates/gale-hw-superio", "crates/galed", "crates/gale-cli", "crates/gale-tray"]
 
 [workspace.package]
-version = "0.5.0" # x-release-please-version
+version = "0.6.0" # x-release-please-version
 edition = "2021"
