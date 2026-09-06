@@ -376,6 +376,46 @@ mod tests {
     }
 
     #[test]
+    fn maximum_duty_caps_the_curve_and_the_start_kick() {
+        let mut set = CurveSet::new();
+        set.insert("hot".into(), Box::new(FlatCurve { duty: 95.0 }));
+        let assignments: HashMap<String, String> = [("pump".to_string(), "hot".to_string())].into();
+        let settings: HashMap<String, ControlSettings> = [(
+            "pump".to_string(),
+            ControlSettings {
+                min_duty: None,
+                start_duty: Some(90.0),
+                stop_duty: None,
+                max_duty: Some(80.0),
+            },
+        )]
+        .into();
+        let mut engine = FanEngine::new(set, assignments).with_control_settings(settings);
+        assert_eq!(engine.tick(&mut sensors(&[]), 1.0)["pump"], 80.0);
+        assert_eq!(engine.tick(&mut sensors(&[]), 1.0)["pump"], 80.0);
+    }
+
+    #[test]
+    fn maximum_duty_still_allows_a_full_stop() {
+        let mut set = CurveSet::new();
+        set.insert("idle".into(), Box::new(FlatCurve { duty: 5.0 }));
+        let assignments: HashMap<String, String> =
+            [("pump".to_string(), "idle".to_string())].into();
+        let settings: HashMap<String, ControlSettings> = [(
+            "pump".to_string(),
+            ControlSettings {
+                min_duty: None,
+                start_duty: None,
+                stop_duty: Some(10.0),
+                max_duty: Some(80.0),
+            },
+        )]
+        .into();
+        let mut engine = FanEngine::new(set, assignments).with_control_settings(settings);
+        assert_eq!(engine.tick(&mut sensors(&[]), 1.0)["pump"], 0.0);
+    }
+
+    #[test]
     fn stop_duty_wins_over_the_minimum_duty() {
         let mut set = CurveSet::new();
         set.insert("low".into(), Box::new(FlatCurve { duty: 5.0 }));

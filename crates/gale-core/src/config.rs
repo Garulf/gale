@@ -54,11 +54,16 @@ pub struct ControlSettings {
     pub start_duty: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_duty: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_duty: Option<f64>,
 }
 
 impl ControlSettings {
     pub fn is_empty(&self) -> bool {
-        self.min_duty.is_none() && self.start_duty.is_none() && self.stop_duty.is_none()
+        self.min_duty.is_none()
+            && self.start_duty.is_none()
+            && self.stop_duty.is_none()
+            && self.max_duty.is_none()
     }
 
     pub fn shape(&self, requested: f64, previous: f64) -> f64 {
@@ -78,6 +83,9 @@ impl ControlSettings {
         }
         if let Some(min) = self.min_duty {
             duty = duty.max(min);
+        }
+        if let Some(max) = self.max_duty {
+            duty = duty.min(max);
         }
         duty
     }
