@@ -26,3 +26,7 @@ export function foldRows(rows, initialVisible = INITIAL_VISIBLE_ROWS) {
   }
   return { visible, hidden };
 }
+
+export function shownRows(rows) {
+  return rows.filter((row) => !row.hidden || row.wired);
+}

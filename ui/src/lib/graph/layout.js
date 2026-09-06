@@ -1,6 +1,6 @@
 import dagre from '@dagrejs/dagre';
 import { curvePoints } from '../curveMath.js';
-import { foldRows } from './fold.js';
+import { foldRows, shownRows } from './fold.js';
 import { numberedInputCount, virtualInputHandles, isSingleInputCombineType } from './ids.js';
 
 const NODE_WIDTH = 236;
@@ -15,8 +15,8 @@ function connectedHandles(node, edges) {
 
 function rowCount(node, edges) {
   const data = node.data || {};
-  if (node.type === 'deviceSensor') return foldRows(data.deviceSensor.rows).visible.length + 1;
-  if (node.type === 'deviceControl') return foldRows(data.deviceControl.rows).visible.length + 1;
+  if (node.type === 'deviceSensor') return foldRows(shownRows(data.deviceSensor.rows)).visible.length + 1;
+  if (node.type === 'deviceControl') return foldRows(shownRows(data.deviceControl.rows)).visible.length + 1;
   if (node.type === 'virtual') {
     const handles = virtualInputHandles(data.virtual.config.type, numberedInputCount(connectedHandles(node, edges)) + 1);
     return handles.length + 1;

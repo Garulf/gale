@@ -351,3 +351,25 @@ test('offset duty curves round-trip through the graph with a single in edge', ()
   const back = graphToConfig(nodes, edges, config, 'default');
   assert.deepEqual(back.profiles.default.curves, config.profiles.default.curves);
 });
+
+test('hidden channel ids round-trip through ui.hidden next to hidden node ids', () => {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: { default: { sensors: {}, curves: {}, assignments: {} } },
+    ui: { graph: {}, hidden: { default: ['control:hwmon/chipA', 'hwmon/chipA/temp2'] } },
+  };
+  const inventory = {
+    sensors: [
+      { id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' },
+      { id: 'hwmon/chipA/temp2', label: 'SYS', kind: 'temp' },
+    ],
+    controls: [{ id: 'hwmon/chipA/pwm1', label: 'Fan' }],
+  };
+  const { nodes, edges } = configToGraph(config, inventory, 'default');
+  const sensorRows = nodes.find((node) => node.id === 'sensor:hwmon/chipA').data.deviceSensor.rows;
+  assert.deepEqual(sensorRows.map((row) => row.hidden), [false, true]);
+  assert.equal(nodes.find((node) => node.id === 'control:hwmon/chipA').hidden, true);
+  const back = graphToConfig(nodes, edges, config, 'default');
+  assert.deepEqual(back.ui.hidden.default, ['control:hwmon/chipA', 'hwmon/chipA/temp2']);
+});
