@@ -109,7 +109,7 @@ test('root projection replaces members with one group node whose handles are the
   assert.deepEqual(group.data.group.outputs.map((port) => port.handle), ['curve:cpu|out']);
   assert.equal(group.data.group.inputs[0].kind, 'temp');
   assert.equal(group.data.group.outputs[0].kind, 'duty');
-  assert.equal(group.data.group.inputs[0].label, 'chipA · CPU');
+  assert.equal(group.data.group.inputs[0].label, 'hot · in-0');
 
   const inbound = view.edges.find((edge) => edge.target === 'group:g1');
   assert.equal(inbound.source, 'sensor:hwmon/chipA');
