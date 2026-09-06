@@ -141,6 +141,7 @@
           <span class="k">Tick interval</span><span class="mono">{config.tick_interval_ms} ms</span>
           <span class="k">API bind</span><span class="mono">{config.api.bind}</span>
           <span class="k">API key</span><span class="faint">managed via config file</span>
+          <span class="k">Home Assistant</span><span class="mono">{config.mqtt && config.mqtt.enabled ? `MQTT on ${config.mqtt.host}:${config.mqtt.port}` : 'off'}</span>
           <span class="k">Corsair on release</span><span>{corsairReleaseLabel(config.hardware?.corsair?.on_release)}</span>
           <span class="k">Active profile</span><span class="strong">{activeName}</span>
         </div>

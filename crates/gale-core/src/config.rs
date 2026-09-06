@@ -35,6 +35,8 @@ pub struct GaleConfig {
     pub active_profile: String,
     pub profiles: BTreeMap<String, ProfileConfig>,
     #[serde(default)]
+    pub mqtt: MqttConfig,
+    #[serde(default)]
     pub ui: UiConfig,
     #[serde(default)]
     pub labels: BTreeMap<Id, String>,
@@ -75,6 +77,61 @@ impl ControlSettings {
             duty = duty.max(min);
         }
         duty
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MqttConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_mqtt_host")]
+    pub host: String,
+    #[serde(default = "default_mqtt_port")]
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default = "default_mqtt_client_id")]
+    pub client_id: String,
+    #[serde(default = "default_discovery_prefix")]
+    pub discovery_prefix: String,
+    #[serde(default = "default_topic_prefix")]
+    pub topic_prefix: String,
+}
+
+fn default_mqtt_host() -> String {
+    "localhost".to_string()
+}
+
+fn default_mqtt_port() -> u16 {
+    1883
+}
+
+fn default_mqtt_client_id() -> String {
+    "gale".to_string()
+}
+
+fn default_discovery_prefix() -> String {
+    "homeassistant".to_string()
+}
+
+fn default_topic_prefix() -> String {
+    "gale".to_string()
+}
+
+impl Default for MqttConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: default_mqtt_host(),
+            port: default_mqtt_port(),
+            username: None,
+            password: None,
+            client_id: default_mqtt_client_id(),
+            discovery_prefix: default_discovery_prefix(),
+            topic_prefix: default_topic_prefix(),
+        }
     }
 }
 
@@ -627,6 +684,7 @@ impl GaleConfig {
                 },
             )]
             .into(),
+            mqtt: MqttConfig::default(),
             ui: UiConfig::default(),
             labels: BTreeMap::new(),
             controls: BTreeMap::new(),

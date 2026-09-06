@@ -5,6 +5,7 @@ pub mod claims_journal;
 pub mod config_store;
 pub mod daemon;
 pub mod engine_host;
+pub mod mqtt;
 pub mod paths;
 pub mod runtime;
 #[cfg(windows)]

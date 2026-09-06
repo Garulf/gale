@@ -162,6 +162,10 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
         inventory: Arc::new(RwLock::new(inventory)),
         api_key: config.api.api_key.clone(),
     };
+    let mqtt_handle = config.mqtt.enabled.then(|| {
+        tracing::info!(host = %config.mqtt.host, port = config.mqtt.port, "mqtt integration enabled");
+        tokio::spawn(crate::mqtt::run(ctx.clone(), config.mqtt.clone()))
+    });
     let listener = match tokio::net::TcpListener::bind(&config.api.bind).await {
         Ok(listener) => listener,
         Err(error) => {
@@ -189,6 +193,9 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     }
     tick_handle.abort();
     watchdog_handle.abort();
+    if let Some(handle) = mqtt_handle {
+        handle.abort();
+    }
     tracing::info!("shutting down, releasing all controls");
     host.release_all().await;
     Ok(())
