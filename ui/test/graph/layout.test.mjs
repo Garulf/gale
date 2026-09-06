@@ -149,7 +149,7 @@ import { projectScope } from '../../src/lib/graph/groups.js';
 
 function groupedFixture() {
   const { nodes, edges } = fixtureScatteredDevices();
-  const groups = [{ id: 'g1', name: 'Deep', position: { x: 400, y: 40 }, members: ['virtual:hot', 'virtual:smooth', 'curve:deep'], parent: null }];
+  const groups = [{ id: 'g1', name: 'Deep', position: { x: 400, y: 40 }, members: ['curve:deep', 'curve:gpu', 'combine:blend'], parent: null }];
   return { nodes, edges, groups };
 }
 
