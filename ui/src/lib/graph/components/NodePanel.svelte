@@ -143,8 +143,10 @@
   }
 
   $effect(() => {
+    void node?.id;
     nameDraft = nodeName;
     nameError = '';
+    groupNameError = '';
   });
 
   function commitName() {
