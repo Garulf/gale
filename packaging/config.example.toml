@@ -37,3 +37,11 @@ points = [[35.0, 25.0], [75.0, 100.0]]
 # [labels]
 # "hwmon/nct6798/temp1" = "CPU die"
 # "corsair/commander-pro-0805/fan1" = "Front intake"
+
+# Home Assistant over MQTT discovery. The password is kept out of GET /api/config.
+# [mqtt]
+# enabled = true
+# host = "homeassistant.local"
+# port = 1883
+# username = "gale"
+# password = "replace-me"

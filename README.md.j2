@@ -113,6 +113,18 @@ Hardware channels can be renamed from the device node panel; the names are store
 under `[labels]` keyed by sensor or control id and apply to the dashboard, the graph
 and the CLI inventory alike. Clearing a label restores the hardware name.
 
+### Home Assistant
+
+Set `[mqtt] enabled = true` with your broker's `host`, `port`, `username` and `password`
+and Gale announces itself through MQTT discovery: every hardware and virtual sensor
+becomes a Home Assistant sensor, every fan control becomes a duty number plus a manual
+switch, and a select entity switches the active profile. Values publish on change and
+in full once a minute, commands arrive on the `gale/control/<id>/set_duty`,
+`gale/control/<id>/set_manual` and `gale/profile/set` topics, and the daemon's last
+will marks everything unavailable if it drops off the broker. `discovery_prefix` and
+`topic_prefix` are configurable. The password is redacted from `GET /api/config` and
+kept when a config is saved without it, like the API key.
+
 ### Virtual sensors
 
 A profile can define derived sensors under `[profiles.<name>.sensors]`. They are

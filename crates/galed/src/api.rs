@@ -207,6 +207,7 @@ fn redact_webhook_tokens(config: &mut GaleConfig) {
 fn redacted_config(ctx: &ApiContext) -> GaleConfig {
     let mut config = ctx.host.config();
     config.api.api_key = None;
+    config.mqtt.password = None;
     redact_webhook_tokens(&mut config);
     config
 }
@@ -396,6 +397,8 @@ fn merge_api_key(existing: Option<String>, incoming: Option<String>) -> Option<S
 async fn put_config(State(ctx): State<ApiContext>, Json(mut config): Json<GaleConfig>) -> Response {
     let existing = ctx.host.config();
     config.api.api_key = merge_api_key(existing.api.api_key.clone(), config.api.api_key.clone());
+    config.mqtt.password =
+        merge_api_key(existing.mqtt.password.clone(), config.mqtt.password.clone());
     crate::webhooks::fill_missing_tokens(&mut config, &existing);
     if let Err(error) = validate_profiles(&config) {
         return config_error_response(error);
@@ -462,15 +465,24 @@ async fn delete_profile(State(ctx): State<ApiContext>, Path(name): Path<String>)
     }
 }
 
-async fn activate_profile(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
+pub(crate) async fn activate_profile_named(ctx: &ApiContext, name: &str) -> Result<(), String> {
     let mut config = ctx.host.config();
-    if !config.profiles.contains_key(&name) {
+    if !config.profiles.contains_key(name) {
+        return Err(format!("profile '{name}' does not exist"));
+    }
+    config.active_profile = name.to_string();
+    apply_and_persist(ctx, config)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn activate_profile(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
+    if !ctx.host.config().profiles.contains_key(&name) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    config.active_profile = name;
-    match apply_and_persist(&ctx, config).await {
+    match activate_profile_named(&ctx, &name).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
+        Err(message) => (StatusCode::UNPROCESSABLE_ENTITY, message).into_response(),
     }
 }
 
@@ -1512,6 +1524,28 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert!(body.contains("active_profile = \"p\""), "{body}");
         assert!(!body.contains("realkey"), "{body}");
         assert_eq!(GaleConfig::from_toml(&body).unwrap().api.api_key, None);
+    }
+
+    #[tokio::test]
+    async fn get_config_redacts_the_mqtt_password_and_put_preserves_it() {
+        let (router, host) = make_router(None);
+        let mut config = host.config();
+        config.mqtt.password = Some("brokerpass".to_string());
+        host.replace_config(config).await.unwrap();
+        let json = body_json(
+            router
+                .clone()
+                .oneshot(Request::get("/api/config").body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(json["mqtt"].get("password").is_none() || json["mqtt"]["password"].is_null());
+        let mut incoming = host.config();
+        incoming.mqtt.password = None;
+        let response = router.oneshot(put_config_request(&incoming)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(host.config().mqtt.password, Some("brokerpass".to_string()));
     }
 
     #[tokio::test]
