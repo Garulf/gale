@@ -13,7 +13,7 @@
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow } = $props();
 
   const FIELD_SNAPSHOT_DEBOUNCE_MS = 400;
   let lastFieldEditAt = null;
@@ -361,13 +361,13 @@
     if (node.type === 'deviceSensor') {
       return node.data.deviceSensor.rows.map((row) => {
         const reading = sensorDisplay(tempValue($snapshot, node.id, row.handle), row.kind);
-        return { handle: row.handle, label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}` };
+        return { handle: row.handle, label: row.label, kind: row.kind || 'temp', text: `${reading.text} ${reading.unit}`, hidden: row.hidden === true, wired: row.wired === true };
       });
     }
     if (node.type === 'deviceControl') {
       return node.data.deviceControl.rows.map((row) => {
         const value = dutyValue($snapshot, row.handle);
-        return { handle: row.handle, label: row.label, kind: 'duty', text: value === null ? '—' : `${Math.round(value)} %` };
+        return { handle: row.handle, label: row.label, kind: 'duty', text: value === null ? '—' : `${Math.round(value)} %`, hidden: row.hidden === true, wired: row.wired === true };
       });
     }
     return [];
@@ -462,7 +462,23 @@
   </div>
   <div class="list">
     {#each deviceRows as row (row.handle)}
-      <div class="list-row">
+      <div class="list-row" class:row-hidden={row.hidden}>
+        <button
+          type="button"
+          class="eye"
+          data-testid="row-visibility"
+          data-handle={row.handle}
+          aria-pressed={!row.hidden}
+          aria-label={row.hidden ? `Show ${row.label} on the graph` : `Hide ${row.label} from the graph`}
+          title={row.hidden ? (row.wired ? 'Hidden, but shown while wired' : 'Hidden from the graph') : 'Shown on the graph'}
+          onclick={() => onToggleRow(node.id, row.handle)}
+        >
+          {#if row.hidden}
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A10.4 10.4 0 0 1 12 5c5 0 9 4 10 7a11.4 11.4 0 0 1-3.2 4.2M6.2 6.2A11.6 11.6 0 0 0 2 12c1 3 5 7 10 7a9.9 9.9 0 0 0 4.1-.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          {:else}
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M2 12c1-3 5-7 10-7s9 4 10 7c-1 3-5 7-10 7S3 15 2 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8" /></svg>
+          {/if}
+        </button>
         <input
           type="text"
           class="row-label"
@@ -505,7 +521,7 @@
     <p class="error">{controlLimitsError}</p>
   {/if}
   {#if isSensor}
-    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. Unwired channels are folded on the canvas.</p>
+    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. The eye hides a channel from this profile's canvas (saved with the profile; wired channels stay visible). Unwired channels are folded on the canvas.</p>
   {:else}
     <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor. Both save immediately to config.toml.</p>
   {/if}
@@ -669,6 +685,30 @@
 {/if}
 
 <style>
+  .eye {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .eye:hover {
+    color: var(--ink);
+    background: var(--surface2);
+  }
+
+  .row-hidden .row-label,
+  .row-hidden .mono {
+    opacity: 0.5;
+  }
+
   .actions {
     display: flex;
     gap: 6px;

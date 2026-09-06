@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { foldRows } from '../../src/lib/graph/fold.js';
+import { foldRows, shownRows } from '../../src/lib/graph/fold.js';
 
 function rows(wiredIndexes, count = 6) {
   return Array.from({ length: count }, (_, i) => ({ handle: `h${i}`, wired: wiredIndexes.includes(i) }));
@@ -54,4 +54,14 @@ test('a wired rpm row still counts against the visible budget, and remaining slo
   const { visible, hidden } = foldRows(deviceRows);
   assert.deepEqual(handles(visible), ['fan1', 'temp1', 'temp2']);
   assert.deepEqual(handles(hidden), ['fan2']);
+});
+
+test('shownRows drops hidden rows unless they are wired', () => {
+  const rows = [
+    { handle: 'a', hidden: true, wired: false },
+    { handle: 'b', hidden: true, wired: true },
+    { handle: 'c', hidden: false, wired: false },
+    { handle: 'd' },
+  ];
+  assert.deepEqual(shownRows(rows).map((row) => row.handle), ['b', 'c', 'd']);
 });

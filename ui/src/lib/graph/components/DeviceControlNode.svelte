@@ -5,7 +5,7 @@
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { dutyValue, isOverridden } from '../liveValues.js';
-  import { foldRows } from '../fold.js';
+  import { foldRows, shownRows } from '../fold.js';
   import { shortDevice } from '../../dashboard.js';
 
   let { id, data, selected } = $props();
@@ -14,8 +14,9 @@
   let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
   let expanded = $state(false);
 
-  let folded = $derived(foldRows(data.deviceControl.rows));
-  let visibleRows = $derived(expanded ? data.deviceControl.rows : folded.visible);
+  let rows = $derived(shownRows(data.deviceControl.rows));
+  let folded = $derived(foldRows(rows));
+  let visibleRows = $derived(expanded ? rows : folded.visible);
   let hiddenCount = $derived(folded.hidden.length);
 
   function valueFor(handle) {

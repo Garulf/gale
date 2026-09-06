@@ -372,6 +372,18 @@
     future = future.map((entry) => ({ ...entry, nodes: withInventoryLabels(entry.nodes, inventory) }));
   }
 
+  function toggleRowHidden(nodeId, handle) {
+    snapshotHistory();
+    nodes = nodes.map((node) => {
+      if (node.id !== nodeId) return node;
+      const key = node.type;
+      const rows = node.data[key].rows.map((row) => (row.handle === handle ? { ...row, hidden: !row.hidden } : row));
+      return { ...node, data: { [key]: { ...node.data[key], rows } } };
+    });
+    dirty = true;
+    future = [];
+  }
+
   function applyCurvePreset(id, preset) {
     applyEdit(applyPreset(nodes, edges, id, preset));
   }
@@ -602,6 +614,7 @@
       onApplyPreset={applyCurvePreset}
       onDuplicateNode={duplicateGraphNode}
       onRenameRow={renameDeviceRow}
+      onToggleRow={toggleRowHidden}
       onHideNode={hideNode}
     />
     {#if saveWarnings.length > 0}
@@ -630,6 +643,7 @@
           onApplyPreset={applyCurvePreset}
           onDuplicateNode={duplicateGraphNode}
           onRenameRow={renameDeviceRow}
+          onToggleRow={toggleRowHidden}
           onHideNode={hideNode}
           onClose={() => (sheetOpen = false)}
         />

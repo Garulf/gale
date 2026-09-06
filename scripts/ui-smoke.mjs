@@ -456,6 +456,37 @@ async function main() {
       });
     });
 
+    await record('the eye toggle hides a channel from the canvas and saves with the profile', async () => {
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, SENSOR_NODE);
+      const eye = `[data-testid="row-visibility"][data-handle="${TEMP3}"]`;
+      await page.waitForSelector(eye, { timeout: 5000 });
+      await page.click(eye);
+      await page.waitForFunction(
+        (nodeId) => {
+          const node = document.querySelector(`[data-node-id="${nodeId}"]`);
+          const fold = node.querySelector('button.fold');
+          if (fold) fold.click();
+          return true;
+        },
+        { timeout: 5000 },
+        SENSOR_NODE
+      );
+      await page.waitForFunction((sel) => !document.querySelector(sel), { timeout: 5000 }, handleSelector(SENSOR_NODE, TEMP3));
+      await saveGraph(page);
+      const config = await fetchConfig();
+      assert(config.ui.hidden.default.includes(TEMP3), 'hidden channel id was not saved');
+      await page.click(eye);
+      await page.waitForSelector(handleSelector(SENSOR_NODE, TEMP3), { timeout: 5000 });
+      await saveGraph(page);
+      const after = await fetchConfig();
+      assert(!(after.ui.hidden.default || []).includes(TEMP3), 'hidden channel id was not cleared');
+      await page.evaluate(() => {
+        document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    });
+
     await record('control limits save from the device panel and clear back out', async () => {
       await page.evaluate((nodeId) => {
         document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));

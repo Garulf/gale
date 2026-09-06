@@ -106,12 +106,13 @@ export function configToGraph(config, inventory, profileName) {
   const edges = [];
   const nodeSpecs = [];
 
+  const hiddenIds = (config.ui && config.ui.hidden && config.ui.hidden[profileName]) || [];
   const sensorsByDevice = groupByDevice(inventory.sensors || []);
   for (const [device, rows] of sensorsByDevice) {
     nodeSpecs.push({
       id: sensorNodeId(device),
       type: 'deviceSensor',
-      data: { deviceSensor: { device, rows: rows.map((row) => ({ handle: row.id, label: row.label, kind: row.kind })) } },
+      data: { deviceSensor: { device, rows: rows.map((row) => ({ handle: row.id, label: row.label, kind: row.kind, hidden: hiddenIds.includes(row.id) })) } },
     });
   }
 
@@ -125,7 +126,7 @@ export function configToGraph(config, inventory, profileName) {
           device,
           rows: rows.map((row) => {
             const tach = tachSensorFor(row.id, inventory.sensors || []);
-            return { handle: row.id, label: row.label, tach: tach ? tach.id : null };
+            return { handle: row.id, label: row.label, tach: tach ? tach.id : null, hidden: hiddenIds.includes(row.id) };
           }),
         },
       },
@@ -184,8 +185,6 @@ export function configToGraph(config, inventory, profileName) {
   const allNodeIds = nodeSpecs.map((spec) => spec.id);
   const storedPositions = (config.ui && config.ui.graph && config.ui.graph[profileName]) || {};
   const fallback = fallbackPositions(allNodeIds);
-  const hiddenIds = (config.ui && config.ui.hidden && config.ui.hidden[profileName]) || [];
-
   const nodes = nodeSpecs.map((spec) => {
     const stored = storedPositions[spec.id];
     const position = stored ? { x: stored[0], y: stored[1] } : fallback.get(spec.id);
@@ -270,9 +269,11 @@ export function graphToConfig(nodes, edges, baseConfig, profileName) {
   }
   config.ui.graph[profileName] = graph;
 
-  config.ui.hidden[profileName] = nodes
-    .filter((node) => node.hidden === true && (nodeKind(node.id) === 'sensor' || nodeKind(node.id) === 'control'))
-    .map((node) => node.id);
+  const deviceNodes = nodes.filter((node) => nodeKind(node.id) === 'sensor' || nodeKind(node.id) === 'control');
+  config.ui.hidden[profileName] = [
+    ...deviceNodes.filter((node) => node.hidden === true).map((node) => node.id),
+    ...deviceNodes.flatMap((node) => node.data[node.type].rows.filter((row) => row.hidden === true).map((row) => row.handle)),
+  ];
 
   return config;
 }
