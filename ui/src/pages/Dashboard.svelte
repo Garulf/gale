@@ -199,6 +199,11 @@
     }
   }
 
+  async function applyDraft(id, value) {
+    setDraft(id, value);
+    await hold(id);
+  }
+
   async function release(id) {
     pending = { ...pending, [id]: true };
     try {
@@ -310,18 +315,20 @@
               </div>
             {/if}
             <div class="control-body">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={draftValues[fan.id]}
-                aria-label="{fan.label} duty"
-                oninput={(event) => setDraft(fan.id, event.target.value)}
-              />
-              <span class="draft mono">{draftValues[fan.id]}%</span>
-              <button type="button" class="btn" disabled={pending[fan.id]} onclick={() => hold(fan.id)}>Hold</button>
               {#if fan.manual}
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={draftValues[fan.id]}
+                  aria-label="{fan.label} duty"
+                  oninput={(event) => setDraft(fan.id, event.target.value)}
+                  onchange={(event) => applyDraft(fan.id, event.target.value)}
+                />
+                <span class="draft mono">{draftValues[fan.id]}%</span>
                 <button type="button" class="btn release" disabled={pending[fan.id]} onclick={() => release(fan.id)}>Release</button>
+              {:else}
+                <button type="button" class="btn" data-testid="fan-manual" disabled={pending[fan.id]} onclick={() => hold(fan.id)}>Manual</button>
               {/if}
               <button type="button" class="btn" disabled={!fan.curve} onclick={() => openCurve(fan)}>Curve →</button>
             </div>
