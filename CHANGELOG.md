@@ -6,7 +6,6 @@
 ### Features
 
 * **config:** tolerate a ui.groups table for graph groups ([a390060](https://github.com/Garulf/gale/commit/a390060238c7a969b3614b43bf8e82c6fa251cec))
-* **ui:** graph groups with a breadcrumb sub-canvas ([dab6da0](https://github.com/Garulf/gale/commit/dab6da0809196eddb31c338a7570f20c61e0198c))
 * **ui:** group and port node components ([c7e440c](https://github.com/Garulf/gale/commit/c7e440c26c434d0b6fddc9d12adf8c569700bcaa))
 * **ui:** group editor and membership select in the node panel ([45a3865](https://github.com/Garulf/gale/commit/45a3865d9d434ddcadc4d6d214482e51eb8b2e88))
 * **ui:** group id and membership helpers for graph groups ([067e4fb](https://github.com/Garulf/gale/commit/067e4fb5720920b72caf903de2d52dbbda91a2dc))
@@ -18,7 +17,6 @@
 
 ### Bug Fixes
 
-* **nvidia:** hand fans back to the driver at zero duty ([11ec5dc](https://github.com/Garulf/gale/commit/11ec5dccb8b13840c916300989163546e381749a))
 * **nvidia:** hand fans back to the driver at zero duty ([ca58799](https://github.com/Garulf/gale/commit/ca587994afd9122f0120a0f96c73f741482b0e49))
 * **ui:** clear the group name error when the selected node changes ([77b3f0b](https://github.com/Garulf/gale/commit/77b3f0bcc8998d2efb7c44861060f0ec18ea043f))
 * **ui:** harden graph group deletion, projection aliasing and edge cases ([28d5996](https://github.com/Garulf/gale/commit/28d59969ce98414bc083fdcc8925742234d6e0ae))
