@@ -1598,6 +1598,12 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let response_max = router
+            .clone()
+            .oneshot(put(r#"{"max_duty":150}"#))
+            .await
+            .unwrap();
+        assert_eq!(response_max.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
         let response = router.clone().oneshot(put(r#"{}"#)).await.unwrap();
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
