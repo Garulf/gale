@@ -915,6 +915,7 @@
       onUngroup={ungroupById}
       onEnterGroup={enterGroup}
       onSetMembership={setNodeGroup}
+      onSelectNode={selectNode}
     />
     {#if saveWarnings.length > 0}
       <ul class="save-warnings">
@@ -950,6 +951,7 @@
           onUngroup={ungroupById}
           onEnterGroup={enterGroup}
           onSetMembership={setNodeGroup}
+      onSelectNode={selectNode}
           onClose={() => (sheetOpen = false)}
         />
       </div>

@@ -927,7 +927,10 @@ async function main() {
 
     await record('the panel shows the saved webhook URL and the copy button puts it on the clipboard', async () => {
       const expected = `${BASE_URL}/api/webhook/${webhookToken}`;
-      await waitForWebhookPanel(page, (state) => state.url === expected, `panel never showed ${expected}`);
+      const masked = await waitForWebhookPanel(page, (state) => state.url && state.url.length > 0, 'panel never showed a URL');
+      assert(!masked.url.includes(expected.slice(-64)), 'the token must be masked until revealed');
+      await page.click('[data-testid="webhook-reveal"]');
+      await waitForWebhookPanel(page, (state) => state.url === expected, `panel never revealed ${expected}`);
       await page.evaluate(() => document.querySelector('[data-testid="webhook-copy"]').click());
       await waitForWebhookPanel(page, (state) => state.copy === 'Copied', 'copy button never read Copied');
       const clipboard = await page.evaluate(() => navigator.clipboard.readText());
