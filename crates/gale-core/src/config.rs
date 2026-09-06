@@ -1806,7 +1806,10 @@ members = ["curve:rad_coolant", "combine:radiator_zone"]
         let group = &cfg.ui.groups["default"]["g1"];
         assert_eq!(group.name, "Radiator");
         assert_eq!(group.position, [940.0, 120.0]);
-        assert_eq!(group.members, vec!["curve:rad_coolant", "combine:radiator_zone"]);
+        assert_eq!(
+            group.members,
+            vec!["curve:rad_coolant", "combine:radiator_zone"]
+        );
         assert_eq!(group.parent, None);
 
         let rendered = cfg.to_toml().unwrap();
