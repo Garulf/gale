@@ -530,6 +530,22 @@ async function main() {
       deepStrictEqual(handles, ['in-0', 'in-1', 'in-2']);
     });
 
+    await record('the right panel can be resized by dragging its edge and remembers the width', async () => {
+      const before = await page.$eval('.gale-panel', (el) => el.getBoundingClientRect().width);
+      const handle = await page.$('[data-testid="panel-resize"]');
+      const box = await handle.boundingBox();
+      const x = box.x + box.width / 2;
+      const y = box.y + 100;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x - 120, y, { steps: 6 });
+      await page.mouse.up();
+      const after = await page.$eval('.gale-panel', (el) => el.getBoundingClientRect().width);
+      assert(after > before + 80, `panel did not grow: ${before} -> ${after}`);
+      const stored = await page.evaluate(() => localStorage.getItem('gale.graph.panelWidth'));
+      assert(Number(stored) === Math.round(after), `stored width ${stored} does not match ${after}`);
+    });
+
     await record('selecting the curve node opens its point editor in the panel', async () => {
       const clicked = await page.evaluate(() => {
         const node = document.querySelector('[data-node-id="curve:cpu"]');
@@ -665,23 +681,55 @@ async function main() {
       });
     });
 
-    await record('a new blank profile can be created, edited separately from the active one, and deleted', async () => {
+    await record('a new blank profile can be created from the sidebar, becomes active, and can be deleted once switched away', async () => {
       await page.evaluate(() => {
         window.prompt = () => 'smoke_profile';
         window.confirm = () => true;
       });
-      await setPanelInput(page, 'graph-profile', '__new__');
-      await page.waitForFunction(() => document.querySelector('[data-testid="graph-profile"]').value === 'smoke_profile', { timeout: 5000 });
-      const config = await fetchConfig();
-      assert(config.profiles.smoke_profile && Object.keys(config.profiles.smoke_profile.curves).length === 0, 'blank profile missing');
-      assert(config.active_profile === 'default', 'creating a profile must not activate it');
-      assert(!(await page.$('[data-node-id="curve:cpu"]')), 'the blank profile should show no curve nodes');
-      await page.waitForSelector('[data-testid="graph-delete-profile"]', { timeout: 5000 });
-      await page.click('[data-testid="graph-delete-profile"]');
-      await page.waitForFunction(() => document.querySelector('[data-testid="graph-profile"]').value === 'default', { timeout: 5000 });
-      await page.waitForSelector('[data-node-id="curve:cpu"]', { timeout: 5000 });
-      const after = await fetchConfig();
-      assert(!after.profiles.smoke_profile, 'profile was not deleted');
+      const step = async (name, fn) => {
+        try {
+          await fn();
+        } catch (error) {
+          throw new Error(`${name}: ${error.message}`);
+        }
+      };
+      const openSidebarMenu = async () => {
+        await page.click('.sidebar .profile-switcher .current');
+        await page.waitForSelector('.sidebar .profile-switcher .menu', { timeout: 5000 });
+      };
+      await step('open menu', openSidebarMenu);
+      await step('click new', () => page.click('.sidebar [data-testid="profile-new"]'));
+      await step('profile becomes active', () =>
+        page.waitForFunction(async () => (await (await fetch('/api/config')).json()).active_profile === 'smoke_profile', { timeout: 8000 })
+      );
+      await step('graph offers to switch or reloads', () =>
+        page.waitForFunction(() => !document.querySelector('[data-node-id="curve:cpu"]') || document.querySelector('[data-testid="graph-reload-profile"]'), { timeout: 8000 })
+      );
+      await step('discard and switch when asked', async () => {
+        const button = await page.$('[data-testid="graph-reload-profile"]');
+        if (button) await button.click();
+        await page.waitForFunction(() => !document.querySelector('[data-node-id="curve:cpu"]'), { timeout: 8000 });
+      });
+      await step('open menu again', openSidebarMenu);
+      await step('switch back to default', async () => {
+        await page.evaluate(() => {
+          const option = Array.from(document.querySelectorAll('.sidebar .profile-switcher .menu [role="option"]')).find((el) => el.textContent.trim().startsWith('default'));
+          if (!option) throw new Error('default option missing');
+          option.click();
+        });
+        await page.waitForSelector('[data-node-id="curve:cpu"]', { timeout: 8000 });
+      });
+      await step('open menu for delete', openSidebarMenu);
+      await step('delete smoke_profile', async () => {
+        await page.click('.sidebar [data-testid="profile-delete-smoke_profile"]');
+        await page.waitForFunction(async () => {
+          const config = await (await fetch('/api/config')).json();
+          return !config.profiles.smoke_profile && config.active_profile === 'default';
+        }, { timeout: 8000 });
+      });
+      await page.evaluate(() => {
+        if (document.querySelector('.sidebar .profile-switcher .menu')) document.body.click();
+      });
       await page.evaluate(() => {
         document.querySelector('[data-node-id="curve:cpu"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });

@@ -289,3 +289,16 @@ button:disabled {
     font-size: 22px;
   }
 }
+
+.notice {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--surface2);
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}

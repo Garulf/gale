@@ -102,13 +102,31 @@ pub fn probe() -> Result<AsusEcBackend, EcStatus> {
     let module = Module::load(&LPCACPIEC).map_err(EcStatus::PawnIo)?;
     let mutex = NamedMutex::open(EC_MUTEX).map_err(EcStatus::Io)?;
     let mut backend = AsusEcBackend::new(Box::new(PawnIoEc { module, mutex }), board);
-    backend
-        .enumerate()
-        .map_err(|e| EcStatus::Io(e.to_string()))?;
+    enumerate_with_retries(&mut backend).map_err(EcStatus::Io)?;
     tracing::info!(
         product,
         sensors = backend.read_all().len(),
         "asus embedded controller ready"
     );
     Ok(backend)
+}
+
+const PROBE_ATTEMPTS: usize = 5;
+const PROBE_RETRY_DELAY: Duration = Duration::from_millis(200);
+
+fn enumerate_with_retries(backend: &mut dyn gale_hw::Backend) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 1..=PROBE_ATTEMPTS {
+        match backend.enumerate() {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                last = error.to_string();
+                tracing::debug!(attempt, %last, "probe attempt failed");
+                if attempt < PROBE_ATTEMPTS {
+                    std::thread::sleep(PROBE_RETRY_DELAY);
+                }
+            }
+        }
+    }
+    Err(last)
 }

@@ -2,7 +2,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 330px;
+  grid-template-columns: minmax(0, 1fr) var(--gale-panel-width, 330px);
   background: var(--bg);
   color: var(--ink);
 }
@@ -660,4 +660,30 @@
   flex: 1;
   min-width: 0;
   accent-color: var(--duty, #f2a33a);
+}
+
+.gale-panel {
+  position: relative;
+}
+
+.gale-panel .resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.gale-panel .resize-handle:hover,
+.gale-panel .resize-handle.active {
+  background: linear-gradient(to right, transparent, var(--accent) 50%, transparent);
+  opacity: 0.6;
+}
+
+@media (max-width: 720px) {
+  .gale-panel .resize-handle {
+    display: none;
+  }
 }

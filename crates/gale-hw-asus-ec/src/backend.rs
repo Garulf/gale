@@ -42,7 +42,7 @@ pub fn decode(source: &Source, bytes: &[Option<u8>]) -> Option<f64> {
         }
         _ => return None,
     };
-    if source.blank == Some(raw) {
+    if source.blank == Some(raw) || (source.kind == Kind::Temperature && raw == 0) {
         return None;
     }
     Some(f64::from(raw) * source.factor + source.offset)
@@ -189,7 +189,36 @@ mod tests {
         let values = backend.read_all();
         assert_eq!(values["ec/asus/chipset"], Some(51.0));
         assert_eq!(values["ec/asus/t_sensor"], None);
+        assert_eq!(values["ec/asus/vrm"], Some(40.0));
         assert_eq!(values["ec/asus/chipset_fan"], Some(3000.0));
+    }
+
+    #[test]
+    fn an_exactly_zero_ec_temperature_means_unpopulated() {
+        let temp = Source {
+            slug: "t",
+            name: "T",
+            kind: Kind::Temperature,
+            register: 0,
+            size: 1,
+            factor: 1.0,
+            offset: 0.0,
+            blank: None,
+            little_endian: false,
+        };
+        assert_eq!(decode(&temp, &[Some(0)]), None);
+        let fan = Source {
+            slug: "f",
+            name: "F",
+            kind: Kind::Fan,
+            register: 0,
+            size: 2,
+            factor: 1.0,
+            offset: 0.0,
+            blank: None,
+            little_endian: false,
+        };
+        assert_eq!(decode(&fan, &[Some(0), Some(0)]), Some(0.0));
     }
 
     #[test]

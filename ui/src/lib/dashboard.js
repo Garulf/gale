@@ -1,3 +1,5 @@
+import { evalCurve, curvePoints } from './curveMath.js';
+
 export function shortDevice(device) {
   if (device.startsWith('hwmon/')) return device.slice('hwmon/'.length);
   if (device.startsWith('corsair/commander-pro-')) return `cmd-pro ${device.slice('corsair/commander-pro-'.length)}`;
@@ -29,4 +31,45 @@ export function trendArrow(delta) {
   if (delta > 0.5) return '↗';
   if (delta < -0.5) return '↘';
   return '→';
+}
+
+
+function liveDuty(config, values) {
+  const points = curvePoints(config);
+  const temp = values[config.sensor];
+  if (!points || temp === null || temp === undefined) return null;
+  return evalCurve(points, temp);
+}
+
+export function chartCurve(curveId, curves, values, depth = 0) {
+  const config = curves ? curves[curveId] : undefined;
+  if (!config || depth > 8) return null;
+  if (config.type === 'point' || config.type === 'linear') return { id: curveId, config, via: '' };
+  if (config.type === 'trigger') {
+    const points = [
+      [config.off_temp, config.off_duty],
+      [config.on_temp, config.on_duty],
+    ];
+    return { id: curveId, config: { type: 'point', sensor: config.sensor, points }, via: '' };
+  }
+  if (config.type === 'sync' || config.type === 'offset') {
+    const inner = chartCurve(config.source, curves, values, depth + 1);
+    return inner && { ...inner, via: curveId };
+  }
+  if (config.type === 'mix') {
+    const candidates = (config.sources || [])
+      .map((source) => chartCurve(source, curves, values, depth + 1))
+      .filter(Boolean)
+      .map((candidate) => ({ candidate, duty: liveDuty(candidate.config, values) }));
+    if (candidates.length === 0) return null;
+    const known = candidates.filter((entry) => entry.duty !== null);
+    const pool = known.length > 0 ? known : candidates;
+    const pick = config.mode === 'min'
+      ? pool.reduce((best, entry) => (entry.duty < best.duty ? entry : best))
+      : config.mode === 'max'
+        ? pool.reduce((best, entry) => (entry.duty > best.duty ? entry : best))
+        : pool[0];
+    return { ...pick.candidate, via: curveId };
+  }
+  return null;
 }

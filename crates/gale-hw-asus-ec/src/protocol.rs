@@ -131,7 +131,7 @@ impl EcReader {
         let mut data = Vec::with_capacity(registers.len());
         for register in registers {
             let wanted_bank = (register >> 8) as u8;
-            if wanted_bank > bank {
+            if wanted_bank != bank {
                 self.switch_bank(io, wanted_bank);
                 bank = wanted_bank;
             }
@@ -257,8 +257,8 @@ mod tests {
         ec.registers.insert((0, 0x3A), 51);
         ec.registers.insert((1, 0x0D), 33);
         let mut reader = EcReader::new();
-        let data = reader.read_registers(&mut ec, &[0x003A, 0x010D]);
-        assert_eq!(data, vec![Some(51), Some(33)]);
+        let data = reader.read_registers(&mut ec, &[0x003A, 0x010D, 0x003A]);
+        assert_eq!(data, vec![Some(51), Some(33), Some(51)]);
         assert_eq!(ec.bank, 2);
         let bank_writes: Vec<u8> = ec
             .writes
@@ -266,6 +266,6 @@ mod tests {
             .filter(|(_, r, _)| *r == BANK_REGISTER)
             .map(|(_, _, v)| *v)
             .collect();
-        assert_eq!(bank_writes, vec![0, 1, 2]);
+        assert_eq!(bank_writes, vec![0, 1, 0, 2]);
     }
 }

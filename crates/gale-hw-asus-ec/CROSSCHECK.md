@@ -8,7 +8,7 @@ PawnIO.Modules 0.2.11 `LpcACPIEC` (`ioctl_pio_read`, `ioctl_pio_write`).
 1. ACPI EC ports 0x66 (command/status) and 0x62 (data), RD_EC 0x80, WR_EC 0x81, IBF bit 1, OBF bit 0: match.
 2. Wait loops: IBF clear up to 5 tries of 1 ms before each write; OBF set up to 5 tries then the ASUS fallback of IBF
    clear for 50 spins; after 20 consecutive read-wait failures the read wait is skipped: match.
-3. Bank register 0xFF: previous bank read first, banks switched upward as registers require, previous bank restored: match.
+3. Bank register 0xFF: previous bank read first, the bank switched whenever the next register lives in a different one (LibreHardwareMonitor sorts its sources by register and only switches upward; Gale keeps board order and switches both ways, which reads the same registers from the same banks), previous bank restored.
 4. Decode: 1-byte temperatures are signed, 2-byte values are big-endian signed 16-bit unless flagged little-endian,
    `blank` (-40 on T-Sensor and water temperatures) yields no value, factor and offset applied: match.
 5. Gale exposes Temperature and Fan sources only; Voltage, Current and Flow are dropped.

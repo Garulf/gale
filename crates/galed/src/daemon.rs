@@ -171,6 +171,9 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
         Err(error) => {
             tick_handle.abort();
             watchdog_handle.abort();
+            if let Some(handle) = mqtt_handle {
+                handle.abort();
+            }
             host.release_all().await;
             return Err(DaemonError::Bind(config.api.bind.clone(), error));
         }

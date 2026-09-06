@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configToGraph, graphToConfig } from '../../src/lib/graph/model.js';
+import { withWiredRows, configToGraph, graphToConfig } from '../../src/lib/graph/model.js';
 
 function fixtureAConfig() {
   return {
@@ -387,4 +387,14 @@ test('compact node ids round-trip through ui.compact per profile', () => {
   assert.deepEqual(back.ui.compact.default, ['curve:fixed']);
   const expanded = nodes.map((node) => ({ ...node, compact: false }));
   assert.deepEqual(graphToConfig(expanded, edges, config, 'default').ui.compact.default, []);
+});
+
+test('withWiredRows follows edge changes and returns the same array when nothing changed', () => {
+  const inventory = { sensors: [{ id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' }], controls: [] };
+  const config = { tick_interval_ms: 1000, active_profile: 'default', profiles: { default: { sensors: {}, curves: { c: { type: 'point', sensor: 'hwmon/chipA/temp1', points: [[30, 20]] } }, assignments: {} } } };
+  const { nodes, edges } = configToGraph(config, inventory, 'default');
+  assert.equal(withWiredRows(nodes, edges), nodes);
+  const unwired = withWiredRows(nodes, []);
+  assert.notEqual(unwired, nodes);
+  assert.equal(unwired.find((node) => node.id === 'sensor:hwmon/chipA').data.deviceSensor.rows[0].wired, false);
 });

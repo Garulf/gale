@@ -81,6 +81,28 @@ function fallbackPositions(allNodeIds) {
   return positions;
 }
 
+export function withWiredRows(nodes, edges) {
+  let changed = false;
+  const next = nodes.map((node) => {
+    if (node.type !== 'deviceSensor' && node.type !== 'deviceControl') return node;
+    const key = node.type;
+    let touched = false;
+    const rows = node.data[key].rows.map((row) => {
+      const wired =
+        key === 'deviceSensor'
+          ? edges.some((edge) => edge.source === node.id && edge.sourceHandle === row.handle)
+          : edges.some((edge) => edge.target === node.id && edge.targetHandle === row.handle);
+      if (wired === (row.wired === true)) return row;
+      touched = true;
+      return { ...row, wired };
+    });
+    if (!touched) return node;
+    changed = true;
+    return { ...node, data: { [key]: { ...node.data[key], rows } } };
+  });
+  return changed ? next : nodes;
+}
+
 function markWiredRows(nodeSpecs, edges) {
   for (const spec of nodeSpecs) {
     if (spec.type === 'deviceSensor') {
