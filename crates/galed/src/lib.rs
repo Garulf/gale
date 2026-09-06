@@ -1,6 +1,7 @@
 pub mod api;
 pub mod backend_handle;
 pub mod backend_pool;
+pub mod calibration;
 pub mod claims_journal;
 pub mod config_store;
 pub mod daemon;

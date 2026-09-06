@@ -1,9 +1,9 @@
 <script>
-  import { getContext, untrack } from 'svelte';
+  import { getContext, untrack, onDestroy } from 'svelte';
   import { curvePoints as curvePointsFor } from '../../curveMath.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
-  import { getWebhookUrl, putControlSettings } from '../../api.js';
+  import { getWebhookUrl, putControlSettings, startCalibration, getCalibration, cancelCalibration } from '../../api.js';
   import { daemonConfig, refreshConfig } from '../../config.js';
   import { isWebhookNotFound, webhookNameFor, maskWebhookUrl, webhookSensorNodes } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
@@ -115,6 +115,64 @@
       controlLimitsError = err.message;
     }
   }
+
+  const CALIBRATION_POLL_MS = 1500;
+  let calibration = $state(null);
+  let calibrationError = $state('');
+  let calibrationTimer = null;
+
+  function stopCalibrationPolling() {
+    if (calibrationTimer) clearInterval(calibrationTimer);
+    calibrationTimer = null;
+  }
+
+  async function pollCalibration(handle) {
+    try {
+      const progress = await getCalibration(handle);
+      calibration = progress && progress.state !== 'idle' ? progress : null;
+      if (!progress || progress.state !== 'running') {
+        stopCalibrationPolling();
+        if (progress && progress.state === 'done') await refreshConfig();
+      }
+    } catch (err) {
+      calibrationError = err.message;
+      stopCalibrationPolling();
+    }
+  }
+
+  async function detectLimits(handle) {
+    calibrationError = '';
+    try {
+      await startCalibration(handle);
+      calibration = { state: 'running', control: handle, phase: 'probe', duty: 50, rpm: null };
+      stopCalibrationPolling();
+      calibrationTimer = setInterval(() => pollCalibration(handle), CALIBRATION_POLL_MS);
+    } catch (err) {
+      calibrationError = err.message;
+    }
+  }
+
+  async function abortCalibration(handle) {
+    try {
+      await cancelCalibration(handle);
+    } catch (err) {
+      calibrationError = err.message;
+    }
+  }
+
+  function calibrationText(progress) {
+    if (progress.state === 'running') {
+      const rpm = progress.rpm === null || progress.rpm === undefined ? 'waiting for rpm' : `${Math.round(progress.rpm)} rpm`;
+      return `Detecting (${progress.phase}) at ${Math.round(progress.duty)} %: ${rpm}`;
+    }
+    if (progress.state === 'done') {
+      const r = progress.result;
+      return `Detected min ${r.min_duty} %, start ${r.start_duty} %, stop ${r.stop_duty} %`;
+    }
+    return `Detection failed: ${progress.error}`;
+  }
+
+  onDestroy(stopCalibrationPolling);
 
   let presetName = $derived(node && node.type === 'curve' ? presetNameFor(node.data.curve.config, $presets) : '');
   let presetError = $state('');
@@ -542,9 +600,23 @@
             </label>
           {/each}
         </div>
+        <div class="calibrate">
+          {#if calibration && calibration.control === row.handle && calibration.state === 'running'}
+            <span class="note">{calibrationText(calibration)}</span>
+            <button type="button" class="btn" data-testid="control-calibrate-abort" onclick={() => abortCalibration(row.handle)}>Abort</button>
+          {:else}
+            <button type="button" class="btn" data-testid="control-calibrate" data-handle={row.handle} disabled={calibration && calibration.state === 'running'} title="Sweeps the duty down until the fan stalls and back up until it restarts, then fills min, start and stop" onclick={() => detectLimits(row.handle)}>Detect limits</button>
+            {#if calibration && calibration.control === row.handle}
+              <span class="note" class:error={calibration.state === 'failed'}>{calibrationText(calibration)}</span>
+            {/if}
+          {/if}
+        </div>
       {/if}
     {/each}
   </div>
+  {#if calibrationError}
+    <p class="error">{calibrationError}</p>
+  {/if}
   {#if rowLabelError}
     <p class="error">{rowLabelError}</p>
   {/if}
@@ -863,6 +935,18 @@
   .limit input {
     width: 100%;
     min-width: 0;
+  }
+
+  .calibrate {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 0 10px 12px;
+    font-size: 11px;
+  }
+
+  .calibrate .note {
+    margin: 0;
   }
 
   .preset-row {

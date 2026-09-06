@@ -144,3 +144,15 @@ export function createProfile(name) {
 export function deleteProfile(name) {
   return requestJson(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
+
+export function startCalibration(id) {
+  return request(`/api/calibrate/${encodeIdPath(id)}`, { method: 'POST' });
+}
+
+export function getCalibration(id) {
+  return requestJson(`/api/calibrate/${encodeIdPath(id)}`);
+}
+
+export function cancelCalibration(id) {
+  return request(`/api/calibrate/${encodeIdPath(id)}`, { method: 'DELETE' });
+}

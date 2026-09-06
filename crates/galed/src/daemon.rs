@@ -160,6 +160,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
         host: host.clone(),
         store,
         inventory: Arc::new(RwLock::new(inventory)),
+        calibrator: Arc::new(crate::calibration::Calibrator::new()),
         api_key: config.api.api_key.clone(),
     };
     let mqtt_handle = config.mqtt.enabled.then(|| {
