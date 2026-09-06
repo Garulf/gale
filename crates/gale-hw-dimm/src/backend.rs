@@ -84,11 +84,17 @@ fn probe_address(io: &mut dyn Smbus, port: i64, address: u8) -> Option<DimmModul
         io.read_byte_data(address, DDR4_MEMORY_TYPE_BYTE)
     }) {
         if is_ddr4_type(memory_type) {
-            let has_sensor = retry(io, DATA_RETRIES, |io| {
+            let thermal_sensor = ddr4_thermal_sensor_address(address);
+            let advertised = retry(io, DATA_RETRIES, |io| {
                 io.read_byte_data(address, DDR4_THERMAL_SENSOR_BYTE)
             })
             .map(|byte| byte & DDR4_THERMAL_SENSOR_BIT != 0)
             .unwrap_or(false);
+            let has_sensor = advertised
+                || retry(io, DATA_RETRIES, |io| {
+                    io.read_word_data(thermal_sensor, DDR4_TS_CAPABILITIES_REGISTER)
+                })
+                .is_ok();
             if !has_sensor {
                 tracing::info!(
                     port,
@@ -100,20 +106,24 @@ fn probe_address(io: &mut dyn Smbus, port: i64, address: u8) -> Option<DimmModul
             return Some(DimmModule {
                 port,
                 address,
-                kind: ModuleKind::Ddr4 {
-                    thermal_sensor: ddr4_thermal_sensor_address(address),
-                },
+                kind: ModuleKind::Ddr4 { thermal_sensor },
             });
         }
     }
     let msb = retry(io, DATA_RETRIES, |io| {
         io.read_byte_data(address, DDR5_DEVICE_TYPE_MSB)
-    })
-    .ok()?;
+    });
     let lsb = retry(io, DATA_RETRIES, |io| {
         io.read_byte_data(address, DDR5_DEVICE_TYPE_LSB)
-    })
-    .ok()?;
+    });
+    tracing::debug!(
+        port,
+        address = format!("0x{address:02x}"),
+        ?msb,
+        ?lsb,
+        "spd5 device type"
+    );
+    let (msb, lsb) = (msb.ok()?, lsb.ok()?);
     if msb != DDR5_DEVICE_TYPE_MSB_EXPECTED || lsb != DDR5_DEVICE_TYPE_LSB_EXPECTED {
         return None;
     }
@@ -152,6 +162,7 @@ fn with_port<T>(
 pub fn detect(io: &mut dyn Smbus) -> Result<Vec<DimmModule>, String> {
     let mut modules = Vec::new();
     for port in PORTS {
+        tracing::debug!(port, "probing piix4 smbus port");
         let found = with_port(io, port, |io| {
             (SPD_FIRST..=SPD_LAST)
                 .filter_map(|address| probe_address(io, port, address))
@@ -365,6 +376,26 @@ mod tests {
             bus.log.contains(&"wb 36 0 ff".to_string()),
             "page 0 must be selected before probing"
         );
+    }
+
+    #[test]
+    fn a_module_that_does_not_advertise_its_sensor_is_found_by_probing_the_sensor_address() {
+        let mut bus = FakeBus {
+            locked: true,
+            ..Default::default()
+        };
+        bus.bytes.insert((0, 0x50, DDR4_MEMORY_TYPE_BYTE), 12);
+        bus.bytes.insert((0, 0x50, DDR4_THERMAL_SENSOR_BYTE), 0x00);
+        bus.words
+            .insert((0, 0x18, DDR4_TS_CAPABILITIES_REGISTER), 0x00E7);
+        let modules = detect(&mut bus).unwrap();
+        assert_eq!(modules.len(), 1);
+        assert!(matches!(
+            modules[0].kind,
+            ModuleKind::Ddr4 {
+                thermal_sensor: 0x18
+            }
+        ));
     }
 
     #[test]
