@@ -653,6 +653,7 @@ mod tests {
                 ("hwmon/x/temp1".to_string(), Some(45.5)),
                 ("hwmon/x/fan1".to_string(), None),
             ]),
+            curves: HashMap::new(),
             duties: HashMap::from([("hwmon/x/pwm1".to_string(), 33.0)]),
             manual: HashMap::new(),
             overrides: HashSet::new(),

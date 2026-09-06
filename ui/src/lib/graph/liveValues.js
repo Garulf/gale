@@ -13,6 +13,12 @@ export function dutyValue(snap, targetHandle) {
   return value === null || value === undefined ? null : value;
 }
 
+export function curveOutput(snap, curveId) {
+  if (!snap || !snap.curves) return null;
+  const value = snap.curves[curveId];
+  return value === null || value === undefined ? null : value;
+}
+
 export function formatDeltaRate(value) {
   return value === null || value === undefined ? 'n/a' : `${value.toFixed(1)} C/min`;
 }

@@ -77,6 +77,10 @@ pub struct CurveSet {
 }
 
 impl CurveSet {
+    pub fn ids(&self) -> impl Iterator<Item = &Id> {
+        self.curves.keys()
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

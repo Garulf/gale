@@ -12,6 +12,7 @@ pub struct FanEngine {
     virtual_sensors: VirtualSensors,
     control_settings: HashMap<Id, ControlSettings>,
     last_duties: HashMap<Id, f64>,
+    last_curve_outputs: HashMap<Id, f64>,
 }
 
 impl std::fmt::Debug for FanEngine {
@@ -30,6 +31,7 @@ impl FanEngine {
             virtual_sensors: VirtualSensors::empty(),
             control_settings: HashMap::new(),
             last_duties: HashMap::new(),
+            last_curve_outputs: HashMap::new(),
         }
     }
 
@@ -49,6 +51,10 @@ impl FanEngine {
 
     pub fn virtual_sensor_ids(&self) -> Vec<Id> {
         self.virtual_sensors.ids()
+    }
+
+    pub fn curve_outputs(&self) -> &HashMap<Id, f64> {
+        &self.last_curve_outputs
     }
 
     pub fn tick(
@@ -79,6 +85,15 @@ impl FanEngine {
                 (control.clone(), duty)
             })
             .collect();
+        self.last_curve_outputs = self
+            .curves
+            .ids()
+            .filter_map(|id| {
+                ctx.resolve(id)
+                    .filter(|d| d.is_finite())
+                    .map(|d| (id.clone(), d.clamp(0.0, 100.0)))
+            })
+            .collect();
         self.last_duties = duties.clone();
         duties
     }
@@ -90,6 +105,7 @@ mod tests {
     use crate::config::ProfileConfig;
     use crate::curve::flat::FlatCurve;
     use crate::curve::point::PointCurve;
+    use crate::curve::target::TargetCurve;
     use crate::curve::CurveSet;
     use std::collections::HashMap;
 
@@ -305,6 +321,57 @@ mod tests {
         assert_eq!(
             engine.tick(&mut sensors(&[("t", Some(30.0))]), 1.0)["pwm1"],
             0.0
+        );
+    }
+
+    #[test]
+    fn curve_outputs_cover_every_curve_including_unassigned_ones() {
+        let mut set = CurveSet::new();
+        set.insert("fast".into(), Box::new(FlatCurve { duty: 70.0 }));
+        set.insert("slow".into(), Box::new(FlatCurve { duty: 20.0 }));
+        let assignments: HashMap<String, String> =
+            [("pwm1".to_string(), "fast".to_string())].into();
+        let mut engine = FanEngine::new(set, assignments);
+        assert!(engine.curve_outputs().is_empty());
+
+        engine.tick(&mut sensors(&[]), 1.0);
+        assert_eq!(engine.curve_outputs()["fast"], 70.0);
+        assert_eq!(engine.curve_outputs()["slow"], 20.0);
+    }
+
+    #[test]
+    fn curve_outputs_omit_curves_that_have_no_value() {
+        let mut set = CurveSet::new();
+        set.insert(
+            "cpu".into(),
+            Box::new(PointCurve::new(
+                "t".into(),
+                vec![(30.0, 20.0), (70.0, 100.0)],
+            )),
+        );
+        let mut engine = FanEngine::new(set, HashMap::new());
+        engine.tick(&mut sensors(&[("t", None)]), 1.0);
+        assert!(!engine.curve_outputs().contains_key("cpu"));
+
+        engine.tick(&mut sensors(&[("t", Some(50.0))]), 1.0);
+        assert_eq!(engine.curve_outputs()["cpu"], 60.0);
+    }
+
+    #[test]
+    fn unassigned_stateful_curves_track_live_conditions_every_tick() {
+        let mut set = CurveSet::new();
+        set.insert(
+            "hold".into(),
+            Box::new(TargetCurve::new("t".into(), 40.0, 10.0, 20.0, 60.0)),
+        );
+        let mut engine = FanEngine::new(set, HashMap::new());
+        engine.tick(&mut sensors(&[("t", Some(50.0))]), 1.0);
+        let first = engine.curve_outputs()["hold"];
+        engine.tick(&mut sensors(&[("t", Some(50.0))]), 1.0);
+        let second = engine.curve_outputs()["hold"];
+        assert!(
+            second > first,
+            "a target curve above its setpoint keeps ramping while unassigned"
         );
     }
 

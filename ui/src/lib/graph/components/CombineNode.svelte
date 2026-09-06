@@ -3,7 +3,7 @@
   import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { dutyValue } from '../liveValues.js';
+  import { dutyValue, curveOutput } from '../liveValues.js';
   import { numberedInputCount, isSingleInputCombineType } from '../ids.js';
   import { operationLabel } from '../palette.js';
 
@@ -31,6 +31,8 @@
   const outputConnections = useNodeConnections({ handleType: 'source', handleId: 'out' });
 
   let outputDuty = $derived.by(() => {
+    const published = curveOutput($snapshot, data.combine.id);
+    if (published !== null) return published;
     const connection = outputConnections.current[0];
     if (!connection) return null;
     return dutyValue($snapshot, connection.targetHandle);

@@ -596,6 +596,7 @@
   border-radius: 999px;
   background: var(--canvas);
   border: 1px solid var(--line);
+  pointer-events: none;
 }
 
 .gale-canvas .elabel.temp {

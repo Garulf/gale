@@ -3,7 +3,7 @@
   import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { tempValue, dutyValue } from '../liveValues.js';
+  import { tempValue, dutyValue, curveOutput } from '../liveValues.js';
   import { curvePaths, curveScale, evalCurve, clamp, curvePoints } from '../../curveMath.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
@@ -43,6 +43,8 @@
   });
 
   let outputDuty = $derived.by(() => {
+    const published = curveOutput($snapshot, data.curve.id);
+    if (published !== null) return published;
     const connection = outputConnections.current[0];
     if (!connection) return null;
     return dutyValue($snapshot, connection.targetHandle);
