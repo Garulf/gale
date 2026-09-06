@@ -49,11 +49,48 @@ export function autoLayout(nodes, edges) {
 
   dagre.layout(graph);
 
-  return nodes.map((node) => {
+  const positioned = nodes.map((node) => {
     const laidOut = graph.node(node.id);
     return {
       ...node,
       position: { x: laidOut.x, y: laidOut.y },
     };
   });
+  return pinDeviceColumns(positioned, edges);
+}
+
+const COLUMN_GAP = 80;
+const STACK_GAP = 24;
+
+function isDevice(node) {
+  return node.type === 'deviceSensor' || node.type === 'deviceControl';
+}
+
+function stackColumn(column, x, top, edges) {
+  let y = top;
+  return column
+    .slice()
+    .sort((a, b) => a.position.y - b.position.y)
+    .map((node) => {
+      const placed = { ...node, position: { x, y } };
+      y += measure(node, edges).height + STACK_GAP;
+      return placed;
+    });
+}
+
+function pinDeviceColumns(nodes, edges) {
+  const middle = nodes.filter((node) => !isDevice(node));
+  const sensors = nodes.filter((node) => node.type === 'deviceSensor');
+  const controls = nodes.filter((node) => node.type === 'deviceControl');
+  if (sensors.length === 0 && controls.length === 0) return nodes;
+
+  const anchor = middle.length > 0 ? middle : nodes;
+  const left = Math.min(...anchor.map((node) => node.position.x));
+  const right = Math.max(...anchor.map((node) => node.position.x));
+  const top = Math.min(...anchor.map((node) => node.position.y));
+
+  const sensorColumn = stackColumn(sensors, left - NODE_WIDTH - COLUMN_GAP, top, edges);
+  const controlColumn = stackColumn(controls, right + NODE_WIDTH + COLUMN_GAP, top, edges);
+  const byId = new Map([...sensorColumn, ...controlColumn].map((node) => [node.id, node]));
+  return nodes.map((node) => byId.get(node.id) || node);
 }

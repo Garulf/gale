@@ -80,3 +80,67 @@ test('measure sizes combine nodes by their live incoming edges', () => {
   assert.ok(measure(mix, edges).height > measure(mix, single).height);
   assert.ok(measure(mix, single).height > measure(mix, []).height);
 });
+
+function fixtureScatteredDevices() {
+  const config = {
+    tick_interval_ms: 1000,
+    active_profile: 'default',
+    profiles: {
+      default: {
+        sensors: {
+          hot: { type: 'max', inputs: ['hwmon/chipA/temp1'] },
+          smooth: { type: 'mean', inputs: ['virtual/hot'], window_s: 10 },
+        },
+        curves: {
+          deep: { type: 'point', sensor: 'virtual/smooth', points: [[30, 20], [70, 100]] },
+          gpu: { type: 'point', sensor: 'nvidia/0/temp', points: [[30, 20], [70, 100]] },
+          blend: { type: 'mix', sources: ['deep', 'gpu'], mode: 'max' },
+        },
+        assignments: { 'corsair/dev1/fan1': 'blend' },
+      },
+    },
+  };
+  const inventory = {
+    sensors: [
+      { id: 'hwmon/chipA/temp1', label: 'CPU', kind: 'temp' },
+      { id: 'nvidia/0/temp', label: 'GPU', kind: 'temp' },
+      { id: 'ec/board/vrm', label: 'VRM', kind: 'temp' },
+    ],
+    controls: [
+      { id: 'corsair/dev1/fan1', label: 'Case fan' },
+      { id: 'hwmon/chipA/pwm1', label: 'Unwired header' },
+      { id: 'nvidia/0/fan0', label: 'GPU fan' },
+    ],
+  };
+  return configToGraph(config, inventory, 'default');
+}
+
+test('autoLayout pins every device sensor left of, and every device control right of, all other nodes', () => {
+  const { nodes, edges } = fixtureScatteredDevices();
+  const laidOut = autoLayout(nodes, edges);
+  const xs = (type) => laidOut.filter((node) => node.type === type).map((node) => node.position.x);
+  const middle = laidOut.filter((node) => node.type !== 'deviceSensor' && node.type !== 'deviceControl');
+
+  assert.equal(xs('deviceSensor').length, 3);
+  assert.equal(xs('deviceControl').length, 3);
+  assert.ok(middle.length > 0);
+  const sensorRight = Math.max(...xs('deviceSensor'));
+  const controlLeft = Math.min(...xs('deviceControl'));
+  for (const node of middle) {
+    assert.ok(node.position.x > sensorRight, `${node.id} at x ${node.position.x} is not right of the sensor column (${sensorRight})`);
+    assert.ok(node.position.x < controlLeft, `${node.id} at x ${node.position.x} is not left of the control column (${controlLeft})`);
+  }
+});
+
+test('autoLayout stacks a device column without overlap', () => {
+  const { nodes, edges } = fixtureScatteredDevices();
+  const laidOut = autoLayout(nodes, edges);
+  for (const type of ['deviceSensor', 'deviceControl']) {
+    const column = laidOut.filter((node) => node.type === type).sort((a, b) => a.position.y - b.position.y);
+    for (let i = 1; i < column.length; i += 1) {
+      const above = column[i - 1];
+      const bottomOfAbove = above.position.y + measure(above, edges).height;
+      assert.ok(column[i].position.y >= bottomOfAbove, `${column[i].id} overlaps ${above.id}`);
+    }
+  }
+});
