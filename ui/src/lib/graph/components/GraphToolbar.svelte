@@ -16,6 +16,7 @@
     onToggleLabels,
     onAddNode,
     scopeName = '',
+    scope = '',
     onExitScope,
     canGroup = false,
     onGroup,
@@ -34,13 +35,13 @@
     addMenuOpen = false;
   }
 
-  let lastScope = $state('');
+  let lastScope = '';
 
   $effect(() => {
-    if (scopeName !== lastScope) {
-      lastScope = scopeName;
-      setTimeout(() => fitView(), 0);
-    }
+    if (scope === lastScope) return;
+    lastScope = scope;
+    const timer = setTimeout(() => fitView(), 0);
+    return () => clearTimeout(timer);
   });
 </script>
 

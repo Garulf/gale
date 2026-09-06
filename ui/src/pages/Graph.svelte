@@ -22,6 +22,7 @@
     groupOf,
     isGroupNodeId,
     isPortNodeId,
+    groupIdOf,
   } from '../lib/graph/groups.js';
   import { nodeKind, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
@@ -132,7 +133,7 @@
     return next.map((node) => {
       const old = byId.get(node.id);
       if (!old) return node;
-      return { ...node, selected: old.selected === true, measured: old.measured, width: old.width, height: old.height };
+      return { ...node, selected: node.selected === true || old.selected === true, measured: old.measured, width: old.width, height: old.height };
     });
   }
 
@@ -322,9 +323,12 @@
   }
 
   function pruneStaleSelection() {
-    if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
-      selectedNodeId = '';
+    if (!selectedNodeId) return;
+    if (isGroupNodeId(selectedNodeId)) {
+      if (!groups.some((group) => group.id === groupIdOf(selectedNodeId))) selectedNodeId = '';
+      return;
     }
+    if (!nodes.some((node) => node.id === selectedNodeId)) selectedNodeId = '';
   }
 
   function undo() {
@@ -365,7 +369,9 @@
     });
     groups = groups.map((group) => {
       const position = positions.get(`group:${group.id}`);
-      return position ? { ...group, position: { x: position.x, y: position.y } } : group;
+      return position && (position.x !== group.position.x || position.y !== group.position.y)
+        ? { ...group, position: { x: position.x, y: position.y } }
+        : group;
     });
   }
 
@@ -442,13 +448,21 @@
     return false;
   }
 
+  function clearFlatSelection() {
+    if (nodes.some((node) => node.selected === true)) {
+      nodes = nodes.map((node) => (node.selected === true ? { ...node, selected: false } : node));
+    }
+  }
+
   function onNodeClick({ node }) {
     if (node.type === 'port') return;
+    clearFlatSelection();
     selectedNodeId = node.id;
     sheetOpen = true;
   }
 
   function onPaneClick() {
+    clearFlatSelection();
     selectedNodeId = '';
   }
 
@@ -577,11 +591,18 @@
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
     if (key === 'g') {
+      if (!canGroup) return;
       groupSelection();
       event.preventDefault();
       return;
     }
-    if (key === 'c' && selectedNodeId && nodeKind(selectedNodeId) !== 'sensor' && nodeKind(selectedNodeId) !== 'control') {
+    if (
+      key === 'c' &&
+      selectedNodeId &&
+      !isGroupNodeId(selectedNodeId) &&
+      nodeKind(selectedNodeId) !== 'sensor' &&
+      nodeKind(selectedNodeId) !== 'control'
+    ) {
       copiedNodeId = selectedNodeId;
       event.preventDefault();
     } else if (key === 'v' && copiedNodeId) {
@@ -689,6 +710,7 @@
   function appendNode(node) {
     snapshotHistory();
     nodes = [...nodes, node];
+    if (scope) groups = setMembership(groups, node.id, scope);
     selectedNodeId = node.id;
     sheetOpen = true;
     dirty = true;
@@ -807,6 +829,7 @@
         onToggleLabels={toggleEdgeLabels}
         onAddNode={addPaletteNode}
         {scopeName}
+        scope={scope || ''}
         onExitScope={exitScope}
         {canGroup}
         onGroup={groupSelection}
