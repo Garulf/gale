@@ -6,8 +6,12 @@
 ### Features
 
 * **amdcpu:** report cpu package power from the energy msrs ([3811e1a](https://github.com/Garulf/gale/commit/3811e1ad82533e51476dcedd452dc20ed1b4fee4))
-* **cpu:** CPU usage, clock and package power sensors ([e208c19](https://github.com/Garulf/gale/commit/e208c198465d46730fb6a645d1ff7ecd4929e3ce))
 * **cpu:** read cpu usage, clock and package power ([e98ae7b](https://github.com/Garulf/gale/commit/e98ae7bf9342099e73118f1ae8b586c491be3730))
+* **config:** declare group input and output ports ([bf730a0](https://github.com/Garulf/gale/commit/bf730a0))
+* **ui:** round-trip declared group ports through the config ([c898af4](https://github.com/Garulf/gale/commit/c898af4))
+* **ui:** project declared group ports as Inputs and Outputs nodes ([8c86065](https://github.com/Garulf/gale/commit/8c86065))
+* **ui:** dock group Inputs and Outputs strips at the viewport edges ([8ed725f](https://github.com/Garulf/gale/commit/8ed725f))
+* **ui:** list a group's effective ports in the node panel ([dc76c55](https://github.com/Garulf/gale/commit/dc76c55))
 * **hw:** add a shared counter rate helper ([8fe1a64](https://github.com/Garulf/gale/commit/8fe1a64174bf019264b65958907bf6ca8e0dafe9))
 
 
@@ -15,6 +19,8 @@
 
 * **amdcpu:** reject a bogus energy unit instead of inflating watts ([a22d9c5](https://github.com/Garulf/gale/commit/a22d9c5b440e9de34abd29a02548a57d8b7cecf1))
 * **cpu:** correct the jiffy total, rapl zone and processor count ([0b2af89](https://github.com/Garulf/gale/commit/0b2af8910ea7c4fa49eb0058ee9423401ee04c11))
+* **ui:** keep declared group ports in step with membership ([77651cb](https://github.com/Garulf/gale/commit/77651cb))
+* **ui:** validate a replaced boundary source and tidy the group port edges ([235d275](https://github.com/Garulf/gale/commit/235d275))
 * **hw:** take the counter modulus and clamp implausible wattage ([20feedb](https://github.com/Garulf/gale/commit/20feedb142fd08c6fcbeb2479dbe892e6a600e52))
 
 ## [0.9.0](https://github.com/Garulf/gale/compare/gale-v0.8.0...gale-v0.9.0) (2026-09-07)
