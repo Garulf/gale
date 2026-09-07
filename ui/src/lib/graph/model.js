@@ -124,6 +124,19 @@ function handleIndex(handle) {
   return match ? Number(match[1]) : 0;
 }
 
+function readPorts(ports) {
+  if (!Array.isArray(ports)) return [];
+  return ports
+    .filter((port) => port && typeof port.node === 'string' && typeof port.handle === 'string')
+    .map((port) => ({ node: port.node, handle: port.handle, name: typeof port.name === 'string' ? port.name : null }));
+}
+
+function prunePorts(group) {
+  const members = new Set(group.members);
+  const keep = (port) => members.has(port.node);
+  return { ...group, inputs: group.inputs.filter(keep), outputs: group.outputs.filter(keep) };
+}
+
 export function configToGraph(config, inventory, profileName) {
   const profile = config.profiles[profileName];
   const edges = [];
@@ -229,12 +242,14 @@ export function configToGraph(config, inventory, profileName) {
       name: group.name || `Group ${id.replace(/^g/, '')}`,
       position: { x: (group.position || [0, 0])[0], y: (group.position || [0, 0])[1] },
       members: group.members || [],
+      inputs: readPorts(group.inputs),
+      outputs: readPorts(group.outputs),
       parent: group.parent || null,
     })),
     nodes
   );
 
-  return { nodes, edges, groups };
+  return { nodes, edges, groups: groups.map(prunePorts) };
 }
 
 function refIdForSource(edge) {
@@ -242,6 +257,10 @@ function refIdForSource(edge) {
   if (kind === 'sensor') return edge.sourceHandle;
   if (kind === 'virtual') return virtualId(nodeName(edge.source));
   return nodeName(edge.source);
+}
+
+function writePort(port) {
+  return { node: port.node, handle: port.handle, ...(port.name ? { name: port.name } : {}) };
 }
 
 export function graphToConfig(nodes, edges, baseConfig, profileName, groups = []) {
@@ -321,6 +340,8 @@ export function graphToConfig(nodes, edges, baseConfig, profileName, groups = []
       name: group.name,
       position: [group.position.x, group.position.y],
       members: [...group.members],
+      inputs: (group.inputs || []).map(writePort),
+      outputs: (group.outputs || []).map(writePort),
       ...(group.parent ? { parent: group.parent } : {}),
     };
   }
