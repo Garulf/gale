@@ -1918,6 +1918,7 @@ default = ["sensor:hwmon/nct6798"]
             min_duty: Some(22.0),
             start_duty: Some(32.0),
             stop_duty: Some(17.0),
+            max_duty: None,
         };
         assert_eq!(calibrated.shape(5.0, 40.0), 0.0);
         assert_eq!(calibrated.shape(20.0, 0.0), 32.0);
@@ -1931,6 +1932,7 @@ default = ["sensor:hwmon/nct6798"]
             min_duty: Some(25.0),
             start_duty: None,
             stop_duty: None,
+            max_duty: None,
         };
         assert_eq!(floored.shape(0.0, 0.0), 0.0);
         assert_eq!(floored.shape(10.0, 0.0), 25.0);
