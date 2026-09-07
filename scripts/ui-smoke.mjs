@@ -35,6 +35,12 @@ const WEBHOOK_TIMEOUT_S = 0.5;
 const UNKNOWN_TOKEN = 'f'.repeat(64);
 const INPUTS_STRIP_PREFIX = 'port:in:';
 const DECLARED_CURVE = 'curve:curve_1';
+const CLOCK_CURVE = 'clock';
+const CLOCK_SENSOR = 'cpu/clock';
+const CLOCK_CURVE_NODE = `curve:${CLOCK_CURVE}`;
+const CLOCK_AXIS_LABEL = '20000 MHz';
+const PLOT_LEFT = 44;
+const PLOT_RIGHT = 544;
 
 if (!CHROME_PATH) {
   console.error('GALE_UI_SMOKE_CHROME is not set');
@@ -1148,6 +1154,49 @@ async function main() {
 
     await record('Save round-trips 204', async () => {
       await saveGraph(page);
+    });
+
+    await record('a clock curve grows its axis to fit a 15000 MHz point', async () => {
+      const config = await fetchConfig();
+      const status = await fetchStatus();
+      assert(status.sensors[CLOCK_SENSOR] !== undefined, `${CLOCK_SENSOR} is missing from the inventory`);
+      config.profiles[config.active_profile].curves[CLOCK_CURVE] = {
+        type: 'point',
+        sensor: CLOCK_SENSOR,
+        points: [[1000, 20], [15000, 100]],
+      };
+      const stored = await fetch(`${BASE_URL}/api/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      assert(stored.status === 204, `expected 204 storing the clock curve, got ${stored.status}`);
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.waitForSelector('h2', { timeout: 5000 });
+      const clickedGraph = await page.evaluate(() => {
+        const button = Array.from(document.querySelectorAll('nav button')).find((b) => b.textContent.trim() === 'Graph');
+        if (!button) return false;
+        button.click();
+        return true;
+      });
+      assert(clickedGraph, 'Graph nav button not found');
+      await page.waitForSelector(`[data-node-id="${CLOCK_CURVE_NODE}"]`, { timeout: 10000 });
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, CLOCK_CURVE_NODE);
+      await page.waitForSelector('svg.graph circle.curve-point', { timeout: 5000 });
+      await page.waitForFunction(
+        (label) => Array.from(document.querySelectorAll('svg.graph text.axis-label')).some((el) => el.textContent.trim() === label),
+        { timeout: 5000 },
+        CLOCK_AXIS_LABEL
+      );
+      const xs = await page.$$eval('svg.graph circle.curve-point', (circles) => circles.map((circle) => Number(circle.getAttribute('cx'))));
+      assert(xs.length === 2, `expected the two clock curve points, got ${xs.length}`);
+      assert(
+        xs.every((x) => x >= PLOT_LEFT && x <= PLOT_RIGHT),
+        `clock curve points fall outside the plot: ${xs.join(', ')}`
+      );
+      assert(Math.max(...xs) > (PLOT_LEFT + PLOT_RIGHT) / 2, `the 15000 MHz point should sit in the right half of the plot: ${xs.join(', ')}`);
     });
   } finally {
     await browser.close();
