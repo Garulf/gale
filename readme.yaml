@@ -6,9 +6,9 @@ project:
   name: Gale
   owner: Garulf
   repo: gale
-  version: "0.1.0"
+  version: "0.10.0"
   license: GPL-3.0-or-later
-  tagline: An API-first fan control daemon for Linux.
+  tagline: An API-first fan control daemon for Linux and Windows.
 banner:
   image: assets/gale.svg
   alt: Gale
@@ -17,3 +17,6 @@ banner:
 badges:
   - license
   - version
+screenshots:
+  dir: docs/screenshots
+  width: 900
