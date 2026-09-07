@@ -7,11 +7,12 @@
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
-  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, axisFor, clamp } from '../lib/curveMath.js';
+  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, createAxisHold, clamp } from '../lib/curveMath.js';
   import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
   import { sensorDisplay } from '../lib/graph/liveValues.js';
+  import { axisMark } from '../lib/units.js';
 
   const CHART_W = 220;
   const CHART_H = 84;
@@ -117,13 +118,15 @@
     return { id: curveId, config };
   }
 
+  const holdAxis = createAxisHold();
+
   function chartFor(curve, liveDuty) {
     const drawn = curve && profile ? chartCurve(curve.id, profile.curves, values) : null;
     const points = curvePoints(drawn ? drawn.config : null);
     if (!points) return null;
     const temp = values[drawn.config.sensor] ?? null;
     const kind = sensorKindFor(drawn.config.sensor, inventory);
-    const axis = axisFor(kind);
+    const axis = holdAxis(drawn.id, points, temp, kind);
     const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD, axis.max);
     const scale = curveScale(CHART_W, CHART_H, CHART_PAD, axis.max);
     const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(points, temp);
@@ -137,6 +140,12 @@
       temp,
       reading: sensorDisplay(temp, kind),
     };
+  }
+
+  function inputReadingText(value, kind) {
+    const reading = sensorDisplay(value, kind);
+    const mark = axisMark(reading.unit);
+    return mark === '°' ? `${reading.text}°` : mark ? `${reading.text} ${mark}` : reading.text;
   }
 
   function curveInput(curve) {
@@ -161,6 +170,7 @@
       const tach = tachSensorFor(control.id, inventory.sensors);
       const rpm = tach ? values[tach.id] ?? null : null;
       const temp = curve && curve.config.sensor ? values[curve.config.sensor] ?? null : null;
+      const inputKind = curve && curve.config.sensor ? sensorKindFor(curve.config.sensor, inventory) : undefined;
       const duty = duties[control.id] ?? null;
       return {
         id: control.id,
@@ -176,7 +186,7 @@
         curveName: curve ? curve.id : '',
         curveKind: curveKind(curve),
         input: curveInput(curve),
-        temp: temp === null ? '' : `${fmtTemp(temp)}°`,
+        temp: temp === null ? '' : inputReadingText(temp, inputKind),
         chart: chartFor(curve, duty),
         hidden: hiddenIds.includes(control.id),
       };

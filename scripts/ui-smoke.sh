@@ -106,6 +106,11 @@ for n in 1 2 3 4 5; do
   echo "1" >"$CHIP_DIR/pwm${n}_mode"
 done
 
+CPU_ROOT="$WORKDIR/cpu"
+mkdir -p "$CPU_ROOT/proc" "$CPU_ROOT/sys/devices/system/cpu/cpu0/cpufreq"
+echo "cpu  100 0 100 700 100 0 0 0 0 0" >"$CPU_ROOT/proc/stat"
+echo "3000000" >"$CPU_ROOT/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
+
 PORT="$(pick_port)"
 BIND="127.0.0.1:$PORT"
 BASE_URL="http://$BIND"
@@ -147,6 +152,7 @@ mkdir -p "$RUNTIME_DIR"
 
 echo "starting galed against scratch hwmon tree on $BASE_URL" >&2
 GALE_HWMON_ROOT="$HWMON_ROOT" \
+  GALE_CPU_ROOT="$CPU_ROOT" \
   GALE_CONFIG="$CONFIG_PATH" \
   GALE_RUNTIME_DIR="$RUNTIME_DIR" \
   RUST_LOG=warn \

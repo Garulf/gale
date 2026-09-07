@@ -4,7 +4,8 @@
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, curveOutput, sensorDisplay } from '../liveValues.js';
-  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, axisFor } from '../../curveMath.js';
+  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, createAxisHold } from '../../curveMath.js';
+  import { axisMark as unitMark } from '../../units.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
   const CHART_W = 210;
@@ -43,8 +44,6 @@
     return connection && sensorKind ? sensorKind(connection.source, connection.sourceHandle) : undefined;
   });
 
-  let axis = $derived(axisFor(inputKind));
-
   let sensorTemp = $derived.by(() => {
     const connection = sensorConnections.current[0];
     if (!connection) return null;
@@ -61,6 +60,9 @@
     return dutyValue($snapshot, connection.targetHandle);
   });
 
+  const holdAxis = createAxisHold();
+  let axis = $derived(holdAxis(data.curve.id, curvePoints(config) || [], sensorTemp, inputKind));
+
   let chart = $derived.by(() => {
     const points = curvePoints(config);
     if (!points) return null;
@@ -75,7 +77,7 @@
     };
   });
 
-  let axisMark = $derived(axis.unit === '°C' ? '°' : axis.unit);
+  let axisMark = $derived(unitMark(axis.unit));
 
   let summary = $derived.by(() => {
     if (config.type === 'flat') return `${config.duty}%`;

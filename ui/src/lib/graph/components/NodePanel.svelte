@@ -1,6 +1,7 @@
 <script>
   import { getContext, untrack, onDestroy } from 'svelte';
-  import { curvePoints as curvePointsFor, axisFor } from '../../curveMath.js';
+  import { curvePoints as curvePointsFor, createAxisHold } from '../../curveMath.js';
+  import { axisMark } from '../../units.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
   import { getWebhookUrl, putControlSettings, startCalibration, getCalibration, cancelCalibration } from '../../api.js';
@@ -340,8 +341,15 @@
     return edge && sensorKind ? sensorKind(edge.source, edge.sourceHandle) : undefined;
   });
 
-  let curveAxis = $derived(axisFor(curveInputKind));
-  let curveAxisMark = $derived(curveAxis.unit === '°C' ? '°' : curveAxis.unit);
+  let curveAxisInputs = $derived.by(() => {
+    if (!node || node.type !== 'curve') return [];
+    const config = node.data.curve.config;
+    return config.type === 'point' ? taggedPoints : curvePointsFor(config) || [];
+  });
+
+  const holdAxis = createAxisHold();
+  let curveAxis = $derived(holdAxis(node ? node.id : '', curveAxisInputs, liveSensorTemp, curveInputKind));
+  let curveAxisMark = $derived(axisMark(curveAxis.unit));
 
   let curveInputReading = $derived(sensorDisplay(liveSensorTemp, curveInputKind));
 
@@ -593,8 +601,8 @@
   {@const config = node.data.curve.config}
   {#snippet hysteresisFields()}
     <div class="two">
-      <label class="field">up<input type="number" value={config.hysteresis.up} oninput={(e) => updateHysteresisField('up', numberFromEvent(e))} />°</label>
-      <label class="field">down<input type="number" value={config.hysteresis.down} oninput={(e) => updateHysteresisField('down', numberFromEvent(e))} />°</label>
+      <label class="field">up<input type="number" value={config.hysteresis.up} oninput={(e) => updateHysteresisField('up', numberFromEvent(e))} />{curveAxisMark}</label>
+      <label class="field">down<input type="number" value={config.hysteresis.down} oninput={(e) => updateHysteresisField('down', numberFromEvent(e))} />{curveAxisMark}</label>
     </div>
   {/snippet}
   {#snippet responseFields()}
@@ -869,13 +877,13 @@
   </div>
 
   {#if config.type === 'point'}
-    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} xMax={curveAxis.max} xUnit={curveAxis.unit} />
+    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} axis={curveAxis} />
     {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">
-      <label class="field">from {curveAxis.unit || 'input'}<input type="number" min="0" max={curveAxis.max} value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
+      <label class="field">from {curveAxis.unit || 'input'}<input type="number" value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
-      <label class="field">to {curveAxis.unit || 'input'}<input type="number" min="0" max={curveAxis.max} value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
+      <label class="field">to {curveAxis.unit || 'input'}<input type="number" value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
     {@render smoothing(true)}

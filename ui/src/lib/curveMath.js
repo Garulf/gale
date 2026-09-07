@@ -1,3 +1,5 @@
+import { KIND_UNITS } from './units.js';
+
 export function sortedPoints(points) {
   return [...points].sort((a, b) => a[0] - b[0]);
 }
@@ -20,16 +22,81 @@ export function evalCurve(points, temp) {
 }
 
 const AXES = {
-  temp: { max: 100, unit: '°C' },
-  percent: { max: 100, unit: '%' },
-  clock: { max: 4000, unit: 'MHz' },
-  memory: { max: 32768, unit: 'MiB' },
-  power: { max: 600, unit: 'W' },
-  state: { max: 15, unit: '' },
+  temp: { max: 100, unit: KIND_UNITS.temp },
+  percent: { max: 100, unit: KIND_UNITS.percent },
+  clock: { max: 4000, unit: KIND_UNITS.clock },
+  memory: { max: 32768, unit: KIND_UNITS.memory },
+  power: { max: 600, unit: KIND_UNITS.power },
+  state: { max: 15, unit: KIND_UNITS.state },
 };
 
-export function axisFor(kind) {
-  return AXES[kind] || AXES.temp;
+const CEILING_STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+const TICK_STEPS = [1, 2, 2.5, 5, 10];
+const AXIS_HEADROOM = 1.05;
+const TARGET_TICK_COUNT = 5;
+const EPSILON = 1e-9;
+
+function niceAtLeast(value, ladder) {
+  const decade = 10 ** Math.floor(Math.log10(value));
+  const step = ladder.find((factor) => factor * decade >= value - EPSILON);
+  return step === undefined ? 10 * decade : step * decade;
+}
+
+export function niceCeiling(value) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const scaled = value * AXIS_HEADROOM;
+  if (!Number.isFinite(scaled)) return 0;
+  return niceAtLeast(scaled, CEILING_STEPS);
+}
+
+function largestObserved(observed) {
+  if (!observed) return 0;
+  return observed.reduce((best, value) => (Number.isFinite(value) && value > best ? value : best), 0);
+}
+
+export function axisFor(kind, observed = []) {
+  const base = AXES[kind] || AXES.temp;
+  const largest = largestObserved(observed);
+  const max = largest > base.max ? niceCeiling(largest) : base.max;
+  return { min: 0, max, unit: base.unit, step: niceAtLeast(max / TARGET_TICK_COUNT, TICK_STEPS) };
+}
+
+function pointX(point) {
+  if (Array.isArray(point)) return point[0];
+  return point && typeof point === 'object' ? point.temp : point;
+}
+
+export function axisSpan(points, live, kind) {
+  const observed = (points || []).map(pointX);
+  observed.push(live);
+  return axisFor(kind, observed);
+}
+
+export function createAxisHold() {
+  const held = new Map();
+  return (curveId, points, live, kind) => {
+    const key = `${curveId}|${kind}`;
+    const approaching = Number.isFinite(live) ? live * AXIS_HEADROOM : live;
+    const fitted = axisSpan(points, approaching, kind);
+    const previous = held.get(key);
+    if (previous && previous.max >= fitted.max) return previous;
+    held.set(key, fitted);
+    return fitted;
+  };
+}
+
+export function axisTicks(axis) {
+  const ticks = [];
+  for (let value = axis.min; value < axis.max - EPSILON; value += axis.step) ticks.push(Math.round(value));
+  const last = ticks[ticks.length - 1];
+  if (last !== undefined && axis.max - last < axis.step / 2) ticks.pop();
+  ticks.push(axis.max);
+  return ticks;
+}
+
+export function pointFieldValue(field, value) {
+  const numeric = Number(value);
+  return field === 'duty' ? clamp(numeric, 0, 100) : numeric;
 }
 
 export function curveScale(width, height, pad = 0, xMax = 100) {

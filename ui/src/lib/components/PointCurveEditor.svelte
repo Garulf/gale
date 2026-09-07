@@ -1,7 +1,11 @@
 <script>
-  import { evalCurve, clamp, nextPointTemp } from '../curveMath.js';
+  import { evalCurve, clamp, nextPointTemp, axisFor, axisTicks, pointFieldValue } from '../curveMath.js';
+  import { axisMark } from '../units.js';
 
-  let { points, liveTemp = null, onChange, xMax = 100, xUnit = '°C' } = $props();
+  let { points, liveTemp = null, onChange, axis = axisFor('temp') } = $props();
+
+  let xMax = $derived(axis.max);
+  let xUnit = $derived(axis.unit);
 
   const WIDTH = 560;
   const HEIGHT = 300;
@@ -105,8 +109,13 @@
   }
 
   function updateField(id, field, value) {
-    const numeric = field === 'duty' ? clamp(Number(value), 0, 100) : Number(value);
-    withPoint(id, (point) => ({ ...point, [field]: numeric }));
+    withPoint(id, (point) => ({ ...point, [field]: pointFieldValue(field, value) }));
+  }
+
+  function tickLabel(value, isLast) {
+    const mark = axisMark(xUnit);
+    if (mark === '°') return `${value}°`;
+    return isLast && mark ? `${value} ${mark}` : `${value}`;
   }
 
   let sorted = $derived(sortedByTemp(points));
@@ -117,7 +126,7 @@
     return yToPx(evalCurve(pairs(sorted), clamp(liveTemp, 0, xMax)));
   });
 
-  let gridTemps = $derived([0, 0.2, 0.4, 0.6, 0.8, 1].map((f) => Math.round(f * xMax)));
+  let gridTemps = $derived(axisTicks(axis));
   const gridDuties = [0, 25, 50, 75, 100];
 </script>
 
@@ -136,9 +145,9 @@
     onclick={addPointAt}
   >
     <rect class="plot-bg" x={PAD_LEFT} y={PAD_TOP} width={PLOT_W} height={PLOT_H} />
-    {#each gridTemps as temp}
+    {#each gridTemps as temp, index}
       <line x1={xToPx(temp)} y1={PAD_TOP} x2={xToPx(temp)} y2={PAD_TOP + PLOT_H} class="grid-line" />
-      <text x={xToPx(temp)} y={HEIGHT - 10} class="axis-label" text-anchor="middle">{temp}{xUnit === '°C' ? '°' : ''}</text>
+      <text x={xToPx(temp)} y={HEIGHT - 10} class="axis-label" text-anchor={index === gridTemps.length - 1 ? 'end' : 'middle'}>{tickLabel(temp, index === gridTemps.length - 1)}</text>
     {/each}
     {#each gridDuties as duty}
       <line x1={PAD_LEFT} y1={yToPx(duty)} x2={PAD_LEFT + PLOT_W} y2={yToPx(duty)} class="grid-line" />
@@ -178,7 +187,7 @@
   <div class="points">
     {#each sorted as point (point.id)}
       <div class="point-row">
-        <label class="field">{xUnit || 'x'}<input type="number" min="0" max={xMax} value={point.temp} oninput={(event) => updateField(point.id, 'temp', event.target.value)} /></label>
+        <label class="field">{xUnit || 'x'}<input type="number" value={point.temp} oninput={(event) => updateField(point.id, 'temp', event.target.value)} /></label>
         <label class="field">%<input type="number" min="0" max="100" value={point.duty} oninput={(event) => updateField(point.id, 'duty', event.target.value)} /></label>
         <button type="button" class="btn remove" aria-label="Remove point" disabled={points.length <= 2} onclick={() => removePoint(point.id)}>×</button>
       </div>

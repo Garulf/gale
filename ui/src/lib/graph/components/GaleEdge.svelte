@@ -3,6 +3,7 @@
   import { BaseEdge, EdgeLabel, getBezierPath } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, sensorDisplay } from '../liveValues.js';
+  import { axisMark } from '../../units.js';
 
   let {
     id,
@@ -36,8 +37,9 @@
       if (value === null) return '';
       const kind = sensorKind ? sensorKind(source, sourceHandleId) : undefined;
       const reading = sensorDisplay(value, kind);
-      if (kind === undefined || kind === 'temp') return `${reading.text}°`;
-      return reading.unit ? `${reading.text} ${reading.unit}` : reading.text;
+      const mark = axisMark(reading.unit);
+      if (mark === '°') return `${reading.text}°`;
+      return mark ? `${reading.text} ${mark}` : reading.text;
     }
     const value = dutyValue(snap, targetHandleId);
     return value === null ? '' : `${Math.round(value)}%`;
