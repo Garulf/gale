@@ -4,15 +4,15 @@ use gale_pawnio::modules::AMDFAMILY17;
 use gale_pawnio::mutex::PCI_BUS_MUTEX;
 use gale_pawnio::{Module, NamedMutex, PawnIoError};
 
-use crate::backend::{AmdCpuBackend, SmnReader};
+use crate::backend::{AmdCpuBackend, CpuIo};
 use crate::AmdCpuStatus;
 
-pub struct PawnIoSmn {
+pub struct PawnIoCpu {
     module: Module,
     mutex: NamedMutex,
 }
 
-impl SmnReader for PawnIoSmn {
+impl CpuIo for PawnIoCpu {
     fn read_smn(&mut self, address: u32) -> Result<u32, String> {
         let out = self
             .module
@@ -20,6 +20,11 @@ impl SmnReader for PawnIoSmn {
         out.first()
             .map(|v| *v as u32)
             .ok_or_else(|| "short read".to_string())
+    }
+
+    fn read_msr(&mut self, msr: u32) -> Result<u64, String> {
+        let out = self.module.execute(c"ioctl_read_msr", &[msr as u64], 1)?;
+        out.first().copied().ok_or_else(|| "short read".to_string())
     }
 
     fn lock(&mut self, timeout: Duration) -> Result<bool, String> {
@@ -70,7 +75,7 @@ pub fn probe() -> Result<AmdCpuBackend, AmdCpuStatus> {
     })?;
     let mutex = NamedMutex::open(PCI_BUS_MUTEX).map_err(AmdCpuStatus::Io)?;
     let mut backend = AmdCpuBackend::new(
-        Box::new(PawnIoSmn { module, mutex }),
+        Box::new(PawnIoCpu { module, mutex }),
         identity.model,
         &identity.brand,
     );

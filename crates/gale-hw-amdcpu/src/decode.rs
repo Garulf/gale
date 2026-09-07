@@ -52,6 +52,19 @@ pub fn ccd_temp_from_raw(raw: u32) -> Option<f64> {
     (raw > 0 && temperature < 125.0).then_some(temperature)
 }
 
+pub const MSR_RAPL_PWR_UNIT: u32 = 0xC001_0299;
+pub const MSR_PKG_ENERGY_STAT: u32 = 0xC001_029B;
+pub const ENERGY_COUNTER_WRAP: u64 = u32::MAX as u64;
+
+pub fn energy_unit_joules(raw: u64) -> f64 {
+    let exponent = (raw >> 8) & 0x1F;
+    1.0 / (1u64 << exponent) as f64
+}
+
+pub fn package_energy_counter(raw: u64) -> u64 {
+    raw & u64::from(u32::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +112,18 @@ mod tests {
         assert_eq!(ccd_temp_from_raw(0xFFF), None);
         assert_eq!(ccd_temp_from_raw(2840), Some(50.0));
         assert_eq!(ccd_temp_from_raw(0xF000 | 2840), Some(50.0));
+    }
+
+    #[test]
+    fn the_energy_unit_comes_from_bits_12_to_8_of_the_rapl_unit_msr() {
+        assert_eq!(energy_unit_joules(0x000A_1003), 1.0 / 65536.0);
+        assert_eq!(energy_unit_joules(0x0000_0000), 1.0);
+        assert_eq!(energy_unit_joules(0x000A_0F03), 1.0 / 32768.0);
+    }
+
+    #[test]
+    fn the_package_accumulator_keeps_only_its_low_32_bits() {
+        assert_eq!(package_energy_counter(0xDEAD_BEEF_1234_5678), 0x1234_5678);
+        assert_eq!(package_energy_counter(7), 7);
     }
 }

@@ -1,27 +1,34 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use std::time::Instant;
+
+use gale_hw::rate::{per_second, Counter};
 use gale_hw::{Backend, HwError, Id, Inventory, SensorInfo, SensorKind};
 
 use crate::decode::{
-    brand_tctl_offset, ccd_register, ccd_temp_from_raw, supports_per_ccd, tctl_from_raw, MAX_CCDS,
-    THM_TCON_CUR_TMP,
+    brand_tctl_offset, ccd_register, ccd_temp_from_raw, energy_unit_joules, package_energy_counter,
+    supports_per_ccd, tctl_from_raw, ENERGY_COUNTER_WRAP, MAX_CCDS, MSR_PKG_ENERGY_STAT,
+    MSR_RAPL_PWR_UNIT, THM_TCON_CUR_TMP,
 };
 
 pub const PCI_LOCK_TIMEOUT: Duration = Duration::from_millis(10);
 pub const PREFIX: &str = "cpu/amd";
 
-pub trait SmnReader: Send {
+pub trait CpuIo: Send {
     fn read_smn(&mut self, address: u32) -> Result<u32, String>;
+    fn read_msr(&mut self, msr: u32) -> Result<u64, String>;
     fn lock(&mut self, timeout: Duration) -> Result<bool, String>;
     fn unlock(&mut self);
 }
 
 pub struct AmdCpuBackend {
-    io: Box<dyn SmnReader>,
+    io: Box<dyn CpuIo>,
     model: u32,
     tctl_offset: f64,
     ccds: Vec<u32>,
+    energy_unit: Option<f64>,
+    previous_energy: Option<Counter>,
 }
 
 fn id(name: &str) -> Id {
@@ -33,16 +40,18 @@ fn ccd_id(ccd: u32) -> Id {
 }
 
 impl AmdCpuBackend {
-    pub fn new(io: Box<dyn SmnReader>, model: u32, brand: &str) -> Self {
+    pub fn new(io: Box<dyn CpuIo>, model: u32, brand: &str) -> Self {
         Self {
             io,
             model,
             tctl_offset: brand_tctl_offset(brand),
             ccds: Vec::new(),
+            energy_unit: None,
+            previous_energy: None,
         }
     }
 
-    fn with_lock<T>(&mut self, f: impl FnOnce(&mut dyn SmnReader) -> T) -> Result<T, String> {
+    fn with_lock<T>(&mut self, f: impl FnOnce(&mut dyn CpuIo) -> T) -> Result<T, String> {
         if !self.io.lock(PCI_LOCK_TIMEOUT)? {
             return Err("pci bus lock timed out".to_string());
         }
@@ -70,7 +79,15 @@ impl Backend for AmdCpuBackend {
                         }
                     }
                 }
-                Ok::<_, String>((tctl, ccds))
+                let energy_unit = io
+                    .read_msr(MSR_RAPL_PWR_UNIT)
+                    .and_then(|raw| {
+                        io.read_msr(MSR_PKG_ENERGY_STAT)?;
+                        Ok(energy_unit_joules(raw))
+                    })
+                    .map_err(|message| tracing::debug!(%message, "amd package energy unavailable"))
+                    .ok();
+                Ok::<_, String>((tctl, ccds, energy_unit))
             })
             .and_then(|r| r)
             .map_err(|message| HwError::Io {
@@ -78,6 +95,7 @@ impl Backend for AmdCpuBackend {
                 message,
             })?;
         self.ccds = probe.1;
+        self.energy_unit = probe.2;
         tracing::info!(
             tctl = tctl_from_raw(probe.0),
             ccds = self.ccds.len(),
@@ -108,6 +126,13 @@ impl Backend for AmdCpuBackend {
                 kind: SensorKind::Temp,
             });
         }
+        if self.energy_unit.is_some() {
+            sensors.push(SensorInfo {
+                id: id("power"),
+                label: "CPU Package Power".to_string(),
+                kind: SensorKind::Power,
+            });
+        }
         Ok(Inventory {
             sensors,
             controls: Vec::new(),
@@ -118,8 +143,12 @@ impl Backend for AmdCpuBackend {
         let model = self.model;
         let ccds = self.ccds.clone();
         let offset = self.tctl_offset;
+        let energy_unit = self.energy_unit;
         let mut values: HashMap<Id, Option<f64>> = HashMap::new();
         values.insert(id("tctl"), None);
+        if energy_unit.is_some() {
+            values.insert(id("power"), None);
+        }
         if offset < 0.0 {
             values.insert(id("tdie"), None);
         }
@@ -136,11 +165,25 @@ impl Backend for AmdCpuBackend {
                         .and_then(ccd_temp_from_raw)
                 })
                 .collect();
-            (tctl, ccd_values)
+            let energy = energy_unit.and_then(|_| {
+                io.read_msr(MSR_PKG_ENERGY_STAT)
+                    .map_err(|message| tracing::debug!(%message, "amd package energy read failed"))
+                    .ok()
+            });
+            (tctl, ccd_values, energy)
         });
-        let Ok((tctl, ccd_values)) = read else {
+        let Ok((tctl, ccd_values, energy)) = read else {
             return values;
         };
+        if let (Some(unit), Some(raw)) = (energy_unit, energy) {
+            let sample = Counter::new(package_energy_counter(raw), Instant::now());
+            let watts = self
+                .previous_energy
+                .and_then(|previous| per_second(previous, sample, Some(ENERGY_COUNTER_WRAP)))
+                .map(|ticks_per_second| ticks_per_second * unit);
+            self.previous_energy = Some(sample);
+            values.insert(id("power"), watts);
+        }
         values.insert(id("tctl"), tctl);
         if offset < 0.0 {
             values.insert(id("tdie"), tctl.map(|t| t + offset));
@@ -163,17 +206,19 @@ impl Backend for AmdCpuBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
-    struct FakeSmn {
+    struct FakeCpuIo {
         registers: HashMap<u32, u32>,
+        msrs: HashMap<u32, VecDeque<u64>>,
         calls: Arc<Mutex<Vec<String>>>,
         locked: bool,
         refuse_lock: bool,
     }
 
-    impl SmnReader for FakeSmn {
+    impl CpuIo for FakeCpuIo {
         fn read_smn(&mut self, address: u32) -> Result<u32, String> {
             assert!(self.locked, "smn read outside the pci lock");
             self.calls
@@ -185,6 +230,17 @@ mod tests {
                 .copied()
                 .ok_or_else(|| "nak".to_string())
         }
+        fn read_msr(&mut self, msr: u32) -> Result<u64, String> {
+            assert!(self.locked, "msr read outside the pci lock");
+            self.calls.lock().unwrap().push(format!("msr 0x{msr:08x}"));
+            let queue = self.msrs.get_mut(&msr).ok_or_else(|| "nak".to_string())?;
+            if queue.len() > 1 {
+                queue.pop_front().ok_or_else(|| "nak".to_string())
+            } else {
+                queue.front().copied().ok_or_else(|| "nak".to_string())
+            }
+        }
+
         fn lock(&mut self, _timeout: Duration) -> Result<bool, String> {
             if self.refuse_lock {
                 return Ok(false);
@@ -199,7 +255,7 @@ mod tests {
         }
     }
 
-    fn zen3() -> (FakeSmn, Arc<Mutex<Vec<String>>>) {
+    fn zen3() -> (FakeCpuIo, Arc<Mutex<Vec<String>>>) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let mut registers = HashMap::new();
         registers.insert(THM_TCON_CUR_TMP, 400 << 21);
@@ -208,7 +264,7 @@ mod tests {
             registers.insert(ccd_register(0x21, ccd), 0);
         }
         (
-            FakeSmn {
+            FakeCpuIo {
                 registers,
                 calls: calls.clone(),
                 ..Default::default()
@@ -283,11 +339,73 @@ mod tests {
 
     #[test]
     fn enumerate_fails_when_the_thermal_register_cannot_be_read() {
-        let io = FakeSmn {
+        let io = FakeCpuIo {
             calls: Arc::new(Mutex::new(Vec::new())),
             ..Default::default()
         };
         let mut backend = AmdCpuBackend::new(Box::new(io), 0x21, "x");
         assert!(matches!(backend.enumerate(), Err(HwError::Io { .. })));
+    }
+    fn zen3_with_energy(accumulator: [u64; 3]) -> FakeCpuIo {
+        let (mut io, _) = zen3();
+        io.msrs.insert(MSR_RAPL_PWR_UNIT, [0x000A_1003].into());
+        io.msrs.insert(MSR_PKG_ENERGY_STAT, accumulator.into());
+        io
+    }
+
+    #[test]
+    fn package_power_joins_the_inventory_when_the_energy_msrs_read() {
+        let mut backend = AmdCpuBackend::new(
+            Box::new(zen3_with_energy([0, 100_000, 200_000])),
+            0x21,
+            "5800XT",
+        );
+        let inventory = backend.enumerate().unwrap();
+        assert_eq!(
+            inventory
+                .sensors
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cpu/amd/tctl", "cpu/amd/ccd1", "cpu/amd/power"]
+        );
+        let power = inventory.sensors.last().unwrap();
+        assert_eq!(power.label, "CPU Package Power");
+        assert_eq!(power.kind, SensorKind::Power);
+    }
+
+    #[test]
+    fn the_first_energy_sample_reports_none_and_the_next_reports_watts() {
+        let mut backend = AmdCpuBackend::new(
+            Box::new(zen3_with_energy([0, 100_000, 200_000])),
+            0x21,
+            "5800XT",
+        );
+        backend.enumerate().unwrap();
+        assert_eq!(backend.read_all()["cpu/amd/power"], None);
+        let watts = backend.read_all()["cpu/amd/power"].unwrap();
+        assert!(watts > 0.0, "expected a positive wattage, got {watts}");
+    }
+
+    #[test]
+    fn a_wrapped_32_bit_accumulator_still_yields_a_reading() {
+        let mut backend = AmdCpuBackend::new(
+            Box::new(zen3_with_energy([0, 0xFFFF_FF00, 0x0000_0100])),
+            0x21,
+            "5800XT",
+        );
+        backend.enumerate().unwrap();
+        backend.read_all();
+        let watts = backend.read_all()["cpu/amd/power"].unwrap();
+        assert!(watts > 0.0, "expected a positive wattage, got {watts}");
+    }
+
+    #[test]
+    fn a_cpu_whose_energy_msrs_nak_keeps_its_temperature_sensors_only() {
+        let (io, _) = zen3();
+        let mut backend = AmdCpuBackend::new(Box::new(io), 0x21, "5800XT");
+        let inventory = backend.enumerate().unwrap();
+        assert!(inventory.sensors.iter().all(|s| s.id != "cpu/amd/power"));
+        assert!(!backend.read_all().contains_key("cpu/amd/power"));
     }
 }
