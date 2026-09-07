@@ -1,3 +1,4 @@
+import { KIND_UNITS } from '../units.js';
 import { nodeKind, nodeName } from './ids.js';
 
 export function tempValue(snap, sourceNodeId, sourceHandle) {
@@ -28,16 +29,7 @@ export function isOverridden(snap, targetHandle) {
   return snap.overrides.includes(targetHandle);
 }
 
-export const KIND_UNITS = {
-  temp: '°C',
-  rpm: 'rpm',
-  duty: '%',
-  percent: '%',
-  clock: 'MHz',
-  memory: 'MiB',
-  power: 'W',
-  state: '',
-};
+export { KIND_UNITS };
 
 export function isCurveInputKind(kind) {
   return kind === undefined || (kind !== 'rpm' && kind !== 'duty');

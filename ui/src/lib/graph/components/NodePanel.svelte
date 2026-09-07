@@ -1,6 +1,7 @@
 <script>
   import { getContext, untrack, onDestroy } from 'svelte';
-  import { curvePoints as curvePointsFor, axisSpan } from '../../curveMath.js';
+  import { curvePoints as curvePointsFor, createAxisHold } from '../../curveMath.js';
+  import { axisMark } from '../../units.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
   import { getWebhookUrl, putControlSettings, startCalibration, getCalibration, cancelCalibration } from '../../api.js';
@@ -343,13 +344,12 @@
   let curveAxisInputs = $derived.by(() => {
     if (!node || node.type !== 'curve') return [];
     const config = node.data.curve.config;
-    const points = config.type === 'point' ? taggedPoints : curvePointsFor(config) || [];
-    const thresholds = [config.on_temp, config.off_temp, config.target_temp, config.idle_temp];
-    return [...points, ...thresholds.filter((value) => value !== null && value !== undefined)];
+    return config.type === 'point' ? taggedPoints : curvePointsFor(config) || [];
   });
 
-  let curveAxis = $derived(axisSpan(curveAxisInputs, liveSensorTemp, curveInputKind));
-  let curveAxisMark = $derived(curveAxis.unit === '°C' ? '°' : curveAxis.unit);
+  const holdAxis = createAxisHold();
+  let curveAxis = $derived(holdAxis(node ? node.id : '', curveAxisInputs, liveSensorTemp, curveInputKind));
+  let curveAxisMark = $derived(axisMark(curveAxis.unit));
 
   let curveInputReading = $derived(sensorDisplay(liveSensorTemp, curveInputKind));
 

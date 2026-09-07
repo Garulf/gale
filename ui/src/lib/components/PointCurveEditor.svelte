@@ -1,5 +1,6 @@
 <script>
   import { evalCurve, clamp, nextPointTemp, axisFor, axisTicks, pointFieldValue } from '../curveMath.js';
+  import { axisMark } from '../units.js';
 
   let { points, liveTemp = null, onChange, axis = axisFor('temp') } = $props();
 
@@ -112,8 +113,9 @@
   }
 
   function tickLabel(value, isLast) {
-    if (xUnit === '°C') return `${value}°`;
-    return isLast && xUnit ? `${value} ${xUnit}` : `${value}`;
+    const mark = axisMark(xUnit);
+    if (mark === '°') return `${value}°`;
+    return isLast && mark ? `${value} ${mark}` : `${value}`;
   }
 
   let sorted = $derived(sortedByTemp(points));

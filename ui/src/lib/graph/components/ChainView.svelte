@@ -3,10 +3,11 @@
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, isOverridden, sensorDisplay } from '../liveValues.js';
   import { buildChains, chainDevices, chainMatchesFilter, stepKey } from '../chains.js';
-  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, axisSpan } from '../../curveMath.js';
+  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, createAxisHold } from '../../curveMath.js';
   import { shortDevice } from '../../dashboard.js';
   import { operationLabel } from '../palette.js';
 
+  const holdAxis = createAxisHold();
   const CHART_W = 220;
   const CHART_H = 84;
   const CHART_PAD = 6;
@@ -62,7 +63,7 @@
       const points = curvePoints(config);
       if (points) {
         const kind = sensorEdge && sensorKind ? sensorKind(sensorEdge.source, sensorEdge.sourceHandle) : undefined;
-        const axis = axisSpan(points, temp, kind);
+        const axis = holdAxis(node.id, points, temp, kind);
         const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD, axis.max);
         const scale = curveScale(CHART_W, CHART_H, CHART_PAD, axis.max);
         const liveDuty = duty !== null ? duty : temp === null ? null : evalCurve(points, temp);
