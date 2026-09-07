@@ -150,7 +150,7 @@
         manual: control.id in manual,
         rpm,
         rpmMissing: tach !== null && rpm === null,
-        spinPeriod: spinPeriodSeconds(tach ? rpm : null, duty),
+        spinPeriod: spinPeriodSeconds(tach ? rpm : null, tach ? null : duty),
         isPump: /pump/i.test(control.label),
         curve,
         curveName: curve ? curve.id : '',
@@ -413,7 +413,6 @@
     border-color: var(--line2);
   }
 
-  .temp-head,
   .spin-icon {
     display: inline-flex;
     color: var(--muted);
@@ -445,6 +444,7 @@
     }
   }
 
+  .temp-head,
   .control-head {
     display: flex;
     justify-content: space-between;
