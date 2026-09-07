@@ -66,6 +66,8 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     let mut platform_warnings: Vec<String> = Vec::new();
     #[cfg(target_os = "linux")]
     handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
+    #[cfg(any(target_os = "linux", windows))]
+    handles.push(BackendHandle::spawn(Box::new(gale_hw_cpu::probe())));
     let corsair_release_mode: ReleaseMode =
         crate::claims_journal::release_mode_from_config(&config.hardware.corsair.on_release);
     for backend in CorsairBackend::open_all(corsair_release_mode) {

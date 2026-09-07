@@ -140,6 +140,8 @@ fn backends_for_kind(kind: &str) -> Vec<Box<dyn Backend>> {
             .map(|backend| Box::new(backend) as Box<dyn Backend>)
             .collect(),
         "nvidia" => vec![Box::new(NvidiaBackend::new()) as Box<dyn Backend>],
+        #[cfg(any(target_os = "linux", windows))]
+        "cpu" => vec![Box::new(gale_hw_cpu::probe()) as Box<dyn Backend>],
         #[cfg(windows)]
         "superio" => superio_backends(),
         other => {
