@@ -177,7 +177,7 @@
   let draftValues = $derived.by(() => {
     const result = {};
     for (const fan of fans) {
-      if (drafts[fan.id] !== undefined) result[fan.id] = drafts[fan.id];
+      if (fan.manual && drafts[fan.id] !== undefined) result[fan.id] = drafts[fan.id];
       else result[fan.id] = fan.duty === null ? 50 : Math.round(fan.duty);
     }
     return result;
@@ -188,6 +188,7 @@
   }
 
   async function hold(id) {
+    if (pending[id]) return;
     pending = { ...pending, [id]: true };
     try {
       await setControl(id, draftValues[id]);
@@ -322,6 +323,7 @@
                   max="100"
                   value={draftValues[fan.id]}
                   aria-label="{fan.label} duty"
+                  disabled={pending[fan.id]}
                   oninput={(event) => setDraft(fan.id, event.target.value)}
                   onchange={(event) => applyDraft(fan.id, event.target.value)}
                 />
