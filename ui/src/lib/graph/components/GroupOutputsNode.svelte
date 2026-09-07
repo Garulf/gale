@@ -22,9 +22,9 @@
   </h4>
   <div class="rows">
     {#each rows as row (row.handle)}
-      <div class="row in" class:unwired={!row.wired}>
+      <div class="row in">
         <Handle type="target" position={Position.Left} id={row.handle} class="port in {row.kind}{row.wired ? '' : ' hollow'}" />
-        <span>{rowLabel(row)}</span>
+        <span class:unwired={!row.wired}>{rowLabel(row)}</span>
       </div>
     {/each}
     <div class="row in new">

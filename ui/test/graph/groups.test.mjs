@@ -270,12 +270,32 @@ test('unprojectConnection retargets an unwired declared port instead of wiring i
   );
 });
 
+function threeMemberContext() {
+  const { nodes, edges, groups } = zoneFixture();
+  const declared = groups.map((group) => ({
+    ...group,
+    members: ['virtual:hot', 'curve:cpu', 'curve:gpu'],
+    inputs: [],
+    outputs: [],
+  }));
+  return { nodes, edges, groups: declared, scope: 'g1' };
+}
+
 test('unprojectConnection replaces the source of the boundary edge behind a wired Outputs row', () => {
-  const context = insideContext();
+  const context = threeMemberContext();
   const boundary = context.edges.find((edge) => edge.source === 'curve:cpu' && edge.target === 'combine:blend');
   assert.deepEqual(
+    unprojectConnection({ source: 'curve:gpu', sourceHandle: 'out', target: 'port:out:g1', targetHandle: 'curve:cpu|out' }, context),
+    { kind: 'replace-source', edgeId: boundary.id, source: 'curve:gpu', sourceHandle: 'out' }
+  );
+});
+
+test('unprojectConnection refuses a member output of the wrong kind on a wired Outputs row', () => {
+  const context = threeMemberContext();
+  assert.equal(
     unprojectConnection({ source: 'virtual:hot', sourceHandle: 'out', target: 'port:out:g1', targetHandle: 'curve:cpu|out' }, context),
-    { kind: 'replace-source', edgeId: boundary.id, source: 'virtual:hot', sourceHandle: 'out' }
+    null,
+    'a temperature output must not replace the source of a duty boundary edge'
   );
 });
 
@@ -300,7 +320,7 @@ test('projectScope never hands a member node object back to the caller', () => {
 
 import {
   effectivePorts, portKind, endpointDisplayLabel,
-  declareInput, declareOutput, undeclarePort, retargetInput, renamePort,
+  declareInput, declareOutput, undeclarePort, retargetInput, retargetPort, renamePort,
 } from '../../src/lib/graph/groups.js';
 
 test('portKind reads the accepted kind of a member handle in each direction', () => {
@@ -438,10 +458,11 @@ test('an output wired to several outside targets stays one row bound to the firs
   const first = edges.find((edge) => edge.source === 'curve:cpu' && edge.target === 'combine:blend');
   assert.deepEqual(outputs[0].outside, { node: 'combine:blend', handle: first.targetHandle });
 
-  const context = { nodes, edges: fanned, groups, scope: 'g1' };
+  const withGpu = groups.map((group) => ({ ...group, members: [...group.members, 'curve:gpu'] }));
+  const context = { nodes, edges: fanned, groups: withGpu, scope: 'g1' };
   assert.deepEqual(
-    unprojectConnection({ source: 'virtual:hot', sourceHandle: 'out', target: 'port:out:g1', targetHandle: 'curve:cpu|out' }, context),
-    { kind: 'replace-source', edgeId: first.id, source: 'virtual:hot', sourceHandle: 'out' }
+    unprojectConnection({ source: 'curve:gpu', sourceHandle: 'out', target: 'port:out:g1', targetHandle: 'curve:cpu|out' }, context),
+    { kind: 'replace-source', edgeId: first.id, source: 'curve:gpu', sourceHandle: 'out' }
   );
 });
 
@@ -450,4 +471,25 @@ test('endpointDisplayLabel names an endpoint the way port rows show it', () => {
   assert.equal(endpointDisplayLabel(nodes, 'sensor:hwmon/chipA', 'hwmon/chipA/temp1'), 'chipA \u00b7 CPU');
   assert.equal(endpointDisplayLabel(nodes, 'curve:cpu', 'sensor'), 'cpu \u00b7 sensor');
   assert.equal(endpointDisplayLabel(nodes, 'curve:gone', 'out'), '? \u00b7 out');
+});
+
+test('renamePort promotes an implied port to a declared one and leaves an empty rename alone', () => {
+  const groups = [{ id: 'g1', name: 'Zone', position: { x: 0, y: 0 }, members: ['curve:cpu'], inputs: [], outputs: [], parent: null }];
+  const named = renamePort(groups, 'g1', 'in', 'curve:cpu', 'sensor', 'coolant');
+  assert.deepEqual(named[0].inputs, [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }]);
+  assert.deepEqual(groups[0].inputs, [], 'input groups are not mutated');
+  assert.equal(renamePort(groups, 'g1', 'in', 'curve:cpu', 'sensor', '  '), groups, 'an empty name on an implied port changes nothing');
+  assert.equal(renamePort(groups, 'g2', 'in', 'curve:cpu', 'sensor', 'coolant'), groups, 'an unknown group changes nothing');
+});
+
+test('renamePort and retargetPort return the same array when they change nothing', () => {
+  const groups = [
+    { id: 'g1', name: 'Zone', position: { x: 0, y: 0 }, members: ['curve:cpu', 'virtual:hot'], inputs: [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }], outputs: [], parent: null },
+  ];
+  assert.equal(renamePort(groups, 'g1', 'in', 'curve:cpu', 'sensor', 'coolant'), groups, 'renaming to the same name changes nothing');
+  assert.equal(
+    retargetPort(groups, 'g1', 'in', 'virtual:hot', 'in-0', 'curve:cpu', 'sensor'),
+    groups,
+    'retargeting onto an already declared endpoint changes nothing'
+  );
 });

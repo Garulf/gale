@@ -5,5 +5,7 @@
 
   const viewport = useViewport();
 
-  $effect(() => onViewport(viewport.current));
+  $effect(() => {
+    onViewport(viewport.current);
+  });
 </script>

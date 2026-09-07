@@ -22,8 +22,8 @@
   </h4>
   <div class="rows">
     {#each rows as row (row.handle)}
-      <div class="row out" class:unwired={!row.wired}>
-        <span>{rowLabel(row)}</span>
+      <div class="row out">
+        <span class:unwired={!row.wired}>{rowLabel(row)}</span>
         <Handle type="source" position={Position.Right} id={row.handle} class="port out {row.kind}{row.wired ? '' : ' hollow'}" />
       </div>
     {/each}

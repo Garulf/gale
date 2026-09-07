@@ -174,9 +174,9 @@ pub struct GroupUiConfig {
     pub position: [f64; 2],
     #[serde(default)]
     pub members: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<GroupPort>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outputs: Vec<GroupPort>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
@@ -1878,6 +1878,17 @@ members = ["curve:cpu"]
         assert_eq!(group.members, vec!["curve:cpu"]);
         assert!(group.inputs.is_empty());
         assert!(group.outputs.is_empty());
+
+        let rendered = cfg.to_toml().unwrap();
+        assert!(
+            !rendered.contains("inputs"),
+            "empty port lists are not written: {rendered}"
+        );
+        assert!(
+            !rendered.contains("outputs"),
+            "empty port lists are not written: {rendered}"
+        );
+        assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
     }
 
     #[test]

@@ -157,7 +157,7 @@
       return;
     }
     const view = projectScope(nodes, edges, groups, scope);
-    viewNodes = carryCanvasState(untrack(() => viewNodes), view.nodes.map(dockable));
+    viewNodes = untrack(() => dockStrips(carryCanvasState(viewNodes, view.nodes.map(dockable))));
     viewEdges = toFlowEdges(view.edges, showEdgeLabels);
   });
 
@@ -176,28 +176,38 @@
   function dockedPosition(node) {
     const width = (node.measured && node.measured.width) || node.width || STRIP_WIDTH;
     const height = (node.measured && node.measured.height) || node.height || STRIP_HEIGHT;
+    const scaled = width * viewport.zoom;
+    const leftEdge = STRIP_MARGIN + scaled + STRIP_MARGIN;
     const screenX =
-      portsNodeDirection(node.id) === 'in' ? STRIP_MARGIN : canvasWidth - width * viewport.zoom - STRIP_MARGIN;
-    const screenY = (canvasHeight - height * viewport.zoom) / 2;
+      portsNodeDirection(node.id) === 'in' ? STRIP_MARGIN : Math.max(leftEdge, canvasWidth - scaled - STRIP_MARGIN);
+    const screenY = Math.max(0, (canvasHeight - height * viewport.zoom) / 2);
     return { x: (screenX - viewport.x) / viewport.zoom, y: (screenY - viewport.y) / viewport.zoom };
   }
 
-  $effect(() => {
-    if (!scope || canvasWidth === 0 || canvasHeight === 0) return;
-    const current = viewNodes;
+  function dockStrips(list) {
+    if (!scope || canvasWidth === 0 || canvasHeight === 0) return list;
     let moved = false;
-    const docked = current.map((node) => {
+    const docked = list.map((node) => {
       if (!isPortsNodeId(node.id)) return node;
       const position = dockedPosition(node);
       if (Math.abs(position.x - node.position.x) < 0.5 && Math.abs(position.y - node.position.y) < 0.5) return node;
       moved = true;
       return { ...node, position };
     });
-    if (moved) viewNodes = docked;
+    return moved ? docked : list;
+  }
+
+  $effect(() => {
+    const { zoom } = viewport;
+    if (zoom === 0 || !scope || canvasWidth === 0 || canvasHeight === 0) return;
+    const current = untrack(() => viewNodes);
+    const docked = dockStrips(current);
+    if (docked !== current) viewNodes = docked;
   });
 
   function trackViewport(next) {
-    if (next.x === viewport.x && next.y === viewport.y && next.zoom === viewport.zoom) return;
+    const current = untrack(() => viewport);
+    if (next.x === current.x && next.y === current.y && next.zoom === current.zoom) return;
     viewport = { x: next.x, y: next.y, zoom: next.zoom };
   }
 
@@ -491,7 +501,19 @@
     return { nodes, edges, groups, scope };
   }
 
+  function replacedSourceConnection(connection) {
+    const existing = edges.find((edge) => edge.id === connection.edgeId);
+    if (!existing) return null;
+    return {
+      source: connection.source,
+      sourceHandle: connection.sourceHandle,
+      target: existing.target,
+      targetHandle: existing.targetHandle,
+    };
+  }
+
   function commitGroups(nextGroups) {
+    if (nextGroups === groups) return;
     snapshotHistory();
     groups = nextGroups;
     dirty = true;
@@ -524,17 +546,9 @@
       return false;
     }
     if (connection.kind === 'replace-source') {
-      const rewired = edges.map((edge) =>
-        edge.id === connection.edgeId
-          ? buildEdge({
-              source: connection.source,
-              sourceHandle: connection.sourceHandle,
-              target: edge.target,
-              targetHandle: edge.targetHandle,
-            })
-          : edge
-      );
-      commitEdges(rewired);
+      const rebuilt = replacedSourceConnection(connection);
+      if (!rebuilt || !isValidConnection(rebuilt, nodes, edges)) return false;
+      commitEdges(edges.map((edge) => (edge.id === connection.edgeId ? buildEdge(rebuilt) : edge)));
       return false;
     }
     if (!isValidConnection(connection, nodes, edges)) return false;
@@ -962,8 +976,9 @@
       isValidConnection={(connection) => {
         const flat = unprojectConnection(connection, connectionContext());
         if (flat === null) return false;
-        if (flat.kind !== 'edge') return true;
-        return isValidConnection(flat, nodes, edges);
+        if (flat.kind === 'declare' || flat.kind === 'retarget') return true;
+        const candidate = flat.kind === 'replace-source' ? replacedSourceConnection(flat) : flat;
+        return candidate !== null && isValidConnection(candidate, nodes, edges);
       }}
       onbeforeconnect={onBeforeConnect}
       onnodedragstart={onNodeDragStart}

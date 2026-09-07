@@ -717,7 +717,7 @@
   font-style: italic;
 }
 
-.gale-canvas .row.unwired > span:first-of-type {
+.gale-canvas .row span.unwired {
   color: var(--muted);
 }
 

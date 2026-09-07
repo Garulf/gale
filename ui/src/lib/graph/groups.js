@@ -272,7 +272,14 @@ export function effectivePorts(group, nodes, edges) {
 }
 
 function mapGroup(groups, groupId, updater) {
-  return groups.map((group) => (group.id === groupId ? updater(group) : group));
+  let changed = false;
+  const next = groups.map((group) => {
+    if (group.id !== groupId) return group;
+    const updated = updater(group);
+    if (updated !== group) changed = true;
+    return updated;
+  });
+  return changed ? next : groups;
 }
 
 function listOf(group, direction) {
@@ -300,15 +307,18 @@ export function declareOutput(groups, groupId, node, handle) {
 }
 
 export function undeclarePort(groups, groupId, direction, node, handle) {
-  return mapGroup(groups, groupId, (group) =>
-    withList(group, direction, listOf(group, direction).filter((port) => !(port.node === node && port.handle === handle)))
-  );
+  return mapGroup(groups, groupId, (group) => {
+    const list = listOf(group, direction);
+    const kept = list.filter((port) => !(port.node === node && port.handle === handle));
+    return kept.length === list.length ? group : withList(group, direction, kept);
+  });
 }
 
 export function retargetPort(groups, groupId, direction, fromNode, fromHandle, toNode, toHandle) {
   return mapGroup(groups, groupId, (group) => {
     const list = listOf(group, direction);
     if (list.some((port) => port.node === toNode && port.handle === toHandle)) return group;
+    if (!list.some((port) => port.node === fromNode && port.handle === fromHandle)) return group;
     return withList(
       group,
       direction,
@@ -327,17 +337,20 @@ export function retargetOutput(groups, groupId, fromNode, fromHandle, toNode, to
   return retargetPort(groups, groupId, 'out', fromNode, fromHandle, toNode, toHandle);
 }
 
+// An implied port has no entry to rename, so naming one promotes it to a declared port.
 export function renamePort(groups, groupId, direction, node, handle, name) {
   const trimmed = typeof name === 'string' ? name.trim() : '';
-  return mapGroup(groups, groupId, (group) =>
-    withList(
+  return mapGroup(groups, groupId, (group) => {
+    const list = listOf(group, direction);
+    const declared = list.find((port) => port.node === node && port.handle === handle);
+    if (!declared) return trimmed ? withList(group, direction, [...list, { node, handle, name: trimmed }]) : group;
+    if ((declared.name || null) === (trimmed || null)) return group;
+    return withList(
       group,
       direction,
-      listOf(group, direction).map((port) =>
-        port.node === node && port.handle === handle ? { ...port, name: trimmed || null } : port
-      )
-    )
-  );
+      list.map((port) => (port === declared ? { ...port, name: trimmed || null } : port))
+    );
+  });
 }
 
 function rootRow(port) {
@@ -508,6 +521,7 @@ function unprojectInGroup(connection, context) {
   const port = findPort(ports.outputs, nodeId, handle);
   if (!port) return null;
   if (port.wired) {
+    if (portKind(nodes, source, sourceHandle, 'out') !== port.kind) return null;
     const edge = boundaryEdgeFor(edges, members, 'out', nodeId, handle);
     if (!edge) return null;
     return { kind: 'replace-source', edgeId: edge.id, source, sourceHandle };

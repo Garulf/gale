@@ -716,7 +716,10 @@ async function main() {
       await page.click('[data-testid="group-enter"]');
       await page.waitForSelector('[data-testid="graph-scope-name"]', { timeout: 5000 });
       await page.waitForSelector('[data-node-id^="curve:"]', { timeout: 5000 });
-      await page.waitForSelector('[data-node-id^="port:"]', { timeout: 5000 });
+      await page.waitForFunction(
+        () => document.querySelectorAll('[data-node-id^="port:out:"] .rows .row:not(.new)').length >= 1,
+        { timeout: 5000 }
+      );
       await page.click('[data-testid="graph-scope-root"]');
       await page.waitForSelector('[data-node-id^="group:"]', { timeout: 5000 });
       assert(!(await page.$('[data-testid="graph-scope-name"]')), 'breadcrumb should be gone at the root');
@@ -769,6 +772,22 @@ async function main() {
         INPUTS_STRIP_PREFIX,
         rowsBefore
       );
+    });
+
+    await record('a temperature output dropped on a duty-wired Outputs row is refused', async () => {
+      const virtualId = await addVirtualNode(page);
+      await fitView(page);
+      const rowHandle = '[data-node-id^="port:out:"] .rows .row:not(.new) [data-handleid]';
+      const before = await page.$$eval('.svelte-flow__edge', (els) => els.map((el) => el.getAttribute('data-id')).sort());
+      await dragConnection(page, handleSelector(virtualId, 'out'), rowHandle);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const after = await page.$$eval('.svelte-flow__edge', (els) => els.map((el) => el.getAttribute('data-id')).sort());
+      deepStrictEqual(after, before, 'a temperature source must not take over a duty boundary edge');
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, virtualId);
+      await page.click('.gale-panel .delete');
+      await page.waitForFunction((nodeId) => !document.querySelector(`[data-node-id="${nodeId}"]`), { timeout: 5000 }, virtualId);
     });
 
     await record('back at the root the group node shows the declared input as an unwired handle', async () => {
@@ -829,6 +848,9 @@ async function main() {
       const cfg = await fetchConfig();
       const group = Object.values(cfg.ui.groups[cfg.active_profile])[0];
       assert((group.inputs || []).length === 0, `port list should be empty, got ${JSON.stringify(group.inputs)}`);
+      assert(!group.members.includes(DECLARED_CURVE), `${DECLARED_CURVE} should be gone from the members`);
+      const profile = JSON.stringify(cfg.profiles[cfg.active_profile]);
+      assert(!profile.includes('curve_1'), `the boundary edge into the deleted curve should be gone: ${profile}`);
     });
 
     await record('ungroup restores the members', async () => {

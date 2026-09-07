@@ -450,7 +450,7 @@ test('graphToConfig writes ui.groups for the profile and leaves other profiles a
   const groups = [{ id: 'g1', name: 'Zone', position: { x: 300, y: 40 }, members: ['curve:cpu'], parent: null }];
   const wire = graphToConfig(nodes, edges, config, 'default', groups);
   assert.deepEqual(wire.ui.groups.default, {
-    g1: { name: 'Zone', position: [300, 40], members: ['curve:cpu'], inputs: [], outputs: [] },
+    g1: { name: 'Zone', position: [300, 40], members: ['curve:cpu'] },
   });
   assert.deepEqual(wire.ui.groups.other, { g1: { name: 'Keep', position: [1, 2], members: ['curve:x'] } });
 });

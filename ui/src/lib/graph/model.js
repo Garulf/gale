@@ -336,12 +336,14 @@ export function graphToConfig(nodes, edges, baseConfig, profileName, groups = []
   if (!config.ui.groups) config.ui.groups = {};
   const storedGroups = {};
   for (const group of groups) {
+    const inputs = (group.inputs || []).map(writePort);
+    const outputs = (group.outputs || []).map(writePort);
     storedGroups[group.id] = {
       name: group.name,
       position: [group.position.x, group.position.y],
       members: [...group.members],
-      inputs: (group.inputs || []).map(writePort),
-      outputs: (group.outputs || []).map(writePort),
+      ...(inputs.length > 0 ? { inputs } : {}),
+      ...(outputs.length > 0 ? { outputs } : {}),
       ...(group.parent ? { parent: group.parent } : {}),
     };
   }
