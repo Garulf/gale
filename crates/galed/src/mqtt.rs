@@ -102,7 +102,11 @@ fn sensor_unit(kind: SensorKind) -> (&'static str, Option<&'static str>) {
     match kind {
         SensorKind::Temp => ("°C", Some("temperature")),
         SensorKind::Rpm => ("RPM", None),
-        SensorKind::Duty => ("%", None),
+        SensorKind::Duty | SensorKind::Percent => ("%", None),
+        SensorKind::Clock => ("MHz", None),
+        SensorKind::Memory => ("MiB", Some("data_size")),
+        SensorKind::Power => ("W", Some("power")),
+        SensorKind::State => ("", None),
     }
 }
 
@@ -149,8 +153,10 @@ pub fn discovery(
             &slug(&sensor.id),
         );
         payload.insert("state_topic".into(), json!(topics.sensor_state(&sensor.id)));
-        payload.insert("unit_of_measurement".into(), json!(unit));
-        payload.insert("state_class".into(), json!("measurement"));
+        if !unit.is_empty() {
+            payload.insert("unit_of_measurement".into(), json!(unit));
+            payload.insert("state_class".into(), json!("measurement"));
+        }
         if let Some(class) = class {
             payload.insert("device_class".into(), json!(class));
         }
@@ -555,6 +561,44 @@ mod tests {
             "corsair_commander_pro_0805_fan1"
         );
         assert_eq!(slug("virtual/CPU Hot"), "virtual_cpu_hot");
+    }
+
+    #[test]
+    fn sensor_units_cover_every_kind() {
+        use gale_hw::SensorKind;
+        assert_eq!(sensor_unit(SensorKind::Power), ("W", Some("power")));
+        assert_eq!(sensor_unit(SensorKind::Memory), ("MiB", Some("data_size")));
+        assert_eq!(sensor_unit(SensorKind::Clock), ("MHz", None));
+        assert_eq!(sensor_unit(SensorKind::Percent), ("%", None));
+        assert_eq!(sensor_unit(SensorKind::State), ("", None));
+    }
+
+    #[test]
+    fn discovery_omits_unit_and_state_class_for_a_unitless_sensor() {
+        let mut inv = inventory();
+        inv.sensors.push(SensorInfo {
+            id: "nvidia/0/pstate".into(),
+            label: "P-state".into(),
+            kind: SensorKind::State,
+        });
+        let out = discovery(
+            &cfg(),
+            &inv,
+            &[],
+            &BTreeMap::new(),
+            &["default".into()],
+            &Device {
+                hostname: "albedo".into(),
+            },
+        );
+        let state = out
+            .iter()
+            .find(|(topic, _)| topic.contains("nvidia_0_pstate"))
+            .map(|(_, payload)| payload)
+            .unwrap();
+        assert!(state.get("unit_of_measurement").is_none());
+        assert!(state.get("state_class").is_none());
+        assert_eq!(out[0].1["state_class"], "measurement");
     }
 
     #[test]

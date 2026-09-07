@@ -178,6 +178,30 @@ test('a temp sensor row into a curve sensor input stays valid', () => {
   assert.equal(isValidConnection(connection, nodesWithSensorKinds, []), true);
 });
 
+const nodesWithPowerKind = [
+  {
+    id: 'sensor:hwmon/y',
+    type: 'deviceSensor',
+    data: {
+      deviceSensor: {
+        device: 'hwmon/y',
+        rows: [{ handle: 'hwmon/y/power1', label: 'Package power', kind: 'power', wired: false }],
+      },
+    },
+  },
+  { id: 'curve:cpu', type: 'curve', data: {} },
+];
+
+test('a power sensor row into a curve sensor input is valid', () => {
+  const connection = {
+    source: 'sensor:hwmon/y',
+    sourceHandle: 'hwmon/y/power1',
+    target: 'curve:cpu',
+    targetHandle: 'sensor',
+  };
+  assert.equal(isValidConnection(connection, nodesWithPowerKind, []), true);
+});
+
 test('a sensor row with no kind information is still accepted', () => {
   const connection = {
     source: 'sensor:hwmon/x',

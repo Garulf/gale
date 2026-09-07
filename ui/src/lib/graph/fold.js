@@ -1,7 +1,10 @@
+import { isCurveInputKind } from './liveValues.js';
+
 export const INITIAL_VISIBLE_ROWS = 3;
 
-function isTemperatureLike(row) {
-  return row.kind === undefined || row.kind === 'temp';
+function tier(row) {
+  if (row.kind === undefined || row.kind === 'temp') return 0;
+  return isCurveInputKind(row.kind) ? 1 : 2;
 }
 
 export function foldRows(rows, initialVisible = INITIAL_VISIBLE_ROWS) {
@@ -10,8 +13,9 @@ export function foldRows(rows, initialVisible = INITIAL_VISIBLE_ROWS) {
 
   const unwiredRows = rows.filter((row) => !row.wired);
   const prioritized = [
-    ...unwiredRows.filter(isTemperatureLike),
-    ...unwiredRows.filter((row) => !isTemperatureLike(row)),
+    ...unwiredRows.filter((row) => tier(row) === 0),
+    ...unwiredRows.filter((row) => tier(row) === 1),
+    ...unwiredRows.filter((row) => tier(row) === 2),
   ];
   const selected = new Set(prioritized.slice(0, unwiredSlots));
 

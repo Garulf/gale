@@ -19,22 +19,35 @@ export function evalCurve(points, temp) {
   return last[1];
 }
 
-export function curveScale(width, height, pad = 0) {
+const AXES = {
+  temp: { max: 100, unit: '°C' },
+  percent: { max: 100, unit: '%' },
+  clock: { max: 4000, unit: 'MHz' },
+  memory: { max: 32768, unit: 'MiB' },
+  power: { max: 600, unit: 'W' },
+  state: { max: 15, unit: '' },
+};
+
+export function axisFor(kind) {
+  return AXES[kind] || AXES.temp;
+}
+
+export function curveScale(width, height, pad = 0, xMax = 100) {
   return {
-    x: (temp) => pad + (temp / 100) * (width - 2 * pad),
+    x: (temp) => pad + (temp / xMax) * (width - 2 * pad),
     y: (duty) => pad + (height - 2 * pad) - (duty / 100) * (height - 2 * pad),
   };
 }
 
-export function curvePaths(points, width, height, pad = 0) {
+export function curvePaths(points, width, height, pad = 0, xMax = 100) {
   if (!points || points.length === 0) return { line: '', area: '' };
   const sorted = sortedPoints(points);
-  const { x, y } = curveScale(width, height, pad);
+  const { x, y } = curveScale(width, height, pad, xMax);
   const first = sorted[0];
   const last = sorted[sorted.length - 1];
   const segments = sorted.map(([t, d]) => `L ${x(t).toFixed(1)} ${y(d).toFixed(1)}`);
-  const line = [`M ${x(0).toFixed(1)} ${y(first[1]).toFixed(1)}`, ...segments, `L ${x(100).toFixed(1)} ${y(last[1]).toFixed(1)}`].join(' ');
-  const area = `${line} L ${x(100).toFixed(1)} ${y(0).toFixed(1)} L ${x(0).toFixed(1)} ${y(0).toFixed(1)} Z`;
+  const line = [`M ${x(0).toFixed(1)} ${y(first[1]).toFixed(1)}`, ...segments, `L ${x(xMax).toFixed(1)} ${y(last[1]).toFixed(1)}`].join(' ');
+  const area = `${line} L ${x(xMax).toFixed(1)} ${y(0).toFixed(1)} L ${x(0).toFixed(1)} ${y(0).toFixed(1)} Z`;
   return { line, area };
 }
 
@@ -56,10 +69,10 @@ export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-export function nextPointTemp(temps) {
+export function nextPointTemp(temps, xMax = 100) {
   const sorted = [...temps].sort((a, b) => a - b);
-  if (sorted.length === 0) return 50;
-  const bounds = [0, ...sorted, 100];
+  if (sorted.length === 0) return xMax / 2;
+  const bounds = [0, ...sorted, xMax];
   let best = { width: -1, mid: null };
   for (let i = 1; i < bounds.length; i += 1) {
     const width = bounds[i] - bounds[i - 1];

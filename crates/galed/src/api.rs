@@ -1,5 +1,6 @@
 use crate::config_store::ConfigStore;
 use crate::engine_host::EngineHost;
+use crate::sensor_kind::virtual_sensor_kind;
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -11,9 +12,9 @@ use axum::{Json, Router};
 use gale_core::build::validate_profiles;
 use gale_core::config::{virtual_id, ConfigError, ControlSettings, DashboardUiConfig, GaleConfig};
 use gale_core::presets::{self, CurvePreset};
-use gale_hw::{Id, Inventory};
+use gale_hw::{Id, Inventory, SensorKind};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use subtle::ConstantTimeEq;
 
@@ -149,7 +150,8 @@ async fn status(State(ctx): State<ApiContext>) -> Response {
 struct VirtualSensorInfo {
     id: Id,
     #[serde(rename = "type")]
-    kind: &'static str,
+    type_name: &'static str,
+    kind: SensorKind,
     inputs: Vec<Id>,
 }
 
@@ -161,7 +163,10 @@ struct InventoryResponse {
     virtual_sensors: Vec<VirtualSensorInfo>,
 }
 
-fn virtual_sensor_infos(config: &GaleConfig) -> Vec<VirtualSensorInfo> {
+fn virtual_sensor_infos(
+    config: &GaleConfig,
+    known: &HashMap<Id, SensorKind>,
+) -> Vec<VirtualSensorInfo> {
     let Some(profile) = config.profiles.get(&config.active_profile) else {
         return Vec::new();
     };
@@ -170,7 +175,8 @@ fn virtual_sensor_infos(config: &GaleConfig) -> Vec<VirtualSensorInfo> {
         .iter()
         .map(|(name, cfg)| VirtualSensorInfo {
             id: virtual_id(name),
-            kind: cfg.type_name(),
+            type_name: cfg.type_name(),
+            kind: virtual_sensor_kind(profile, name, known),
             inputs: cfg.inputs(),
         })
         .collect()
@@ -193,7 +199,7 @@ async fn inventory(State(ctx): State<ApiContext>) -> Response {
     let config = ctx.host.config();
     let mut hardware = ctx.inventory.read().unwrap().clone();
     apply_labels(&mut hardware, &config.labels);
-    let virtual_sensors = virtual_sensor_infos(&config);
+    let virtual_sensors = virtual_sensor_infos(&config, &ctx.host.known_sensors());
     Json(InventoryResponse {
         hardware,
         virtual_sensors,
@@ -744,9 +750,9 @@ mod tests {
     use axum::body::Body;
     use axum::http::{header, Method, Request, StatusCode};
     use gale_core::config::GaleConfig;
-    use gale_hw::{Backend, HwError, Id, Inventory};
+    use gale_hw::{Backend, HwError, Id, Inventory, SensorKind};
     use http_body_util::BodyExt;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
     use tower::util::ServiceExt;
 
@@ -1032,7 +1038,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     async fn config_put_returns_warnings_for_ghost_sensor_and_204_for_clean() {
         let (router, host) = make_router(None);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
 
         let mut with_ghost = GaleConfig::from_toml(CONFIG).unwrap();
         let profile = with_ghost.profiles.get_mut("p").unwrap();
@@ -1218,7 +1224,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     async fn get_warnings_reports_current_config_warnings() {
         let (router, host) = make_router(None);
-        host.set_known_sensors(HashSet::new());
+        host.set_known_sensors(HashMap::new());
         let response = router
             .clone()
             .oneshot(Request::get("/api/warnings").body(Body::empty()).unwrap())
@@ -1228,7 +1234,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let json = body_json(response).await;
         assert_eq!(json["warnings"].as_array().unwrap().len(), 0);
 
-        host.set_known_sensors(["other".to_string()].into());
+        host.set_known_sensors([("other".to_string(), SensorKind::Temp)].into());
         let mut config = host.config();
         let profile = config.profiles.get_mut("p").unwrap();
         profile.curves.insert(
@@ -1959,10 +1965,49 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let json = body_json(response).await;
         assert_eq!(
             json["virtual"],
-            serde_json::json!([{"id": "virtual/cpu_hot", "type": "max", "inputs": ["t1", "t2"]}])
+            serde_json::json!([{"id": "virtual/cpu_hot", "type": "max", "kind": "temp", "inputs": ["t1", "t2"]}])
         );
         assert!(json["sensors"].is_array());
         assert!(json["controls"].is_array());
+    }
+
+    #[tokio::test]
+    async fn inventory_reports_the_resolved_kind_of_each_virtual_sensor() {
+        let (router, host) = make_router_with(CONFIG_VIRTUAL, None);
+        host.set_known_sensors(
+            [
+                ("t1".to_string(), SensorKind::Power),
+                ("t2".to_string(), SensorKind::Power),
+            ]
+            .into(),
+        );
+        let response = router
+            .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["virtual"][0]["id"], "virtual/cpu_hot");
+        assert_eq!(json["virtual"][0]["kind"], "power");
+    }
+
+    #[tokio::test]
+    async fn inventory_reports_temp_for_a_webhook_sensor() {
+        let (router, host) = make_router_with(&webhook_config(), None);
+        host.set_known_sensors([("t1".to_string(), SensorKind::Power)].into());
+        let response = router
+            .oneshot(Request::get("/api/inventory").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let json = body_json(response).await;
+        let hook = json["virtual"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "virtual/hook")
+            .unwrap()
+            .clone();
+        assert_eq!(hook["kind"], "temp");
     }
 
     #[tokio::test]
@@ -2153,7 +2198,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     async fn config_put_warns_for_hardware_input_behind_virtual_sensor() {
         let (router, host) = make_router(None);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
         let config = GaleConfig::from_toml(CONFIG_VIRTUAL).unwrap();
         let response = router
             .oneshot(
@@ -2486,9 +2531,9 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert_eq!(
             json["virtual"],
             serde_json::json!([
-                {"id": "virtual/cpu_hot", "type": "max", "inputs": ["t1", "t2"]},
-                {"id": "virtual/forever", "type": "webhook", "inputs": []},
-                {"id": "virtual/hook", "type": "webhook", "inputs": []}
+                {"id": "virtual/cpu_hot", "type": "max", "kind": "temp", "inputs": ["t1", "t2"]},
+                {"id": "virtual/forever", "type": "webhook", "kind": "temp", "inputs": []},
+                {"id": "virtual/hook", "type": "webhook", "kind": "temp", "inputs": []}
             ])
         );
     }

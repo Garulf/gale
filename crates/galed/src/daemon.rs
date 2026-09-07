@@ -129,7 +129,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
         inventory
             .sensors
             .iter()
-            .map(|sensor| sensor.id.clone())
+            .map(|sensor| (sensor.id.clone(), sensor.kind))
             .collect(),
     );
     host.set_platform_warnings(platform_warnings);

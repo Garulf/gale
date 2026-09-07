@@ -1,4 +1,5 @@
 import { nodeKind } from './ids.js';
+import { isCurveInputKind } from './liveValues.js';
 
 function sourceKind(nodeId) {
   const kind = nodeKind(nodeId);
@@ -52,10 +53,10 @@ function sensorRowKind(nodes, nodeId, handle) {
   return row ? row.kind : undefined;
 }
 
-function sourceIsTemperatureLike(connection, nodes) {
+function sourceIsCurveInput(connection, nodes) {
   if (nodeKind(connection.source) !== 'sensor') return true;
   const kind = sensorRowKind(nodes, connection.source, connection.sourceHandle);
-  return kind === undefined || kind === 'temp';
+  return isCurveInputKind(kind);
 }
 
 export function isValidConnection(connection, nodes, edges) {
@@ -65,7 +66,7 @@ export function isValidConnection(connection, nodes, edges) {
   const kind = sourceKind(source);
   const accepted = targetAcceptsKind(target);
   if (accepted !== kind) return false;
-  if (!sourceIsTemperatureLike(connection, nodes)) return false;
+  if (!sourceIsCurveInput(connection, nodes)) return false;
 
   if (wouldCycle(connection, edges)) return false;
 

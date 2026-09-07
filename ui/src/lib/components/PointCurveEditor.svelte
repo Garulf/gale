@@ -1,7 +1,7 @@
 <script>
   import { evalCurve, clamp, nextPointTemp } from '../curveMath.js';
 
-  let { points, liveTemp = null, onChange } = $props();
+  let { points, liveTemp = null, onChange, xMax = 100, xUnit = '°C' } = $props();
 
   const WIDTH = 560;
   const HEIGHT = 300;
@@ -17,7 +17,7 @@
   let didDrag = false;
 
   function xToPx(temp) {
-    return PAD_LEFT + (temp / 100) * PLOT_W;
+    return PAD_LEFT + (temp / xMax) * PLOT_W;
   }
 
   function yToPx(duty) {
@@ -25,7 +25,7 @@
   }
 
   function pxToTemp(px) {
-    return clamp(((px - PAD_LEFT) / PLOT_W) * 100, 0, 100);
+    return clamp(((px - PAD_LEFT) / PLOT_W) * xMax, 0, xMax);
   }
 
   function pxToDuty(py) {
@@ -86,10 +86,10 @@
   function addPoint() {
     const sorted = sortedByTemp(points);
     if (sorted.length === 0) {
-      onChange([{ id: crypto.randomUUID(), temp: 50, duty: 50 }]);
+      onChange([{ id: crypto.randomUUID(), temp: Math.round(xMax / 2), duty: 50 }]);
       return;
     }
-    const temp = nextPointTemp(sorted.map((point) => point.temp));
+    const temp = nextPointTemp(sorted.map((point) => point.temp), xMax);
     if (temp === null) return;
     const duty = Math.round(evalCurve(pairs(sorted), temp));
     onChange([...points, { id: crypto.randomUUID(), temp, duty }]);
@@ -105,19 +105,19 @@
   }
 
   function updateField(id, field, value) {
-    const numeric = clamp(Number(value), 0, 100);
+    const numeric = field === 'duty' ? clamp(Number(value), 0, 100) : Number(value);
     withPoint(id, (point) => ({ ...point, [field]: numeric }));
   }
 
   let sorted = $derived(sortedByTemp(points));
   let pathD = $derived(sorted.map((point, i) => `${i === 0 ? 'M' : 'L'} ${xToPx(point.temp)} ${yToPx(point.duty)}`).join(' '));
-  let liveX = $derived(liveTemp === null || liveTemp === undefined ? null : xToPx(clamp(liveTemp, 0, 100)));
+  let liveX = $derived(liveTemp === null || liveTemp === undefined ? null : xToPx(clamp(liveTemp, 0, xMax)));
   let liveY = $derived.by(() => {
     if (liveX === null || sorted.length === 0) return null;
-    return yToPx(evalCurve(pairs(sorted), clamp(liveTemp, 0, 100)));
+    return yToPx(evalCurve(pairs(sorted), clamp(liveTemp, 0, xMax)));
   });
 
-  const gridTemps = [0, 20, 40, 60, 80, 100];
+  let gridTemps = $derived([0, 0.2, 0.4, 0.6, 0.8, 1].map((f) => Math.round(f * xMax)));
   const gridDuties = [0, 25, 50, 75, 100];
 </script>
 
@@ -138,7 +138,7 @@
     <rect class="plot-bg" x={PAD_LEFT} y={PAD_TOP} width={PLOT_W} height={PLOT_H} />
     {#each gridTemps as temp}
       <line x1={xToPx(temp)} y1={PAD_TOP} x2={xToPx(temp)} y2={PAD_TOP + PLOT_H} class="grid-line" />
-      <text x={xToPx(temp)} y={HEIGHT - 10} class="axis-label" text-anchor="middle">{temp}°</text>
+      <text x={xToPx(temp)} y={HEIGHT - 10} class="axis-label" text-anchor="middle">{temp}{xUnit === '°C' ? '°' : ''}</text>
     {/each}
     {#each gridDuties as duty}
       <line x1={PAD_LEFT} y1={yToPx(duty)} x2={PAD_LEFT + PLOT_W} y2={yToPx(duty)} class="grid-line" />
@@ -159,7 +159,7 @@
         class="curve-point"
         role="button"
         tabindex="0"
-        aria-label="Curve point at {point.temp} degrees, {point.duty} percent"
+        aria-label="Curve point at {point.temp} {xUnit || 'input'}, {point.duty} percent"
         onpointerdown={(event) => pointerDown(point.id, event)}
         ondblclick={(event) => {
           event.stopPropagation();
@@ -178,7 +178,7 @@
   <div class="points">
     {#each sorted as point (point.id)}
       <div class="point-row">
-        <label class="field">°C<input type="number" min="0" max="100" value={point.temp} oninput={(event) => updateField(point.id, 'temp', event.target.value)} /></label>
+        <label class="field">{xUnit || 'x'}<input type="number" min="0" max={xMax} value={point.temp} oninput={(event) => updateField(point.id, 'temp', event.target.value)} /></label>
         <label class="field">%<input type="number" min="0" max="100" value={point.duty} oninput={(event) => updateField(point.id, 'duty', event.target.value)} /></label>
         <button type="button" class="btn remove" aria-label="Remove point" disabled={points.length <= 2} onclick={() => removePoint(point.id)}>×</button>
       </div>

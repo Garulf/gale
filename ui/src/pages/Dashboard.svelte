@@ -7,10 +7,11 @@
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
-  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints } from '../lib/curveMath.js';
-  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds } from '../lib/dashboard.js';
+  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, axisFor, clamp } from '../lib/curveMath.js';
+  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
+  import { sensorDisplay } from '../lib/graph/liveValues.js';
 
   const CHART_W = 220;
   const CHART_H = 84;
@@ -91,6 +92,22 @@
   });
   let temps = $derived(editing ? allTemps : allTemps.filter((sensor) => !sensor.hidden));
 
+  let allMetrics = $derived.by(() => {
+    if (!inventory) return [];
+    const history = $sensorHistory;
+    return metricSensors(inventory).map((metric) => {
+      const value = values[metric.id] ?? null;
+      const samples = history.get(metric.id);
+      return {
+        ...metric,
+        value,
+        spark: sparklinePath(samples, 120, 36),
+        hidden: hiddenIds.includes(metric.id),
+      };
+    });
+  });
+  let metrics = $derived(editing ? allMetrics : allMetrics.filter((metric) => !metric.hidden));
+
   function curveFor(control) {
     if (!profile) return null;
     const curveId = profile.assignments ? profile.assignments[control.id] : undefined;
@@ -105,17 +122,20 @@
     const points = curvePoints(drawn ? drawn.config : null);
     if (!points) return null;
     const temp = values[drawn.config.sensor] ?? null;
-    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
-    const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
+    const kind = sensorKindFor(drawn.config.sensor, inventory);
+    const axis = axisFor(kind);
+    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD, axis.max);
+    const scale = curveScale(CHART_W, CHART_H, CHART_PAD, axis.max);
     const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(points, temp);
     return {
       ...paths,
       showDot: temp !== null,
-      dotX: temp === null ? 0 : scale.x(Math.min(100, Math.max(0, temp))),
+      dotX: temp === null ? 0 : scale.x(clamp(temp, 0, axis.max)),
       dotY: duty === null ? 0 : scale.y(duty),
       sensor: sensorLabel(drawn.config.sensor, inventory.sensors),
       via: drawn.via ? `${drawn.via} → ${drawn.id}` : '',
       temp,
+      reading: sensorDisplay(temp, kind),
     };
   }
 
@@ -163,7 +183,11 @@
     });
   });
   let fans = $derived(editing ? allFans : allFans.filter((fan) => !fan.hidden));
-  let hiddenCount = $derived(allTemps.filter((sensor) => sensor.hidden).length + allFans.filter((fan) => fan.hidden).length);
+  let hiddenCount = $derived(
+    allTemps.filter((sensor) => sensor.hidden).length +
+    allFans.filter((fan) => fan.hidden).length +
+    allMetrics.filter((metric) => metric.hidden).length
+  );
 
   let stats = $derived(
     overview(
@@ -269,6 +293,22 @@
       </div>
     </section>
 
+    {#if metrics.length > 0}
+      <section>
+        <h2>Metrics</h2>
+        <div class="grid metrics">
+          {#each metrics as metric (metric.id)}
+            {@const reading = sensorDisplay(metric.value, metric.kind)}
+            <div class="card temp-card" class:dimmed={metric.hidden} data-card-id={metric.id}>
+              <div class="temp-head"><span class="label">{metric.label}</span><span class="device mono">{metric.device}</span>{#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(metric.id, !metric.hidden)}>{metric.hidden ? 'Show' : 'Hide'}</button>{/if}</div>
+              <div class="temp-value mono">{reading.text}<small>{reading.unit}</small></div>
+              <svg class="spark" viewBox="0 0 120 36"><path d={metric.spark} /></svg>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <section>
       <div class="section-head"><h2 class="section-title">Fans</h2><span class="hint">where each control sits on its curve</span></div>
       <div class="fans">
@@ -303,7 +343,7 @@
                     <circle cx={fan.chart.dotX} cy={fan.chart.dotY} r="4" class="dot" />
                   {/if}
                 </svg>
-                <span class="chart-tag left mono">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fmtTemp(fan.chart.temp)}°`}</span>
+                <span class="chart-tag left mono">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fan.chart.reading.text}${fan.chart.reading.unit}`}</span>
                 <span class="chart-tag right mono">{fan.chart.via || `${fan.curveName} · ${fan.curveKind}`}</span>
               </div>
             {:else}
@@ -404,7 +444,8 @@
     gap: 12px;
   }
 
-  .temps {
+  .temps,
+  .grid.metrics {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 12px;
@@ -712,7 +753,8 @@
       font-size: 18px;
     }
 
-    .temps {
+    .temps,
+    .grid.metrics {
       grid-template-columns: repeat(2, 1fr);
       gap: 10px;
     }

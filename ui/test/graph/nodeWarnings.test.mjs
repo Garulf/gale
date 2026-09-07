@@ -130,6 +130,23 @@ test('an rpm or duty device row feeding a temperature input is pre-existing bad 
   assert.deepEqual(flagged.map((entry) => entry.nodeId), ['curve:cpu', 'virtual:hot']);
   assert.match(flagged[0].message, /fan1/);
   assert.match(flagged[0].message, /rpm/);
+  assert.match(flagged[0].message, /cannot drive a curve/);
+});
+
+test('a power sensor row feeding a curve or virtual input is not flagged', () => {
+  const powerSensor = {
+    id: 'sensor:hwmon/power',
+    type: 'deviceSensor',
+    data: {
+      deviceSensor: {
+        device: 'hwmon/power',
+        rows: [{ handle: 'hwmon/power/power1', label: 'Package power', kind: 'power' }],
+      },
+    },
+  };
+  const nodes = [powerSensor, curve('cpu', 'point')];
+  const edges = [edge(powerSensor.id, 'hwmon/power/power1', 'curve:cpu', 'sensor')];
+  assert.deepEqual(kindMismatchedEdges(nodes, edges), []);
 });
 
 test('temp-to-temp edges, virtual sources, rows of unknown kind and duty edges are not flagged', () => {

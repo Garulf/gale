@@ -1,6 +1,6 @@
 <script>
   import { getContext, untrack, onDestroy } from 'svelte';
-  import { curvePoints as curvePointsFor } from '../../curveMath.js';
+  import { curvePoints as curvePointsFor, axisFor } from '../../curveMath.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
   import { getWebhookUrl, putControlSettings, startCalibration, getCalibration, cancelCalibration } from '../../api.js';
@@ -17,6 +17,7 @@
   let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
+  const sensorKind = getContext('galeSensorKind');
 
   function memberName(memberId) {
     return memberId.slice(memberId.indexOf(':') + 1);
@@ -331,6 +332,17 @@
     if (!edge) return null;
     return tempValue($snapshot, edge.source, edge.sourceHandle);
   });
+
+  let curveInputKind = $derived.by(() => {
+    if (!node || node.type !== 'curve') return undefined;
+    const edge = incomingEdge('sensor');
+    return edge && sensorKind ? sensorKind(edge.source, edge.sourceHandle) : undefined;
+  });
+
+  let curveAxis = $derived(axisFor(curveInputKind));
+  let curveAxisMark = $derived(curveAxis.unit === '°C' ? '°' : curveAxis.unit);
+
+  let curveInputReading = $derived(sensorDisplay(liveSensorTemp, curveInputKind));
 
   let sensorName = $derived.by(() => {
     if (!node || node.type !== 'curve') return '';
@@ -814,7 +826,7 @@
   <div class="two">
     <div class="stat-card">
       <span class="eyebrow">Input</span>
-      <span class="mid mono temp">{config.type === 'flat' ? '—' : `${fmt1(liveSensorTemp)}°`}</span>
+      <span class="mid mono temp">{config.type === 'flat' ? '—' : `${curveInputReading.text}${curveInputReading.unit}`}</span>
       <span class="sub">{config.type === 'flat' ? 'no sensor' : sensorName}</span>
     </div>
     <div class="stat-card">
@@ -825,13 +837,13 @@
   </div>
 
   {#if config.type === 'point'}
-    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} />
+    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} xMax={curveAxis.max} xUnit={curveAxis.unit} />
     {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">
-      <label class="field">from °C<input type="number" value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
+      <label class="field">from {curveAxis.unit || 'input'}<input type="number" min="0" max={curveAxis.max} value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
-      <label class="field">to °C<input type="number" value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
+      <label class="field">to {curveAxis.unit || 'input'}<input type="number" min="0" max={curveAxis.max} value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
     {@render smoothing(true)}
@@ -842,22 +854,22 @@
     </div>
   {:else if config.type === 'trigger'}
     <div class="two">
-      <label class="field">on °C<input type="number" value={config.on_temp} oninput={(e) => updateCurveField('on_temp', numberFromEvent(e))} /></label>
+      <label class="field">on {curveAxis.unit}<input type="number" value={config.on_temp} oninput={(e) => updateCurveField('on_temp', numberFromEvent(e))} /></label>
       <label class="field">on %<input type="number" value={config.on_duty} oninput={(e) => updateCurveField('on_duty', numberFromEvent(e))} /></label>
-      <label class="field">off °C<input type="number" value={config.off_temp} oninput={(e) => updateCurveField('off_temp', numberFromEvent(e))} /></label>
+      <label class="field">off {curveAxis.unit}<input type="number" value={config.off_temp} oninput={(e) => updateCurveField('off_temp', numberFromEvent(e))} /></label>
       <label class="field">off %<input type="number" value={config.off_duty} oninput={(e) => updateCurveField('off_duty', numberFromEvent(e))} /></label>
     </div>
     {@render smoothing(false)}
   {:else if config.type === 'target'}
     <div class="two">
-      <label class="field">target °C<input type="number" value={config.target_temp} oninput={(e) => updateCurveField('target_temp', numberFromEvent(e))} /></label>
+      <label class="field">target {curveAxis.unit}<input type="number" value={config.target_temp} oninput={(e) => updateCurveField('target_temp', numberFromEvent(e))} /></label>
       <label class="field">step %/s<input type="number" value={config.step_pct_per_sec} oninput={(e) => updateCurveField('step_pct_per_sec', numberFromEvent(e))} /></label>
       <label class="field">min %<input type="number" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
       <label class="field">max %<input type="number" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
     <div class="two">
-      <label class="field" title="hold the duty while the temperature is within this many degrees of the target">deadband °<input type="number" min="0" step="0.5" placeholder="0.5" value={config.deadband ?? ''} oninput={(e) => updateCurveField('deadband', optionalNumberFromEvent(e))} /></label>
-      <label class="field" title="at or below this temperature drop straight to min duty">idle °C<input type="number" placeholder="off" value={config.idle_temp ?? ''} oninput={(e) => updateCurveField('idle_temp', optionalNumberFromEvent(e))} /></label>
+      <label class="field" title="hold the duty while the temperature is within this many degrees of the target">deadband {curveAxisMark}<input type="number" min="0" step="0.5" placeholder="0.5" value={config.deadband ?? ''} oninput={(e) => updateCurveField('deadband', optionalNumberFromEvent(e))} /></label>
+      <label class="field" title="at or below this temperature drop straight to min duty">idle {curveAxis.unit}<input type="number" placeholder="off" value={config.idle_temp ?? ''} oninput={(e) => updateCurveField('idle_temp', optionalNumberFromEvent(e))} /></label>
     </div>
   {/if}
   {#if config.type === 'flat' || curvePointsFor(config)}

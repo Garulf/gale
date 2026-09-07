@@ -9,6 +9,7 @@ pub mod engine_host;
 pub mod mqtt;
 pub mod paths;
 pub mod runtime;
+pub mod sensor_kind;
 #[cfg(windows)]
 pub mod service;
 pub mod shutdown;

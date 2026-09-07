@@ -1,10 +1,11 @@
 use crate::backend_pool::BackendPool;
 use crate::claims_journal::{self, JournalEntry};
+use crate::sensor_kind::sensor_kind_of;
 use crate::webhooks::WebhookStore;
 use gale_core::build::build_engine;
 use gale_core::config::{ConfigError, GaleConfig, ProfileConfig, VirtualSensorConfig};
 use gale_core::engine::FanEngine;
-use gale_hw::{HwError, Id};
+use gale_hw::{HwError, Id, SensorKind};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
@@ -28,12 +29,19 @@ struct HostState {
     webhooks: WebhookStore,
 }
 
+fn kind_name(kind: SensorKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => format!("{kind:?}"),
+    }
+}
+
 pub struct EngineHost {
     state: Mutex<HostState>,
     claimed: Mutex<HashSet<Id>>,
     backend: BackendPool,
     snapshot_tx: watch::Sender<Snapshot>,
-    known_sensors: RwLock<HashSet<Id>>,
+    known_sensors: RwLock<HashMap<Id, SensorKind>>,
     platform_warnings: RwLock<Vec<String>>,
 }
 
@@ -52,7 +60,7 @@ impl EngineHost {
             claimed: Mutex::new(HashSet::new()),
             backend,
             snapshot_tx,
-            known_sensors: RwLock::new(HashSet::new()),
+            known_sensors: RwLock::new(HashMap::new()),
             platform_warnings: RwLock::new(Vec::new()),
         }))
     }
@@ -65,8 +73,12 @@ impl EngineHost {
         self.state.lock().unwrap().config.clone()
     }
 
-    pub fn set_known_sensors(&self, sensors: HashSet<Id>) {
+    pub fn set_known_sensors(&self, sensors: HashMap<Id, SensorKind>) {
         *self.known_sensors.write().unwrap() = sensors;
+    }
+
+    pub fn known_sensors(&self) -> HashMap<Id, SensorKind> {
+        self.known_sensors.read().unwrap().clone()
     }
 
     pub fn set_platform_warnings(&self, warnings: Vec<String>) {
@@ -103,9 +115,64 @@ impl EngineHost {
             profile
                 .hardware_sensors_used()
                 .into_iter()
-                .filter(|sensor| !sensor.is_empty() && !known.contains(sensor))
+                .filter(|sensor| !sensor.is_empty() && !known.contains_key(sensor))
                 .map(|sensor| format!("referenced sensor not found on hardware: {sensor}")),
         );
+        warnings.extend(Self::mixed_kind_warnings(profile, &known));
+        warnings.extend(Self::non_input_kind_warnings(profile, &known));
+        warnings
+    }
+
+    fn non_input_kind_warnings(
+        profile: &ProfileConfig,
+        known: &HashMap<Id, SensorKind>,
+    ) -> Vec<String> {
+        use gale_core::config::CurveConfig;
+        profile
+            .curves
+            .iter()
+            .filter_map(|(id, curve)| {
+                let sensor = match curve {
+                    CurveConfig::Point { sensor, .. }
+                    | CurveConfig::Linear { sensor, .. }
+                    | CurveConfig::Trigger { sensor, .. }
+                    | CurveConfig::Target { sensor, .. } => sensor,
+                    _ => return None,
+                };
+                let kind = known.get(sensor).copied()?;
+                if kind.is_curve_input() {
+                    return None;
+                }
+                Some(format!(
+                    "curve '{id}' reads '{sensor}', a {} sensor that cannot drive a curve",
+                    kind_name(kind)
+                ))
+            })
+            .collect()
+    }
+
+    fn mixed_kind_warnings(
+        profile: &ProfileConfig,
+        known: &HashMap<Id, SensorKind>,
+    ) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for (name, sensor) in &profile.sensors {
+            let inputs = sensor.inputs();
+            let kinds: Vec<SensorKind> = inputs
+                .iter()
+                .filter_map(|id| sensor_kind_of(id, profile, known))
+                .collect();
+            if let (Some(first), Some(other)) = (
+                kinds.first(),
+                kinds.iter().find(|k| *k != kinds.first().unwrap()),
+            ) {
+                warnings.push(format!(
+                    "virtual sensor '{name}' mixes {} and {} inputs",
+                    kind_name(*first),
+                    kind_name(*other)
+                ));
+            }
+        }
         warnings
     }
 
@@ -528,7 +595,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[test]
     fn warnings_puts_platform_warnings_before_config_warnings() {
         let (host, _state) = setup(&[("t1", Some(50.0))]);
-        host.set_known_sensors(["other".to_string()].into());
+        host.set_known_sensors([("other".to_string(), SensorKind::Temp)].into());
         host.set_platform_warnings(vec!["a https://pawnio.eu".to_string()]);
         let config = GaleConfig::from_toml(CONFIG).unwrap();
         let warnings = host.warnings(&config);
@@ -551,7 +618,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[test]
     fn config_warnings_flags_referenced_but_unknown_sensor() {
         let (host, _state) = setup(&[("t1", Some(50.0))]);
-        host.set_known_sensors(["other".to_string()].into());
+        host.set_known_sensors([("other".to_string(), SensorKind::Temp)].into());
         let config = GaleConfig::from_toml(CONFIG).unwrap();
         let warnings = host.config_warnings(&config);
         assert_eq!(warnings.len(), 1);
@@ -578,7 +645,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 "pwm2" = "cpu"
 "#;
         let (host, _state) = setup(&[("t1", Some(50.0))]);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
         let config = GaleConfig::from_toml(CONFIG_WITH_DRAFT).unwrap();
         assert!(host.config_warnings(&config).is_empty());
     }
@@ -586,7 +653,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[test]
     fn config_warnings_empty_when_known_sensor_matches() {
         let (host, _state) = setup(&[("t1", Some(50.0))]);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
         let config = GaleConfig::from_toml(CONFIG).unwrap();
         assert!(host.config_warnings(&config).is_empty());
     }
@@ -695,7 +762,7 @@ inputs = ["t1", "t2"]
     #[test]
     fn config_warnings_resolve_virtual_sensors_to_hardware_inputs() {
         let (host, _state) = setup(&[("t1", Some(50.0)), ("t2", Some(60.0))]);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
         let config = GaleConfig::from_toml(VIRTUAL_CONFIG).unwrap();
         let warnings = host.config_warnings(&config);
         assert_eq!(warnings.len(), 1);
@@ -706,9 +773,95 @@ inputs = ["t1", "t2"]
     #[test]
     fn config_warnings_never_mention_virtual_ids_even_when_inventory_is_empty_of_them() {
         let (host, _state) = setup(&[("t1", Some(50.0)), ("t2", Some(60.0))]);
-        host.set_known_sensors(["t1".to_string(), "t2".to_string()].into());
+        host.set_known_sensors(
+            [
+                ("t1".to_string(), SensorKind::Temp),
+                ("t2".to_string(), SensorKind::Temp),
+            ]
+            .into(),
+        );
         let config = GaleConfig::from_toml(VIRTUAL_CONFIG).unwrap();
         assert!(host.config_warnings(&config).is_empty());
+    }
+
+    #[tokio::test]
+    async fn mixed_kind_virtual_sensors_raise_a_warning() {
+        let _guard = crate::test_support::lock_env();
+        const CONFIG: &str = r#"
+active_profile = "p"
+
+[profiles.p.sensors.blend]
+type = "max"
+inputs = ["hw/temp1", "hw/power"]
+
+[profiles.p.sensors.same]
+type = "max"
+inputs = ["hw/temp1", "hw/temp2"]
+"#;
+        let (host, _state) = setup_with_config(CONFIG, &[]);
+        host.set_known_sensors(
+            [
+                ("hw/temp1".to_string(), SensorKind::Temp),
+                ("hw/temp2".to_string(), SensorKind::Temp),
+                ("hw/power".to_string(), SensorKind::Power),
+            ]
+            .into(),
+        );
+        let warnings = host.config_warnings(&host.config());
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w == "virtual sensor 'blend' mixes temp and power inputs"),
+            "{warnings:?}"
+        );
+        assert!(
+            !warnings.iter().any(|w| w.contains("'same'")),
+            "{warnings:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn curves_reading_a_non_input_kind_sensor_raise_a_warning() {
+        let _guard = crate::test_support::lock_env();
+        const CONFIG: &str = r#"
+active_profile = "p"
+
+[profiles.p.curves.tach]
+type = "point"
+sensor = "hw/fan1"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.curves.heat]
+type = "linear"
+sensor = "hw/temp1"
+min_temp = 30.0
+max_temp = 70.0
+min_duty = 20.0
+max_duty = 100.0
+
+[profiles.p.assignments]
+"pwm1" = "tach"
+"pwm2" = "heat"
+"#;
+        let (host, _state) = setup_with_config(CONFIG, &[]);
+        host.set_known_sensors(
+            [
+                ("hw/temp1".to_string(), SensorKind::Temp),
+                ("hw/fan1".to_string(), SensorKind::Rpm),
+            ]
+            .into(),
+        );
+        let warnings = host.config_warnings(&host.config());
+        assert!(
+            warnings.iter().any(
+                |w| w == "curve 'tach' reads 'hw/fan1', a rpm sensor that cannot drive a curve"
+            ),
+            "{warnings:?}"
+        );
+        assert!(
+            !warnings.iter().any(|w| w.contains("'heat'")),
+            "{warnings:?}"
+        );
     }
 
     #[tokio::test]
