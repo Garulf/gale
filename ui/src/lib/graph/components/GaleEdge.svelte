@@ -2,7 +2,7 @@
   import { getContext } from 'svelte';
   import { BaseEdge, EdgeLabel, getBezierPath } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { tempValue, dutyValue } from '../liveValues.js';
+  import { tempValue, dutyValue, sensorDisplay } from '../liveValues.js';
 
   let {
     id,
@@ -21,6 +21,7 @@
   } = $props();
 
   const edgeSaved = getContext('galeEdgeSaved');
+  const sensorKind = getContext('galeSensorKind');
   let saved = $derived(edgeSaved ? edgeSaved(id) : true);
 
   let path = $derived(
@@ -32,7 +33,11 @@
     const snap = $snapshot;
     if (data.kind === 'temp') {
       const value = tempValue(snap, source, sourceHandleId);
-      return value === null ? '' : `${value.toFixed(1)}°`;
+      if (value === null) return '';
+      const kind = sensorKind ? sensorKind(source, sourceHandleId) : undefined;
+      const reading = sensorDisplay(value, kind);
+      if (kind === undefined || kind === 'temp') return `${reading.text}°`;
+      return reading.unit ? `${reading.text} ${reading.unit}` : reading.text;
     }
     const value = dutyValue(snap, targetHandleId);
     return value === null ? '' : `${Math.round(value)}%`;

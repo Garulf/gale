@@ -178,6 +178,14 @@
   setContext('galeEdgeSaved', (edgeId) => savedEdgeIds.has(edgeId));
   setContext('galeNodeCompact', (nodeId) => nodes.some((node) => node.id === nodeId && node.compact === true));
 
+  function sensorKindOf(nodeId, handle) {
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    const rows = node && node.data && node.data.deviceSensor ? node.data.deviceSensor.rows : [];
+    const row = rows.find((candidate) => candidate.handle === handle);
+    return row ? row.kind : undefined;
+  }
+  setContext('galeSensorKind', sensorKindOf);
+
   let previousPage = 'graph';
   const unsubscribePage = page.subscribe((value) => {
     if (previousPage === 'graph' && value !== 'graph' && dirty) {

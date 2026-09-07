@@ -1,6 +1,6 @@
 <script>
   import { getContext, untrack, onDestroy } from 'svelte';
-  import { curvePoints as curvePointsFor } from '../../curveMath.js';
+  import { curvePoints as curvePointsFor, axisFor } from '../../curveMath.js';
   import PointCurveEditor from '../../components/PointCurveEditor.svelte';
   import { snapshot } from '../../store.js';
   import { getWebhookUrl, putControlSettings, startCalibration, getCalibration, cancelCalibration } from '../../api.js';
@@ -17,6 +17,7 @@
   let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
+  const sensorKind = getContext('galeSensorKind');
 
   function memberName(memberId) {
     return memberId.slice(memberId.indexOf(':') + 1);
@@ -331,6 +332,16 @@
     if (!edge) return null;
     return tempValue($snapshot, edge.source, edge.sourceHandle);
   });
+
+  let curveInputKind = $derived.by(() => {
+    if (!node || node.type !== 'curve') return undefined;
+    const edge = incomingEdge('sensor');
+    return edge && sensorKind ? sensorKind(edge.source, edge.sourceHandle) : undefined;
+  });
+
+  let curveAxis = $derived(axisFor(curveInputKind));
+
+  let curveInputReading = $derived(sensorDisplay(liveSensorTemp, curveInputKind));
 
   let sensorName = $derived.by(() => {
     if (!node || node.type !== 'curve') return '';
@@ -814,7 +825,7 @@
   <div class="two">
     <div class="stat-card">
       <span class="eyebrow">Input</span>
-      <span class="mid mono temp">{config.type === 'flat' ? '—' : `${fmt1(liveSensorTemp)}°`}</span>
+      <span class="mid mono temp">{config.type === 'flat' ? '—' : `${curveInputReading.text}${curveInputReading.unit}`}</span>
       <span class="sub">{config.type === 'flat' ? 'no sensor' : sensorName}</span>
     </div>
     <div class="stat-card">
@@ -825,13 +836,13 @@
   </div>
 
   {#if config.type === 'point'}
-    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} />
+    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} xMax={curveAxis.max} xUnit={curveAxis.unit} />
     {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">
-      <label class="field">from °C<input type="number" value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
+      <label class="field">from {curveAxis.unit || 'input'}<input type="number" min="0" max={curveAxis.max} value={config.min_temp} oninput={(e) => updateCurveField('min_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.min_duty} oninput={(e) => updateCurveField('min_duty', numberFromEvent(e))} /></label>
-      <label class="field">to °C<input type="number" value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
+      <label class="field">to {curveAxis.unit || 'input'}<input type="number" min="0" max={curveAxis.max} value={config.max_temp} oninput={(e) => updateCurveField('max_temp', numberFromEvent(e))} /></label>
       <label class="field">at %<input type="number" min="0" max="100" value={config.max_duty} oninput={(e) => updateCurveField('max_duty', numberFromEvent(e))} /></label>
     </div>
     {@render smoothing(true)}

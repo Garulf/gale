@@ -3,8 +3,8 @@
   import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { tempValue, dutyValue, curveOutput } from '../liveValues.js';
-  import { curvePaths, curveScale, evalCurve, clamp, curvePoints } from '../../curveMath.js';
+  import { tempValue, dutyValue, curveOutput, sensorDisplay } from '../liveValues.js';
+  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, axisFor } from '../../curveMath.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
   const CHART_W = 210;
@@ -36,11 +36,22 @@
   const sensorConnections = useNodeConnections({ handleType: 'target', handleId: 'sensor' });
   const outputConnections = useNodeConnections({ handleType: 'source', handleId: 'out' });
 
+  const sensorKind = getContext('galeSensorKind');
+
+  let inputKind = $derived.by(() => {
+    const connection = sensorConnections.current[0];
+    return connection && sensorKind ? sensorKind(connection.source, connection.sourceHandle) : undefined;
+  });
+
+  let axis = $derived(axisFor(inputKind));
+
   let sensorTemp = $derived.by(() => {
     const connection = sensorConnections.current[0];
     if (!connection) return null;
     return tempValue($snapshot, connection.source, connection.sourceHandle);
   });
+
+  let sensorReading = $derived(sensorDisplay(sensorTemp, inputKind));
 
   let outputDuty = $derived.by(() => {
     const published = curveOutput($snapshot, data.curve.id);
@@ -53,13 +64,13 @@
   let chart = $derived.by(() => {
     const points = curvePoints(config);
     if (!points) return null;
-    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
-    const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
+    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD, axis.max);
+    const scale = curveScale(CHART_W, CHART_H, CHART_PAD, axis.max);
     const duty = sensorTemp === null ? null : evalCurve(points, sensorTemp);
     return {
       ...paths,
       show: sensorTemp !== null,
-      dotX: sensorTemp === null ? 0 : scale.x(clamp(sensorTemp, 0, 100)),
+      dotX: sensorTemp === null ? 0 : scale.x(clamp(sensorTemp, 0, axis.max)),
       dotY: duty === null ? 0 : scale.y(duty),
     };
   });
@@ -83,7 +94,7 @@
       <div class="row in" class:missing={sensorTemp === null}>
         <Handle type="target" position={Position.Left} id="sensor" class="port in" />
         <span>sensor</span>
-        <span class="val temp">{sensorTemp === null ? '—' : sensorTemp.toFixed(1)}<span class="unit">°C</span></span>
+        <span class="val temp">{sensorReading.text}<span class="unit">{sensorReading.unit}</span></span>
       </div>
     </div>
   {/if}
