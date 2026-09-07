@@ -82,14 +82,28 @@ function withoutEmpty(groups) {
 }
 
 function stripMembers(groups, memberIds) {
-  return groups.map((group) => ({ ...group, members: group.members.filter((member) => !memberIds.includes(member)) }));
+  const keep = (port) => !memberIds.includes(port.node);
+  return groups.map((group) => ({
+    ...group,
+    members: group.members.filter((member) => !memberIds.includes(member)),
+    inputs: declaredPorts(group, 'in').filter(keep),
+    outputs: declaredPorts(group, 'out').filter(keep),
+  }));
 }
 
 export function createGroup(groups, memberIds, position, name) {
   const members = memberIds.filter((id) => !isGroupNodeId(id) && !isPortsNodeId(id));
   if (members.length === 0) return { groups, id: null };
   const id = nextGroupId(groups);
-  const group = { id, name: name || `Group ${id.slice(1)}`, position: { x: position.x, y: position.y }, members, parent: null };
+  const group = {
+    id,
+    name: name || `Group ${id.slice(1)}`,
+    position: { x: position.x, y: position.y },
+    members,
+    inputs: [],
+    outputs: [],
+    parent: null,
+  };
   return { groups: [...withoutEmpty(stripMembers(groups, members)), group], id };
 }
 
@@ -106,7 +120,13 @@ export function setMembership(groups, nodeId, groupId) {
 }
 
 export function renameMember(groups, oldId, newId) {
-  return groups.map((group) => ({ ...group, members: group.members.map((member) => (member === oldId ? newId : member)) }));
+  const rename = (port) => (port.node === oldId ? { ...port, node: newId } : port);
+  return groups.map((group) => ({
+    ...group,
+    members: group.members.map((member) => (member === oldId ? newId : member)),
+    inputs: declaredPorts(group, 'in').map(rename),
+    outputs: declaredPorts(group, 'out').map(rename),
+  }));
 }
 
 export function dropMember(groups, nodeId) {
@@ -139,6 +159,10 @@ function handleLabel(node, handle) {
 function endpointLabel(byId, nodeId, handle) {
   const node = byId.get(nodeId);
   return `${displayName(node)} · ${handleLabel(node, handle)}`;
+}
+
+export function endpointDisplayLabel(nodes, nodeId, handle) {
+  return endpointLabel(new Map(nodes.map((node) => [node.id, node])), nodeId, handle);
 }
 
 function memberIndex(group) {
@@ -216,6 +240,7 @@ function portsFor(group, nodes, edges, direction) {
   const result = [];
 
   for (const port of declaredPorts(group, direction)) {
+    if (!members.has(port.node)) continue;
     const key = groupHandleId(port.node, port.handle);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -241,6 +266,8 @@ function portsFor(group, nodes, edges, direction) {
   return [...result, ...implied];
 }
 
+// `outside` is the far endpoint of the first boundary edge for that port, so an output wired to
+// several outside targets stays one row and `replace-source` rewrites that first edge.
 export function effectivePorts(group, nodes, edges) {
   return {
     inputs: portsFor(group, nodes, edges, 'in'),
@@ -302,6 +329,18 @@ export function retargetInput(groups, groupId, fromNode, fromHandle, toNode, toH
 
 export function retargetOutput(groups, groupId, fromNode, fromHandle, toNode, toHandle) {
   return retargetPort(groups, groupId, 'out', fromNode, fromHandle, toNode, toHandle);
+}
+
+export function dropNodePorts(groups, nodeId) {
+  let changed = false;
+  const next = groups.map((group) => {
+    const inputs = declaredPorts(group, 'in').filter((port) => port.node !== nodeId);
+    const outputs = declaredPorts(group, 'out').filter((port) => port.node !== nodeId);
+    if (inputs.length === declaredPorts(group, 'in').length && outputs.length === declaredPorts(group, 'out').length) return group;
+    changed = true;
+    return { ...group, inputs, outputs };
+  });
+  return changed ? next : groups;
 }
 
 export function renamePort(groups, groupId, direction, node, handle, name) {
@@ -385,7 +424,7 @@ function declarationEdge(group, direction, port) {
   const base = {
     id: declarationEdgeId(direction, port.node, port.handle),
     type: 'gale',
-    class: port.kind,
+    class: `${port.kind} declared`,
     data: { kind: port.kind, declared: true },
   };
   return direction === 'in'

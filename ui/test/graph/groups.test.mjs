@@ -37,12 +37,12 @@ test('id helpers round-trip node ids that themselves contain colons and slashes'
 test('createGroup takes members away from any other group and numbers ids without reuse gaps', () => {
   const first = createGroup([], ['curve:a', 'curve:b'], at);
   assert.equal(first.id, 'g1');
-  assert.deepEqual(first.groups, [{ id: 'g1', name: 'Group 1', position: at, members: ['curve:a', 'curve:b'], parent: null }]);
+  assert.deepEqual(first.groups, [{ id: 'g1', name: 'Group 1', position: at, members: ['curve:a', 'curve:b'], inputs: [], outputs: [], parent: null }]);
 
   const second = createGroup(first.groups, ['curve:b', 'curve:c'], at, 'Case');
   assert.equal(second.id, 'g2');
   assert.deepEqual(second.groups.find((g) => g.id === 'g1').members, ['curve:a']);
-  assert.deepEqual(second.groups.find((g) => g.id === 'g2'), { id: 'g2', name: 'Case', position: at, members: ['curve:b', 'curve:c'], parent: null });
+  assert.deepEqual(second.groups.find((g) => g.id === 'g2'), { id: 'g2', name: 'Case', position: at, members: ['curve:b', 'curve:c'], inputs: [], outputs: [], parent: null });
   assert.equal(nextGroupId(second.groups), 'g3');
 });
 
@@ -184,7 +184,7 @@ test('group projection draws a declaration edge for every unwired declared port'
   assert.deepEqual(declIn, {
     id: 'decl:in:curve:cpu|sensor',
     type: 'gale',
-    class: 'temp',
+    class: 'temp declared',
     data: { kind: 'temp', declared: true },
     source: 'port:in:g1',
     sourceHandle: 'curve:cpu|sensor',
@@ -378,4 +378,69 @@ test('declare, undeclare, retarget and rename are pure and idempotent where they
   assert.deepEqual(undeclarePort(moved, 'g1', 'in', 'virtual:hot', 'in-0')[0].inputs, []);
   assert.deepEqual(undeclarePort(moved, 'g1', 'in', 'curve:ghost', 'sensor')[0].inputs, moved[0].inputs);
   assert.deepEqual(declareInput(groups, 'g2', 'curve:cpu', 'sensor'), groups, 'an unknown group id changes nothing');
+});
+
+test('membership changes carry the declared ports with them', () => {
+  const declared = [
+    {
+      id: 'g1',
+      name: 'Zone',
+      position: { x: 0, y: 0 },
+      members: ['curve:cpu', 'virtual:hot'],
+      inputs: [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }, { node: 'virtual:hot', handle: 'in-0', name: null }],
+      outputs: [{ node: 'curve:cpu', handle: 'out', name: null }],
+      parent: null,
+    },
+  ];
+
+  const moved = setMembership(declared, 'curve:cpu', null);
+  assert.deepEqual(moved[0].members, ['virtual:hot']);
+  assert.deepEqual(moved[0].inputs, [{ node: 'virtual:hot', handle: 'in-0', name: null }]);
+  assert.deepEqual(moved[0].outputs, []);
+  assert.deepEqual(dropMember(declared, 'curve:cpu')[0].inputs, moved[0].inputs);
+  assert.equal(declared[0].inputs.length, 2, 'the input groups are not mutated');
+
+  const renamed = renameMember(declared, 'curve:cpu', 'curve:rad');
+  assert.deepEqual(renamed[0].members, ['curve:rad', 'virtual:hot']);
+  assert.deepEqual(renamed[0].inputs[0], { node: 'curve:rad', handle: 'sensor', name: 'coolant' });
+  assert.deepEqual(renamed[0].outputs, [{ node: 'curve:rad', handle: 'out', name: null }]);
+});
+
+test('a declared port whose node is no longer a member is never projected', () => {
+  const { nodes, edges, groups } = zoneFixture();
+  const stale = groups.map((group) => ({
+    ...group,
+    inputs: [{ node: 'combine:blend', handle: 'in-0', name: 'stale' }],
+    outputs: [],
+  }));
+  const { inputs } = effectivePorts(stale[0], nodes, edges);
+  assert.ok(!inputs.some((port) => port.node === 'combine:blend'));
+
+  const view = projectScope(nodes, edges, stale, 'g1');
+  const rows = view.nodes.find((node) => node.id === 'port:in:g1').data.ports.rows;
+  assert.ok(!rows.some((row) => row.handle === 'combine:blend|in-0'));
+  assert.ok(!view.edges.some((edge) => edge.id === 'decl:in:combine:blend|in-0'));
+});
+
+test('an output wired to several outside targets stays one row bound to the first edge', () => {
+  const { nodes, edges, groups } = zoneFixture();
+  const second = {
+    id: 'curve:cpu:out->combine:blend:in-1',
+    source: 'curve:cpu',
+    sourceHandle: 'out',
+    target: 'combine:blend',
+    targetHandle: 'in-1',
+    data: { kind: 'duty' },
+  };
+  const fanned = [...edges, second];
+  const { outputs } = effectivePorts(groups[0], nodes, fanned);
+  assert.equal(outputs.length, 1);
+  const first = edges.find((edge) => edge.source === 'curve:cpu' && edge.target === 'combine:blend');
+  assert.deepEqual(outputs[0].outside, { node: 'combine:blend', handle: first.targetHandle });
+
+  const context = { nodes, edges: fanned, groups, scope: 'g1' };
+  assert.deepEqual(
+    unprojectConnection({ source: 'virtual:hot', sourceHandle: 'out', target: 'port:out:g1', targetHandle: 'curve:cpu|out' }, context),
+    { kind: 'replace-source', edgeId: first.id, source: 'virtual:hot', sourceHandle: 'out' }
+  );
 });
