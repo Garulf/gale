@@ -302,6 +302,7 @@ mod tests {
                 min_duty: None,
                 start_duty: Some(40.0),
                 stop_duty: Some(15.0),
+                max_duty: None,
             },
         )]
         .into();
@@ -426,6 +427,7 @@ mod tests {
                 min_duty: Some(25.0),
                 start_duty: None,
                 stop_duty: Some(10.0),
+                max_duty: None,
             },
         )]
         .into();
