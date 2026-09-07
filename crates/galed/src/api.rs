@@ -744,9 +744,9 @@ mod tests {
     use axum::body::Body;
     use axum::http::{header, Method, Request, StatusCode};
     use gale_core::config::GaleConfig;
-    use gale_hw::{Backend, HwError, Id, Inventory};
+    use gale_hw::{Backend, HwError, Id, Inventory, SensorKind};
     use http_body_util::BodyExt;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
     use tower::util::ServiceExt;
 
@@ -1032,7 +1032,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     async fn config_put_returns_warnings_for_ghost_sensor_and_204_for_clean() {
         let (router, host) = make_router(None);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
 
         let mut with_ghost = GaleConfig::from_toml(CONFIG).unwrap();
         let profile = with_ghost.profiles.get_mut("p").unwrap();
@@ -1218,7 +1218,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     async fn get_warnings_reports_current_config_warnings() {
         let (router, host) = make_router(None);
-        host.set_known_sensors(HashSet::new());
+        host.set_known_sensors(HashMap::new());
         let response = router
             .clone()
             .oneshot(Request::get("/api/warnings").body(Body::empty()).unwrap())
@@ -1228,7 +1228,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         let json = body_json(response).await;
         assert_eq!(json["warnings"].as_array().unwrap().len(), 0);
 
-        host.set_known_sensors(["other".to_string()].into());
+        host.set_known_sensors([("other".to_string(), SensorKind::Temp)].into());
         let mut config = host.config();
         let profile = config.profiles.get_mut("p").unwrap();
         profile.curves.insert(
@@ -2153,7 +2153,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     #[tokio::test]
     async fn config_put_warns_for_hardware_input_behind_virtual_sensor() {
         let (router, host) = make_router(None);
-        host.set_known_sensors(["t1".to_string()].into());
+        host.set_known_sensors([("t1".to_string(), SensorKind::Temp)].into());
         let config = GaleConfig::from_toml(CONFIG_VIRTUAL).unwrap();
         let response = router
             .oneshot(
