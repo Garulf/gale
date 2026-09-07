@@ -36,10 +36,6 @@ export function portsNodeGroupId(id) {
   return match ? match[2] : null;
 }
 
-export function isPortNodeId(id) {
-  return isPortsNodeId(id);
-}
-
 const DECLARATION_EDGE = /^decl:(in|out):(.+)$/;
 
 export function declarationEdgeId(direction, node, handle) {
@@ -329,18 +325,6 @@ export function retargetInput(groups, groupId, fromNode, fromHandle, toNode, toH
 
 export function retargetOutput(groups, groupId, fromNode, fromHandle, toNode, toHandle) {
   return retargetPort(groups, groupId, 'out', fromNode, fromHandle, toNode, toHandle);
-}
-
-export function dropNodePorts(groups, nodeId) {
-  let changed = false;
-  const next = groups.map((group) => {
-    const inputs = declaredPorts(group, 'in').filter((port) => port.node !== nodeId);
-    const outputs = declaredPorts(group, 'out').filter((port) => port.node !== nodeId);
-    if (inputs.length === declaredPorts(group, 'in').length && outputs.length === declaredPorts(group, 'out').length) return group;
-    changed = true;
-    return { ...group, inputs, outputs };
-  });
-  return changed ? next : groups;
 }
 
 export function renamePort(groups, groupId, direction, node, handle, name) {

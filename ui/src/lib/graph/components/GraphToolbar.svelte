@@ -20,11 +20,16 @@
     onExitScope,
     canGroup = false,
     onGroup,
+    fitNodeIds = [],
   } = $props();
 
   let addMenuOpen = $state(false);
 
   const { fitView, screenToFlowPosition } = useSvelteFlow();
+
+  function fitScope() {
+    return fitNodeIds.length > 0 ? fitView({ nodes: fitNodeIds.map((id) => ({ id })) }) : fitView();
+  }
 
   function centerPosition() {
     return screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
@@ -40,7 +45,7 @@
   $effect(() => {
     if (scope === lastScope) return;
     lastScope = scope;
-    const timer = setTimeout(() => fitView(), 0);
+    const timer = setTimeout(() => fitScope(), 0);
     return () => clearTimeout(timer);
   });
 </script>
@@ -62,7 +67,7 @@
     </div>
     <div class="group">
       <button type="button" onclick={onAutoLayout}>Auto layout</button>
-      <button type="button" onclick={() => fitView()}>Fit view</button>
+      <button type="button" onclick={() => fitScope()}>Fit view</button>
       <button type="button" disabled={!canUndo} onclick={onUndo}>Undo</button>
       <button type="button" disabled={!canRedo} onclick={onRedo}>Redo</button>
       <button type="button" onclick={onToggleLabels}>Labels {showEdgeLabels ? 'on' : 'off'}</button>

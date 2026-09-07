@@ -34,16 +34,16 @@
     {#each Array.from({ length: rows }, (_, i) => i) as index (index)}
       {@const input = group.inputs[index]}
       {@const output = group.outputs[index]}
-      <div class="row both">
+      <div class="row both" class:unwired={(input && !input.wired) || (output && !output.wired)}>
         {#if input}
-          <Handle type="target" position={Position.Left} id={input.handle} class="port in {input.kind}" />
+          <Handle type="target" position={Position.Left} id={input.handle} class="port in {input.kind}{input.wired ? '' : ' hollow'}" />
           <span class="in-label">{input.label}</span>
         {:else}
           <span></span>
         {/if}
         {#if output}
           <span class="out-label">{output.label}</span>
-          <Handle type="source" position={Position.Right} id={output.handle} class="port out {output.kind}" />
+          <Handle type="source" position={Position.Right} id={output.handle} class="port out {output.kind}{output.wired ? '' : ' hollow'}" />
         {/if}
       </div>
     {/each}

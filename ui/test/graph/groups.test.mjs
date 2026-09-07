@@ -299,7 +299,7 @@ test('projectScope never hands a member node object back to the caller', () => {
 });
 
 import {
-  effectivePorts, portKind,
+  effectivePorts, portKind, endpointDisplayLabel,
   declareInput, declareOutput, undeclarePort, retargetInput, renamePort,
 } from '../../src/lib/graph/groups.js';
 
@@ -443,4 +443,11 @@ test('an output wired to several outside targets stays one row bound to the firs
     unprojectConnection({ source: 'virtual:hot', sourceHandle: 'out', target: 'port:out:g1', targetHandle: 'curve:cpu|out' }, context),
     { kind: 'replace-source', edgeId: first.id, source: 'virtual:hot', sourceHandle: 'out' }
   );
+});
+
+test('endpointDisplayLabel names an endpoint the way port rows show it', () => {
+  const { nodes } = zoneFixture();
+  assert.equal(endpointDisplayLabel(nodes, 'sensor:hwmon/chipA', 'hwmon/chipA/temp1'), 'chipA \u00b7 CPU');
+  assert.equal(endpointDisplayLabel(nodes, 'curve:cpu', 'sensor'), 'cpu \u00b7 sensor');
+  assert.equal(endpointDisplayLabel(nodes, 'curve:gone', 'out'), '? \u00b7 out');
 });

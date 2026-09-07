@@ -29,7 +29,7 @@
   );
 
   let label = $derived.by(() => {
-    if (!data.showLabel || !saved) return '';
+    if (!data.showLabel || !saved || data.declared) return '';
     const snap = $snapshot;
     if (data.kind === 'temp') {
       const value = tempValue(snap, source, sourceHandleId);
@@ -44,9 +44,13 @@
   });
 </script>
 
-<path d={path[0]} class="edge-halo {data.kind}" />
-<BaseEdge {id} path={path[0]} class={data.kind} {markerStart} {markerEnd} />
-<path d={path[0]} class="edge-flow {data.kind}" />
+{#if data.declared}
+  <BaseEdge {id} path={path[0]} class="{data.kind} declared" {markerStart} {markerEnd} />
+{:else}
+  <path d={path[0]} class="edge-halo {data.kind}" />
+  <BaseEdge {id} path={path[0]} class={data.kind} {markerStart} {markerEnd} />
+  <path d={path[0]} class="edge-flow {data.kind}" />
+{/if}
 {#if label}
   <EdgeLabel x={path[1]} y={path[2]}>
     <div class="elabel {data.kind}">{label}</div>
