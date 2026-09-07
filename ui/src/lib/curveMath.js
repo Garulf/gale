@@ -20,7 +20,7 @@ export function evalCurve(points, temp) {
 }
 
 const AXES = {
-  temp: { max: 100, unit: '°C' },
+  temp: { max: 100, unit: '\u00b0C' },
   percent: { max: 100, unit: '%' },
   clock: { max: 4000, unit: 'MHz' },
   memory: { max: 32768, unit: 'MiB' },
@@ -28,8 +28,57 @@ const AXES = {
   state: { max: 15, unit: '' },
 };
 
-export function axisFor(kind) {
-  return AXES[kind] || AXES.temp;
+const NICE_STEPS = [1, 2, 2.5, 5, 10];
+const AXIS_HEADROOM = 1.1;
+const TARGET_TICK_COUNT = 5;
+const EPSILON = 1e-9;
+
+function niceAtLeast(value) {
+  const decade = 10 ** Math.floor(Math.log10(value));
+  const step = NICE_STEPS.find((factor) => factor * decade >= value - EPSILON);
+  return step === undefined ? 10 * decade : step * decade;
+}
+
+export function niceCeiling(value) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return niceAtLeast(value * AXIS_HEADROOM);
+}
+
+function largestObserved(observed) {
+  if (!observed) return 0;
+  return observed.reduce((best, value) => (Number.isFinite(value) && value > best ? value : best), 0);
+}
+
+export function axisFor(kind, observed = []) {
+  const base = AXES[kind] || AXES.temp;
+  const largest = largestObserved(observed);
+  const max = largest > base.max ? niceCeiling(largest) : base.max;
+  return { min: 0, max, unit: base.unit, step: niceAtLeast(max / TARGET_TICK_COUNT) };
+}
+
+function pointX(point) {
+  if (Array.isArray(point)) return point[0];
+  return point && typeof point === 'object' ? point.temp : point;
+}
+
+export function axisSpan(points, live, kind) {
+  const observed = (points || []).map(pointX);
+  observed.push(live);
+  return axisFor(kind, observed);
+}
+
+export function axisTicks(axis) {
+  const ticks = [];
+  for (let value = axis.min; value < axis.max - EPSILON; value += axis.step) ticks.push(Math.round(value));
+  const last = ticks[ticks.length - 1];
+  if (last !== undefined && axis.max - last < axis.step / 2) ticks.pop();
+  ticks.push(axis.max);
+  return ticks;
+}
+
+export function pointFieldValue(field, value) {
+  const numeric = Number(value);
+  return field === 'duty' ? clamp(numeric, 0, 100) : numeric;
 }
 
 export function curveScale(width, height, pad = 0, xMax = 100) {
