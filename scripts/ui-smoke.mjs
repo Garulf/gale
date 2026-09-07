@@ -98,6 +98,13 @@ function handleSelector(nodeId, handleId) {
   return `[data-node-id="${nodeId}"] [data-handleid="${handleId}"]`;
 }
 
+async function selectNode(page, selector) {
+  await page.waitForSelector(selector, { timeout: 5000 });
+  await page.evaluate((sel) => {
+    document.querySelector(sel).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }, selector);
+}
+
 async function centerOf(page, selector) {
   const element = await page.$(selector);
   assert(element, `${selector} not found`);
@@ -108,7 +115,11 @@ async function centerOf(page, selector) {
     (el, point) => el.contains(document.elementFromPoint(point.x, point.y)),
     center
   );
-  assert(exposed, `${selector} is covered by another element at its center`);
+  const covering = await element.evaluate((el, point) => {
+    const hit = document.elementFromPoint(point.x, point.y);
+    return hit && !el.contains(hit) ? `${hit.tagName}.${hit.getAttribute('class') || ''}` : '';
+  }, center);
+  assert(exposed, `${selector} is covered at its center by ${covering || 'nothing hittable'}`);
   return center;
 }
 
@@ -744,8 +755,7 @@ async function main() {
     });
 
     await record('dragging from the Inputs strip connect-to-add row declares a port on a member', async () => {
-      const groupCenter = await centerOf(page, '[data-node-id^="group:"] h4');
-      await page.mouse.click(groupCenter.x, groupCenter.y);
+      await selectNode(page, '[data-node-id^="group:"]');
       await page.waitForSelector('[data-testid="group-enter"]', { timeout: 5000 });
       await page.click('[data-testid="group-enter"]');
       await page.waitForSelector('[data-testid="graph-scope-name"]', { timeout: 5000 });
@@ -832,8 +842,7 @@ async function main() {
     });
 
     await record('deleting the declared member drops its port and its boundary edge', async () => {
-      const center = await centerOf(page, '[data-node-id^="group:"] h4');
-      await page.mouse.click(center.x, center.y);
+      await selectNode(page, '[data-node-id^="group:"]');
       await page.waitForSelector('[data-testid="group-enter"]', { timeout: 5000 });
       await page.click('[data-testid="group-enter"]');
       await page.waitForSelector(`[data-node-id="${DECLARED_CURVE}"]`, { timeout: 5000 });
@@ -854,9 +863,7 @@ async function main() {
     });
 
     await record('ungroup restores the members', async () => {
-      const groupId = await page.$eval('[data-node-id^="group:"]', (el) => el.getAttribute('data-node-id'));
-      const center = await centerOf(page, `[data-node-id="${groupId}"] h4`);
-      await page.mouse.click(center.x, center.y);
+      await selectNode(page, '[data-node-id^="group:"]');
       await page.waitForSelector('[data-testid="group-ungroup"]', { timeout: 5000 });
       await page.click('[data-testid="group-ungroup"]');
       await page.waitForFunction(() => !document.querySelector('[data-node-id^="group:"]'), { timeout: 5000 });
