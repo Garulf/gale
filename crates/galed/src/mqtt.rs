@@ -155,8 +155,8 @@ pub fn discovery(
         payload.insert("state_topic".into(), json!(topics.sensor_state(&sensor.id)));
         if !unit.is_empty() {
             payload.insert("unit_of_measurement".into(), json!(unit));
+            payload.insert("state_class".into(), json!("measurement"));
         }
-        payload.insert("state_class".into(), json!("measurement"));
         if let Some(class) = class {
             payload.insert("device_class".into(), json!(class));
         }
@@ -571,6 +571,34 @@ mod tests {
         assert_eq!(sensor_unit(SensorKind::Clock), ("MHz", None));
         assert_eq!(sensor_unit(SensorKind::Percent), ("%", None));
         assert_eq!(sensor_unit(SensorKind::State), ("", None));
+    }
+
+    #[test]
+    fn discovery_omits_unit_and_state_class_for_a_unitless_sensor() {
+        let mut inv = inventory();
+        inv.sensors.push(SensorInfo {
+            id: "nvidia/0/pstate".into(),
+            label: "P-state".into(),
+            kind: SensorKind::State,
+        });
+        let out = discovery(
+            &cfg(),
+            &inv,
+            &[],
+            &BTreeMap::new(),
+            &["default".into()],
+            &Device {
+                hostname: "albedo".into(),
+            },
+        );
+        let state = out
+            .iter()
+            .find(|(topic, _)| topic.contains("nvidia_0_pstate"))
+            .map(|(_, payload)| payload)
+            .unwrap();
+        assert!(state.get("unit_of_measurement").is_none());
+        assert!(state.get("state_class").is_none());
+        assert_eq!(out[0].1["state_class"], "measurement");
     }
 
     #[test]

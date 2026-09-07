@@ -92,6 +92,14 @@ export function chartCurve(curveId, curves, values, depth = 0) {
   return null;
 }
 
+export function sensorKindFor(sensorId, inventory) {
+  if (!sensorId || !inventory) return undefined;
+  const hardware = (inventory.sensors || []).find((sensor) => sensor.id === sensorId);
+  if (hardware) return hardware.kind;
+  const virtual = (inventory.virtual || []).find((sensor) => sensor.id === sensorId);
+  return virtual ? virtual.kind : undefined;
+}
+
 export function metricSensors(inventory) {
   if (!inventory || !inventory.sensors) return [];
   return inventory.sensors

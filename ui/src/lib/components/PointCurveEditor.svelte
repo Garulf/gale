@@ -105,7 +105,7 @@
   }
 
   function updateField(id, field, value) {
-    const numeric = clamp(Number(value), 0, field === 'temp' ? xMax : 100);
+    const numeric = field === 'duty' ? clamp(Number(value), 0, 100) : Number(value);
     withPoint(id, (point) => ({ ...point, [field]: numeric }));
   }
 

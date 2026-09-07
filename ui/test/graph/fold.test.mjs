@@ -68,6 +68,28 @@ test('a power row is treated like a temp row for folding, ahead of an unwirable 
   assert.deepEqual(handles(hidden), ['fan1', 'fan2']);
 });
 
+test('a temperature row wins the last slot over other curve-input kinds', () => {
+  const deviceRows = [
+    { handle: 'clock1', wired: false, kind: 'clock' },
+    { handle: 'mem1', wired: false, kind: 'memory' },
+    { handle: 'power1', wired: false, kind: 'power' },
+    { handle: 'temp1', wired: false, kind: 'temp' },
+  ];
+  const { visible, hidden } = foldRows(deviceRows, 1);
+  assert.deepEqual(handles(visible), ['temp1']);
+  assert.deepEqual(handles(hidden), ['clock1', 'mem1', 'power1']);
+});
+
+test('rows without a kind rank with temperature rows', () => {
+  const deviceRows = [
+    { handle: 'power1', wired: false, kind: 'power' },
+    { handle: 'plain', wired: false },
+  ];
+  const { visible, hidden } = foldRows(deviceRows, 1);
+  assert.deepEqual(handles(visible), ['plain']);
+  assert.deepEqual(handles(hidden), ['power1']);
+});
+
 test('shownRows drops hidden rows unless they are wired', () => {
   const rows = [
     { handle: 'a', hidden: true, wired: false },

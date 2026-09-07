@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors } from '../src/lib/dashboard.js';
+import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors, sensorKindFor } from '../src/lib/dashboard.js';
 
 test('shortDevice compacts known vendor prefixes', () => {
   assert.equal(shortDevice('hwmon/nct6798'), 'nct6798');
@@ -88,4 +88,16 @@ test('metricSensors lists non-temperature, non-fan hardware readings with units'
     ['nvidia/0/util', '%'],
   ]);
   assert.deepEqual(metricSensors(null), []);
+});
+
+test('sensorKindFor resolves hardware and virtual sensor kinds', () => {
+  const inventory = {
+    sensors: [{ id: 'nvidia/0/power', label: 'GPU 0 Power', kind: 'power' }],
+    virtual: [{ id: 'virtual/hot', type: 'max', kind: 'temp', inputs: ['t1'] }],
+  };
+  assert.equal(sensorKindFor('nvidia/0/power', inventory), 'power');
+  assert.equal(sensorKindFor('virtual/hot', inventory), 'temp');
+  assert.equal(sensorKindFor('missing', inventory), undefined);
+  assert.equal(sensorKindFor('', inventory), undefined);
+  assert.equal(sensorKindFor('nvidia/0/power', null), undefined);
 });

@@ -7,8 +7,8 @@
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
-  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints } from '../lib/curveMath.js';
-  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors } from '../lib/dashboard.js';
+  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, axisFor, clamp } from '../lib/curveMath.js';
+  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
   import { sensorDisplay } from '../lib/graph/liveValues.js';
@@ -122,17 +122,20 @@
     const points = curvePoints(drawn ? drawn.config : null);
     if (!points) return null;
     const temp = values[drawn.config.sensor] ?? null;
-    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD);
-    const scale = curveScale(CHART_W, CHART_H, CHART_PAD);
+    const kind = sensorKindFor(drawn.config.sensor, inventory);
+    const axis = axisFor(kind);
+    const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD, axis.max);
+    const scale = curveScale(CHART_W, CHART_H, CHART_PAD, axis.max);
     const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(points, temp);
     return {
       ...paths,
       showDot: temp !== null,
-      dotX: temp === null ? 0 : scale.x(Math.min(100, Math.max(0, temp))),
+      dotX: temp === null ? 0 : scale.x(clamp(temp, 0, axis.max)),
       dotY: duty === null ? 0 : scale.y(duty),
       sensor: sensorLabel(drawn.config.sensor, inventory.sensors),
       via: drawn.via ? `${drawn.via} → ${drawn.id}` : '',
       temp,
+      reading: sensorDisplay(temp, kind),
     };
   }
 
@@ -340,7 +343,7 @@
                     <circle cx={fan.chart.dotX} cy={fan.chart.dotY} r="4" class="dot" />
                   {/if}
                 </svg>
-                <span class="chart-tag left mono">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fmtTemp(fan.chart.temp)}°`}</span>
+                <span class="chart-tag left mono">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fan.chart.reading.text}${fan.chart.reading.unit}`}</span>
                 <span class="chart-tag right mono">{fan.chart.via || `${fan.curveName} · ${fan.curveKind}`}</span>
               </div>
             {:else}

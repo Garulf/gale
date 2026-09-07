@@ -75,11 +75,13 @@
     };
   });
 
+  let axisMark = $derived(axis.unit === '°C' ? '°' : axis.unit);
+
   let summary = $derived.by(() => {
     if (config.type === 'flat') return `${config.duty}%`;
-    if (config.type === 'linear') return `${config.min_temp}°→${config.min_duty}% · ${config.max_temp}°→${config.max_duty}%`;
-    if (config.type === 'trigger') return `${config.on_temp}° on · ${config.off_temp}° off`;
-    if (config.type === 'target') return `hold ${config.target_temp}°`;
+    if (config.type === 'linear') return `${config.min_temp}${axisMark}→${config.min_duty}% · ${config.max_temp}${axisMark}→${config.max_duty}%`;
+    if (config.type === 'trigger') return `${config.on_temp}${axisMark} on · ${config.off_temp}${axisMark} off`;
+    if (config.type === 'target') return `hold ${config.target_temp}${axisMark}`;
     return '';
   });
 </script>

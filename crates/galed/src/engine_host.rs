@@ -1,5 +1,6 @@
 use crate::backend_pool::BackendPool;
 use crate::claims_journal::{self, JournalEntry};
+use crate::sensor_kind::sensor_kind_of;
 use crate::webhooks::WebhookStore;
 use gale_core::build::build_engine;
 use gale_core::config::{ConfigError, GaleConfig, ProfileConfig, VirtualSensorConfig};
@@ -76,6 +77,10 @@ impl EngineHost {
         *self.known_sensors.write().unwrap() = sensors;
     }
 
+    pub fn known_sensors(&self) -> HashMap<Id, SensorKind> {
+        self.known_sensors.read().unwrap().clone()
+    }
+
     pub fn set_platform_warnings(&self, warnings: Vec<String>) {
         *self.platform_warnings.write().unwrap() = warnings;
     }
@@ -114,34 +119,48 @@ impl EngineHost {
                 .map(|sensor| format!("referenced sensor not found on hardware: {sensor}")),
         );
         warnings.extend(Self::mixed_kind_warnings(profile, &known));
+        warnings.extend(Self::non_input_kind_warnings(profile, &known));
         warnings
+    }
+
+    fn non_input_kind_warnings(
+        profile: &ProfileConfig,
+        known: &HashMap<Id, SensorKind>,
+    ) -> Vec<String> {
+        use gale_core::config::CurveConfig;
+        profile
+            .curves
+            .iter()
+            .filter_map(|(id, curve)| {
+                let sensor = match curve {
+                    CurveConfig::Point { sensor, .. }
+                    | CurveConfig::Linear { sensor, .. }
+                    | CurveConfig::Trigger { sensor, .. }
+                    | CurveConfig::Target { sensor, .. } => sensor,
+                    _ => return None,
+                };
+                let kind = known.get(sensor).copied()?;
+                if kind.is_curve_input() {
+                    return None;
+                }
+                Some(format!(
+                    "curve '{id}' reads '{sensor}', a {} sensor that cannot drive a curve",
+                    kind_name(kind)
+                ))
+            })
+            .collect()
     }
 
     fn mixed_kind_warnings(
         profile: &ProfileConfig,
         known: &HashMap<Id, SensorKind>,
     ) -> Vec<String> {
-        fn kind_of(
-            id: &str,
-            profile: &ProfileConfig,
-            known: &HashMap<Id, SensorKind>,
-            depth: usize,
-        ) -> Option<SensorKind> {
-            if depth > 16 {
-                return None;
-            }
-            if let Some(name) = id.strip_prefix("virtual/") {
-                let inputs = profile.sensors.get(name)?.inputs();
-                return kind_of(inputs.first()?, profile, known, depth + 1);
-            }
-            known.get(id).copied()
-        }
         let mut warnings = Vec::new();
         for (name, sensor) in &profile.sensors {
             let inputs = sensor.inputs();
             let kinds: Vec<SensorKind> = inputs
                 .iter()
-                .filter_map(|id| kind_of(id, profile, known, 0))
+                .filter_map(|id| sensor_kind_of(id, profile, known))
                 .collect();
             if let (Some(first), Some(other)) = (
                 kinds.first(),
@@ -797,6 +816,50 @@ inputs = ["hw/temp1", "hw/temp2"]
         );
         assert!(
             !warnings.iter().any(|w| w.contains("'same'")),
+            "{warnings:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn curves_reading_a_non_input_kind_sensor_raise_a_warning() {
+        let _guard = crate::test_support::lock_env();
+        const CONFIG: &str = r#"
+active_profile = "p"
+
+[profiles.p.curves.tach]
+type = "point"
+sensor = "hw/fan1"
+points = [[30.0, 20.0], [70.0, 100.0]]
+
+[profiles.p.curves.heat]
+type = "linear"
+sensor = "hw/temp1"
+min_temp = 30.0
+max_temp = 70.0
+min_duty = 20.0
+max_duty = 100.0
+
+[profiles.p.assignments]
+"pwm1" = "tach"
+"pwm2" = "heat"
+"#;
+        let (host, _state) = setup_with_config(CONFIG, &[]);
+        host.set_known_sensors(
+            [
+                ("hw/temp1".to_string(), SensorKind::Temp),
+                ("hw/fan1".to_string(), SensorKind::Rpm),
+            ]
+            .into(),
+        );
+        let warnings = host.config_warnings(&host.config());
+        assert!(
+            warnings.iter().any(
+                |w| w == "curve 'tach' reads 'hw/fan1', a rpm sensor that cannot drive a curve"
+            ),
+            "{warnings:?}"
+        );
+        assert!(
+            !warnings.iter().any(|w| w.contains("'heat'")),
             "{warnings:?}"
         );
     }
