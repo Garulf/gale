@@ -26,7 +26,7 @@ function rowCount(node, edges) {
     return handles + 1;
   }
   if (node.type === 'group') return Math.max(data.group.inputs.length, data.group.outputs.length, 1) + 1;
-  if (node.type === 'port') return 2;
+  if (node.type === 'groupInputs' || node.type === 'groupOutputs') return data.ports.rows.length + 1;
   return 2;
 }
 
@@ -65,11 +65,11 @@ const COLUMN_GAP = 80;
 const STACK_GAP = 24;
 
 function pinsLeft(node) {
-  return node.type === 'deviceSensor' || (node.type === 'port' && node.data.port.direction === 'in');
+  return node.type === 'deviceSensor' || node.type === 'groupInputs';
 }
 
 function pinsRight(node) {
-  return node.type === 'deviceControl' || (node.type === 'port' && node.data.port.direction === 'out');
+  return node.type === 'deviceControl' || node.type === 'groupOutputs';
 }
 
 function isPinned(node) {

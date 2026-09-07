@@ -33,6 +33,8 @@ const WEBHOOK_VALUE_TEXT = '51.5°C';
 const NO_VALUE_TEXT = '—°C';
 const WEBHOOK_TIMEOUT_S = 0.5;
 const UNKNOWN_TOKEN = 'f'.repeat(64);
+const INPUTS_STRIP_PREFIX = 'port:in:';
+const DECLARED_CURVE = 'curve:curve_1';
 
 if (!CHROME_PATH) {
   console.error('GALE_UI_SMOKE_CHROME is not set');
@@ -96,6 +98,13 @@ function handleSelector(nodeId, handleId) {
   return `[data-node-id="${nodeId}"] [data-handleid="${handleId}"]`;
 }
 
+async function selectNode(page, selector) {
+  await page.waitForSelector(selector, { timeout: 5000 });
+  await page.evaluate((sel) => {
+    document.querySelector(sel).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }, selector);
+}
+
 async function centerOf(page, selector) {
   const element = await page.$(selector);
   assert(element, `${selector} not found`);
@@ -106,7 +115,11 @@ async function centerOf(page, selector) {
     (el, point) => el.contains(document.elementFromPoint(point.x, point.y)),
     center
   );
-  assert(exposed, `${selector} is covered by another element at its center`);
+  const covering = await element.evaluate((el, point) => {
+    const hit = document.elementFromPoint(point.x, point.y);
+    return hit && !el.contains(hit) ? `${hit.tagName}.${hit.getAttribute('class') || ''}` : '';
+  }, center);
+  assert(exposed, `${selector} is covered at its center by ${covering || 'nothing hittable'}`);
   return center;
 }
 
@@ -125,6 +138,10 @@ async function dragConnection(page, sourceSelector, targetSelector) {
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 10 });
   await page.mouse.up();
+}
+
+function portRowCount(page) {
+  return page.$$eval(`[data-node-id^="${INPUTS_STRIP_PREFIX}"] .rows .row`, (els) => els.length);
 }
 
 function countEdgeLabels(page) {
@@ -710,7 +727,10 @@ async function main() {
       await page.click('[data-testid="group-enter"]');
       await page.waitForSelector('[data-testid="graph-scope-name"]', { timeout: 5000 });
       await page.waitForSelector('[data-node-id^="curve:"]', { timeout: 5000 });
-      await page.waitForSelector('[data-node-id^="port:"]', { timeout: 5000 });
+      await page.waitForFunction(
+        () => document.querySelectorAll('[data-node-id^="port:out:"] .rows .row:not(.new)').length >= 1,
+        { timeout: 5000 }
+      );
       await page.click('[data-testid="graph-scope-root"]');
       await page.waitForSelector('[data-node-id^="group:"]', { timeout: 5000 });
       assert(!(await page.$('[data-testid="graph-scope-name"]')), 'breadcrumb should be gone at the root');
@@ -734,10 +754,116 @@ async function main() {
       await page.waitForSelector('[data-node-id^="group:"]', { timeout: 10000 });
     });
 
-    await record('ungroup restores the members', async () => {
+    await record('dragging from the Inputs strip connect-to-add row declares a port on a member', async () => {
+      await selectNode(page, '[data-node-id^="group:"]');
+      await page.waitForSelector('[data-testid="group-enter"]', { timeout: 5000 });
+      await page.click('[data-testid="group-enter"]');
+      await page.waitForSelector('[data-testid="graph-scope-name"]', { timeout: 5000 });
+      await page.waitForSelector(`[data-node-id^="${INPUTS_STRIP_PREFIX}"]`, { timeout: 5000 });
+      const rowsBefore = await portRowCount(page);
+      await page.evaluate(() => {
+        document.querySelector('.gale-toolbar .add-node-menu > button').click();
+      });
+      await page.waitForSelector('[data-testid="add-node-curve-point"]', { timeout: 5000 });
+      await page.evaluate(() => {
+        document.querySelector('[data-testid="add-node-curve-point"]').click();
+      });
+      await page.waitForSelector(`[data-node-id="${DECLARED_CURVE}"]`, { timeout: 5000 });
+      await fitView(page);
+      await dragConnection(
+        page,
+        `[data-node-id^="${INPUTS_STRIP_PREFIX}"] [data-handleid="new"]`,
+        handleSelector(DECLARED_CURVE, 'sensor')
+      );
+      await page.waitForSelector(`g.svelte-flow__edge[data-id="decl:in:${DECLARED_CURVE}|sensor"]`, { timeout: 5000 });
+      await page.waitForFunction(
+        (prefix, before) => document.querySelectorAll(`[data-node-id^="${prefix}"] .rows .row`).length === before + 1,
+        { timeout: 5000 },
+        INPUTS_STRIP_PREFIX,
+        rowsBefore
+      );
+    });
+
+    await record('a temperature output dropped on a duty-wired Outputs row is refused', async () => {
+      const virtualId = await addVirtualNode(page);
+      await fitView(page);
+      const rowHandle = '[data-node-id^="port:out:"] .rows .row:not(.new) [data-handleid]';
+      const before = await page.$$eval('.svelte-flow__edge', (els) => els.map((el) => el.getAttribute('data-id')).sort());
+      await dragConnection(page, handleSelector(virtualId, 'out'), rowHandle);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const after = await page.$$eval('.svelte-flow__edge', (els) => els.map((el) => el.getAttribute('data-id')).sort());
+      deepStrictEqual(after, before, 'a temperature source must not take over a duty boundary edge');
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, virtualId);
+      await page.click('.gale-panel .delete');
+      await page.waitForFunction((nodeId) => !document.querySelector(`[data-node-id="${nodeId}"]`), { timeout: 5000 }, virtualId);
+    });
+
+    await record('back at the root the group node shows the declared input as an unwired handle', async () => {
+      await page.click('[data-testid="graph-scope-root"]');
+      await page.waitForSelector('[data-node-id^="group:"]', { timeout: 5000 });
+      await page.waitForSelector(`[data-node-id^="group:"] [data-handleid="${DECLARED_CURVE}|sensor"].hollow`, { timeout: 5000 });
+    });
+
+    await record('wiring a device sensor into the declared group handle adds a flat edge', async () => {
+      await fitView(page);
       const groupId = await page.$eval('[data-node-id^="group:"]', (el) => el.getAttribute('data-node-id'));
-      const center = await centerOf(page, `[data-node-id="${groupId}"] h4`);
-      await page.mouse.click(center.x, center.y);
+      const before = await page.$$eval('.svelte-flow__edge', (els) => els.length);
+      await dragConnection(
+        page,
+        handleSelector(SENSOR_NODE, TEMP2),
+        handleSelector(groupId, `${DECLARED_CURVE}|sensor`)
+      );
+      await page.waitForFunction(
+        (count) => document.querySelectorAll('.svelte-flow__edge').length === count + 1,
+        { timeout: 5000 },
+        before
+      );
+      await page.waitForSelector(`[data-node-id^="group:"] [data-handleid="${DECLARED_CURVE}|sensor"]:not(.hollow)`, { timeout: 5000 });
+    });
+
+    await record('the declared input survives save and reload', async () => {
+      await saveGraph(page);
+      const cfg = await fetchConfig();
+      const stored = cfg.ui.groups[cfg.active_profile];
+      const group = Object.values(stored)[0];
+      assert(
+        (group.inputs || []).some((port) => port.node === DECLARED_CURVE && port.handle === 'sensor'),
+        `declared input missing from config: ${JSON.stringify(group.inputs)}`
+      );
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.waitForSelector('h2', { timeout: 5000 });
+      await page.evaluate(() => {
+        Array.from(document.querySelectorAll('nav button')).find((b) => b.textContent.trim() === 'Graph').click();
+      });
+      await page.waitForSelector('.svelte-flow', { timeout: 5000 });
+      await page.waitForSelector(`[data-node-id^="group:"] [data-handleid="${DECLARED_CURVE}|sensor"]:not(.hollow)`, { timeout: 10000 });
+    });
+
+    await record('deleting the declared member drops its port and its boundary edge', async () => {
+      await selectNode(page, '[data-node-id^="group:"]');
+      await page.waitForSelector('[data-testid="group-enter"]', { timeout: 5000 });
+      await page.click('[data-testid="group-enter"]');
+      await page.waitForSelector(`[data-node-id="${DECLARED_CURVE}"]`, { timeout: 5000 });
+      await page.evaluate((nodeId) => {
+        document.querySelector(`[data-node-id="${nodeId}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, DECLARED_CURVE);
+      await page.click('.gale-panel .delete');
+      await page.waitForFunction((nodeId) => !document.querySelector(`[data-node-id="${nodeId}"]`), { timeout: 5000 }, DECLARED_CURVE);
+      await page.click('[data-testid="graph-scope-root"]');
+      await page.waitForSelector('[data-node-id^="group:"]', { timeout: 5000 });
+      await saveGraph(page);
+      const cfg = await fetchConfig();
+      const group = Object.values(cfg.ui.groups[cfg.active_profile])[0];
+      assert((group.inputs || []).length === 0, `port list should be empty, got ${JSON.stringify(group.inputs)}`);
+      assert(!group.members.includes(DECLARED_CURVE), `${DECLARED_CURVE} should be gone from the members`);
+      const profile = JSON.stringify(cfg.profiles[cfg.active_profile]);
+      assert(!profile.includes('curve_1'), `the boundary edge into the deleted curve should be gone: ${profile}`);
+    });
+
+    await record('ungroup restores the members', async () => {
+      await selectNode(page, '[data-node-id^="group:"]');
       await page.waitForSelector('[data-testid="group-ungroup"]', { timeout: 5000 });
       await page.click('[data-testid="group-ungroup"]');
       await page.waitForFunction(() => !document.querySelector('[data-node-id^="group:"]'), { timeout: 5000 });

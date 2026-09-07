@@ -410,7 +410,32 @@ test('configToGraph reads ui.groups into group objects and prunes members that d
     },
   };
   const { groups } = configToGraph(config, fixtureBInventory(), 'default');
-  assert.deepEqual(groups, [{ id: 'g1', name: 'Zone', position: { x: 300, y: 40 }, members: ['curve:cpu'], parent: null }]);
+  assert.deepEqual(groups, [
+    { id: 'g1', name: 'Zone', position: { x: 300, y: 40 }, members: ['curve:cpu'], inputs: [], outputs: [], parent: null },
+  ]);
+});
+
+test('configToGraph reads declared ports and prunes ports whose node is not a member', () => {
+  const config = fixtureBConfig();
+  config.ui = {
+    groups: {
+      default: {
+        g1: {
+          name: 'Zone',
+          position: [300, 40],
+          members: ['curve:cpu', 'curve:ghost'],
+          inputs: [
+            { node: 'curve:cpu', handle: 'sensor', name: 'coolant' },
+            { node: 'curve:ghost', handle: 'sensor' },
+          ],
+          outputs: [{ node: 'curve:cpu', handle: 'out' }],
+        },
+      },
+    },
+  };
+  const { groups } = configToGraph(config, fixtureBInventory(), 'default');
+  assert.deepEqual(groups[0].inputs, [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }]);
+  assert.deepEqual(groups[0].outputs, [{ node: 'curve:cpu', handle: 'out', name: null }]);
 });
 
 test('configToGraph without ui.groups yields an empty groups array', () => {
@@ -424,6 +449,48 @@ test('graphToConfig writes ui.groups for the profile and leaves other profiles a
   const { nodes, edges } = configToGraph(config, fixtureBInventory(), 'default');
   const groups = [{ id: 'g1', name: 'Zone', position: { x: 300, y: 40 }, members: ['curve:cpu'], parent: null }];
   const wire = graphToConfig(nodes, edges, config, 'default', groups);
-  assert.deepEqual(wire.ui.groups.default, { g1: { name: 'Zone', position: [300, 40], members: ['curve:cpu'] } });
+  assert.deepEqual(wire.ui.groups.default, {
+    g1: { name: 'Zone', position: [300, 40], members: ['curve:cpu'] },
+  });
   assert.deepEqual(wire.ui.groups.other, { g1: { name: 'Keep', position: [1, 2], members: ['curve:x'] } });
+});
+
+test('graphToConfig writes declared ports and omits empty names', () => {
+  const config = fixtureBConfig();
+  const { nodes, edges } = configToGraph(config, fixtureBInventory(), 'default');
+  const groups = [
+    {
+      id: 'g1',
+      name: 'Zone',
+      position: { x: 300, y: 40 },
+      members: ['curve:cpu'],
+      inputs: [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }],
+      outputs: [{ node: 'curve:cpu', handle: 'out', name: null }],
+      parent: null,
+    },
+  ];
+  const wire = graphToConfig(nodes, edges, config, 'default', groups);
+  assert.deepEqual(wire.ui.groups.default.g1.inputs, [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }]);
+  assert.deepEqual(wire.ui.groups.default.g1.outputs, [{ node: 'curve:cpu', handle: 'out' }]);
+});
+
+test('configToGraph and graphToConfig round-trip declared ports', () => {
+  const config = fixtureBConfig();
+  config.ui = {
+    groups: {
+      default: {
+        g1: {
+          name: 'Zone',
+          position: [300, 40],
+          members: ['curve:cpu'],
+          inputs: [{ node: 'curve:cpu', handle: 'sensor', name: 'coolant' }],
+          outputs: [{ node: 'curve:cpu', handle: 'out' }],
+        },
+      },
+    },
+  };
+  const { nodes, edges, groups } = configToGraph(config, fixtureBInventory(), 'default');
+  const wire = graphToConfig(nodes, edges, config, 'default', groups);
+  assert.deepEqual(wire.ui.groups.default.g1.inputs, config.ui.groups.default.g1.inputs);
+  assert.deepEqual(wire.ui.groups.default.g1.outputs, config.ui.groups.default.g1.outputs);
 });

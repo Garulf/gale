@@ -707,9 +707,27 @@
   text-align: right;
 }
 
-.node.port-kind {
-  opacity: 0.85;
-  border-style: dotted;
+.node.ports-kind {
+  border-style: dashed;
+  width: 180px;
+}
+
+.node.ports-kind .row.new span {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.gale-canvas .row span.unwired {
+  color: var(--muted);
+}
+
+.gale-canvas .port.hollow {
+  background: var(--surface) !important;
+}
+
+.gale-canvas .svelte-flow__edge-path.declared {
+  stroke-dasharray: 5 4;
+  opacity: 0.75;
 }
 
 .gale-toolbar .breadcrumb {

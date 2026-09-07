@@ -174,8 +174,20 @@ pub struct GroupUiConfig {
     pub position: [f64; 2],
     #[serde(default)]
     pub members: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<GroupPort>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<GroupPort>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GroupPort {
+    pub node: String,
+    pub handle: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1812,6 +1824,8 @@ active_profile = "default"
 name = "Radiator"
 position = [940.0, 120.0]
 members = ["curve:rad_coolant", "combine:radiator_zone"]
+inputs = [{ node = "curve:rad_coolant", handle = "sensor", name = "coolant" }]
+outputs = [{ node = "combine:radiator_zone", handle = "out" }]
 "#;
         let cfg = GaleConfig::from_toml(toml).unwrap();
         let group = &cfg.ui.groups["default"]["g1"];
@@ -1822,6 +1836,22 @@ members = ["curve:rad_coolant", "combine:radiator_zone"]
             vec!["curve:rad_coolant", "combine:radiator_zone"]
         );
         assert_eq!(group.parent, None);
+        assert_eq!(
+            group.inputs,
+            vec![GroupPort {
+                node: "curve:rad_coolant".to_string(),
+                handle: "sensor".to_string(),
+                name: Some("coolant".to_string()),
+            }]
+        );
+        assert_eq!(
+            group.outputs,
+            vec![GroupPort {
+                node: "combine:radiator_zone".to_string(),
+                handle: "out".to_string(),
+                name: None,
+            }]
+        );
 
         let rendered = cfg.to_toml().unwrap();
         assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
@@ -1846,6 +1876,19 @@ members = ["curve:cpu"]
         assert_eq!(group.name, "");
         assert_eq!(group.position, [0.0, 0.0]);
         assert_eq!(group.members, vec!["curve:cpu"]);
+        assert!(group.inputs.is_empty());
+        assert!(group.outputs.is_empty());
+
+        let rendered = cfg.to_toml().unwrap();
+        assert!(
+            !rendered.contains("inputs"),
+            "empty port lists are not written: {rendered}"
+        );
+        assert!(
+            !rendered.contains("outputs"),
+            "empty port lists are not written: {rendered}"
+        );
+        assert_eq!(GaleConfig::from_toml(&rendered).unwrap(), cfg);
     }
 
     #[test]

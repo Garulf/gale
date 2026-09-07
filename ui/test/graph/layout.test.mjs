@@ -153,24 +153,26 @@ function groupedFixture() {
   return { nodes, edges, groups };
 }
 
-test('measure sizes group nodes by their larger port side and port nodes as one row', () => {
+const isPortsNode = (node) => node.type === 'groupInputs' || node.type === 'groupOutputs';
+
+test('measure sizes group nodes by their larger port side and ports nodes by their rows plus the new row', () => {
   const { nodes, edges, groups } = groupedFixture();
   const root = projectScope(nodes, edges, groups, null);
   const group = root.nodes.find((node) => node.type === 'group');
   assert.equal(measure(group, root.edges).height, 52 + 12 + (Math.max(group.data.group.inputs.length, group.data.group.outputs.length) + 1) * 26);
 
   const inside = projectScope(nodes, edges, groups, 'g1');
-  const port = inside.nodes.find((node) => node.type === 'port');
-  assert.equal(measure(port, inside.edges).height, 52 + 12 + 2 * 26);
+  const ports = inside.nodes.find((node) => node.type === 'groupInputs');
+  assert.equal(measure(ports, inside.edges).height, 52 + 12 + (ports.data.ports.rows.length + 1) * 26);
 });
 
-test('autoLayout inside a group pins input ports left and output ports right of the members', () => {
+test('autoLayout inside a group pins the Inputs node left and the Outputs node right of the members', () => {
   const { nodes, edges, groups } = groupedFixture();
   const inside = projectScope(nodes, edges, groups, 'g1');
   const laidOut = autoLayout(inside.nodes, inside.edges);
-  const members = laidOut.filter((node) => node.type !== 'port');
-  const inputs = laidOut.filter((node) => node.type === 'port' && node.data.port.direction === 'in');
-  const outputs = laidOut.filter((node) => node.type === 'port' && node.data.port.direction === 'out');
+  const members = laidOut.filter((node) => !isPortsNode(node));
+  const inputs = laidOut.filter((node) => node.type === 'groupInputs');
+  const outputs = laidOut.filter((node) => node.type === 'groupOutputs');
   assert.ok(inputs.length > 0 && outputs.length > 0);
   for (const port of inputs) for (const member of members) assert.ok(port.position.x < member.position.x, `${port.id} not left of ${member.id}`);
   for (const port of outputs) for (const member of members) assert.ok(port.position.x > member.position.x, `${port.id} not right of ${member.id}`);

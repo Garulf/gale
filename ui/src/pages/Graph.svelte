@@ -22,8 +22,17 @@
     groupOf,
     groupNodeId,
     isGroupNodeId,
-    isPortNodeId,
+    isPortsNodeId,
+    portsNodeDirection,
     groupIdOf,
+    declareInput,
+    declareOutput,
+    undeclarePort,
+    retargetPort,
+    renamePort,
+    isDeclarationEdgeId,
+    parseDeclarationEdgeId,
+    endpointDisplayLabel,
   } from '../lib/graph/groups.js';
   import { nodeKind, nodeName, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
@@ -39,11 +48,13 @@
   import CurveNode from '../lib/graph/components/CurveNode.svelte';
   import CombineNode from '../lib/graph/components/CombineNode.svelte';
   import GroupNode from '../lib/graph/components/GroupNode.svelte';
-  import PortNode from '../lib/graph/components/PortNode.svelte';
+  import GroupInputsNode from '../lib/graph/components/GroupInputsNode.svelte';
+  import GroupOutputsNode from '../lib/graph/components/GroupOutputsNode.svelte';
   import GaleEdge from '../lib/graph/components/GaleEdge.svelte';
   import NodePanel from '../lib/graph/components/NodePanel.svelte';
   import GraphToolbar from '../lib/graph/components/GraphToolbar.svelte';
   import ZoomControls from '../lib/graph/components/ZoomControls.svelte';
+  import ViewportProbe from '../lib/graph/components/ViewportProbe.svelte';
   import ChainView from '../lib/graph/components/ChainView.svelte';
 
   let config = $state.raw(null);
@@ -125,7 +136,8 @@
     curve: CurveNode,
     combine: CombineNode,
     group: GroupNode,
-    port: PortNode,
+    groupInputs: GroupInputsNode,
+    groupOutputs: GroupOutputsNode,
   };
   const edgeTypes = { gale: GaleEdge };
 
@@ -134,6 +146,7 @@
     return next.map((node) => {
       const old = byId.get(node.id);
       if (!old) return { ...node };
+      if (isPortsNodeId(node.id)) return { ...node, position: old.position, measured: old.measured, width: old.width, height: old.height };
       return { ...node, selected: node.selected === true || old.selected === true, measured: old.measured, width: old.width, height: old.height };
     });
   }
@@ -144,9 +157,59 @@
       return;
     }
     const view = projectScope(nodes, edges, groups, scope);
-    viewNodes = carryCanvasState(untrack(() => viewNodes), view.nodes);
+    viewNodes = untrack(() => dockStrips(carryCanvasState(viewNodes, view.nodes.map(dockable))));
     viewEdges = toFlowEdges(view.edges, showEdgeLabels);
   });
+
+  const STRIP_MARGIN = 16;
+  const STRIP_WIDTH = 180;
+  const STRIP_HEIGHT = 96;
+  let viewport = $state.raw({ x: 0, y: 0, zoom: 1 });
+  let canvasWidth = $state(0);
+  let canvasHeight = $state(0);
+
+  function dockable(node) {
+    if (!isPortsNodeId(node.id)) return node;
+    return { ...node, draggable: false, selectable: false, deletable: false, zIndex: 20 };
+  }
+
+  function dockedPosition(node) {
+    const width = (node.measured && node.measured.width) || node.width || STRIP_WIDTH;
+    const height = (node.measured && node.measured.height) || node.height || STRIP_HEIGHT;
+    const scaled = width * viewport.zoom;
+    const leftEdge = STRIP_MARGIN + scaled + STRIP_MARGIN;
+    const screenX =
+      portsNodeDirection(node.id) === 'in' ? STRIP_MARGIN : Math.max(leftEdge, canvasWidth - scaled - STRIP_MARGIN);
+    const screenY = Math.max(0, (canvasHeight - height * viewport.zoom) / 2);
+    return { x: (screenX - viewport.x) / viewport.zoom, y: (screenY - viewport.y) / viewport.zoom };
+  }
+
+  function dockStrips(list) {
+    if (!scope || canvasWidth === 0 || canvasHeight === 0) return list;
+    let moved = false;
+    const docked = list.map((node) => {
+      if (!isPortsNodeId(node.id)) return node;
+      const position = dockedPosition(node);
+      if (Math.abs(position.x - node.position.x) < 0.5 && Math.abs(position.y - node.position.y) < 0.5) return node;
+      moved = true;
+      return { ...node, position };
+    });
+    return moved ? docked : list;
+  }
+
+  $effect(() => {
+    const { zoom } = viewport;
+    if (zoom === 0 || !scope || canvasWidth === 0 || canvasHeight === 0) return;
+    const current = untrack(() => viewNodes);
+    const docked = dockStrips(current);
+    if (docked !== current) viewNodes = docked;
+  });
+
+  function trackViewport(next) {
+    const current = untrack(() => viewport);
+    if (next.x === current.x && next.y === current.y && next.zoom === current.zoom) return;
+    viewport = { x: next.x, y: next.y, zoom: next.zoom };
+  }
 
   function hideNode(id) {
     snapshotHistory();
@@ -209,7 +272,7 @@
     return rawEdges.map((edge) => ({
       ...edge,
       type: 'gale',
-      class: edge.data.kind,
+      class: edge.data.declared ? `${edge.data.kind} declared` : edge.data.kind,
       data: { ...edge.data, showLabel: labelsOn },
     }));
   }
@@ -328,7 +391,13 @@
         class: edge.class,
         data: cloneData(edge.data),
       })),
-      groups: rawGroups.map((group) => ({ ...group, position: { ...group.position }, members: [...group.members] })),
+      groups: rawGroups.map((group) => ({
+        ...group,
+        position: { ...group.position },
+        members: [...group.members],
+        inputs: (group.inputs || []).map((port) => ({ ...port })),
+        outputs: (group.outputs || []).map((port) => ({ ...port })),
+      })),
     };
   }
 
@@ -374,7 +443,7 @@
   }
 
   function writeBackPositions(sourceNodes) {
-    const positions = new Map(sourceNodes.map((node) => [node.id, node.position]));
+    const positions = new Map(sourceNodes.filter((node) => !isPortsNodeId(node.id)).map((node) => [node.id, node.position]));
     nodes = nodes.map((node) => {
       const position = positions.get(node.id);
       return position && (position.x !== node.position.x || position.y !== node.position.y)
@@ -428,9 +497,60 @@
     future = [];
   }
 
+  function connectionContext() {
+    return { nodes, edges, groups, scope };
+  }
+
+  function replacedSourceConnection(connection) {
+    const existing = edges.find((edge) => edge.id === connection.edgeId);
+    if (!existing) return null;
+    return {
+      source: connection.source,
+      sourceHandle: connection.sourceHandle,
+      target: existing.target,
+      targetHandle: existing.targetHandle,
+    };
+  }
+
+  function commitGroups(nextGroups) {
+    if (nextGroups === groups) return;
+    snapshotHistory();
+    groups = nextGroups;
+    dirty = true;
+    future = [];
+  }
+
   function onBeforeConnect(canvasConnection) {
-    const connection = unprojectConnection(canvasConnection);
+    const connection = unprojectConnection(canvasConnection, connectionContext());
     if (!connection) return false;
+    if (connection.kind === 'declare') {
+      commitGroups(
+        connection.direction === 'in'
+          ? declareInput(groups, connection.groupId, connection.node, connection.handle)
+          : declareOutput(groups, connection.groupId, connection.node, connection.handle)
+      );
+      return false;
+    }
+    if (connection.kind === 'retarget') {
+      commitGroups(
+        retargetPort(
+          groups,
+          connection.groupId,
+          connection.direction,
+          connection.fromNode,
+          connection.fromHandle,
+          connection.toNode,
+          connection.toHandle
+        )
+      );
+      return false;
+    }
+    if (connection.kind === 'replace-source') {
+      const rebuilt = replacedSourceConnection(connection);
+      if (!rebuilt || !isValidConnection(rebuilt, nodes, edges)) return false;
+      commitEdges(edges.map((edge) => (edge.id === connection.edgeId ? buildEdge(rebuilt) : edge)));
+      return false;
+    }
     if (!isValidConnection(connection, nodes, edges)) return false;
     const newEdge = buildEdge(connection);
     const existing = edgeInto(edges, connection.target, connection.targetHandle);
@@ -445,20 +565,26 @@
     return false;
   }
 
-  function isRemovableType(type) {
-    return type !== 'deviceSensor' && type !== 'deviceControl' && type !== 'group' && type !== 'port';
+  const FIXED_NODE_TYPES = ['deviceSensor', 'deviceControl', 'group', 'groupInputs', 'groupOutputs'];
+
+  function isRemovableNode(node) {
+    return !FIXED_NODE_TYPES.includes(node.type) && !isPortsNodeId(node.id);
   }
 
   function onBeforeDelete({ nodes: deletedNodes, edges: deletedEdges }) {
-    const removable = deletedNodes.filter((node) => isRemovableType(node.type));
-    const refused = new Set(deletedNodes.filter((node) => !isRemovableType(node.type)).map((node) => node.id));
-    const edgeIds = new Set(
-      deletedEdges
-        .filter((edge) => edge.selected === true || (!refused.has(edge.source) && !refused.has(edge.target)))
-        .map((edge) => edge.id)
+    const removable = deletedNodes.filter(isRemovableNode);
+    const refused = new Set(deletedNodes.filter((node) => !isRemovableNode(node)).map((node) => node.id));
+    const wanted = deletedEdges.filter(
+      (edge) => edge.selected === true || (!refused.has(edge.source) && !refused.has(edge.target))
     );
-    if (removable.length === 0 && edgeIds.size === 0) return false;
+    const declarations = wanted.filter((edge) => isDeclarationEdgeId(edge.id));
+    const edgeIds = new Set(wanted.filter((edge) => !isDeclarationEdgeId(edge.id)).map((edge) => edge.id));
+    if (removable.length === 0 && edgeIds.size === 0 && declarations.length === 0) return false;
     snapshotHistory();
+    for (const edge of declarations) {
+      const port = parseDeclarationEdgeId(edge.id);
+      if (port && scope) groups = undeclarePort(groups, scope, port.direction, port.node, port.handle);
+    }
     const removedIds = new Set(removable.map((node) => node.id));
     edges = edges.filter((edge) => !edgeIds.has(edge.id) && !removedIds.has(edge.source) && !removedIds.has(edge.target));
     nodes = nodes.filter((node) => !removedIds.has(node.id));
@@ -476,7 +602,7 @@
   }
 
   function onNodeClick({ node }) {
-    if (node.type === 'port') return;
+    if (isPortsNodeId(node.id) || node.type === 'groupInputs' || node.type === 'groupOutputs') return;
     clearFlatSelection();
     selectedNodeId = node.id;
     sheetOpen = true;
@@ -546,10 +672,13 @@
   }
 
   setContext('galeEnterGroup', enterGroup);
+  setContext('galeEndpointLabel', (nodeId, handle) => endpointDisplayLabel(nodes, nodeId, handle));
+
+  let scopeMemberIds = $derived(scope ? (groups.find((group) => group.id === scope) || { members: [] }).members : []);
 
   let selectedViewIds = $derived(viewNodes.filter((node) => node.selected === true).map((node) => node.id));
   let canGroup = $derived(
-    scope === null && selectedViewIds.length >= 2 && selectedViewIds.every((id) => !isGroupNodeId(id) && !isPortNodeId(id))
+    scope === null && selectedViewIds.length >= 2 && selectedViewIds.every((id) => !isGroupNodeId(id) && !isPortsNodeId(id))
   );
   let scopeName = $derived(scope ? (groups.find((group) => group.id === scope) || { name: '' }).name : '');
 
@@ -591,8 +720,27 @@
     return '';
   }
 
+  function renameGroupPort(groupId, direction, node, handle, name) {
+    commitGroups(renamePort(groups, groupId, direction, node, handle, name));
+  }
+
+  function removeGroupPort(groupId, direction, node, handle) {
+    const group = groups.find((candidate) => candidate.id === groupId);
+    if (!group) return;
+    const members = new Set(group.members);
+    snapshotHistory();
+    groups = undeclarePort(groups, groupId, direction, node, handle);
+    edges = edges.filter((edge) =>
+      direction === 'in'
+        ? !(edge.target === node && edge.targetHandle === handle && !members.has(edge.source))
+        : !(edge.source === node && edge.sourceHandle === handle && !members.has(edge.target))
+    );
+    dirty = true;
+    future = [];
+  }
+
   function setNodeGroup(nodeId, groupId) {
-    if (isGroupNodeId(nodeId) || isPortNodeId(nodeId)) return;
+    if (isGroupNodeId(nodeId) || isPortsNodeId(nodeId)) return;
     snapshotHistory();
     groups = setMembership(groups, nodeId, groupId || null);
     dirty = true;
@@ -693,7 +841,9 @@
 
   function runAutoLayout() {
     snapshotHistory();
-    writeBackPositions(autoLayout(viewNodes, viewEdges));
+    const layoutNodes = viewNodes.filter((node) => !isPortsNodeId(node.id));
+    const layoutEdges = viewEdges.filter((edge) => !isPortsNodeId(edge.source) && !isPortsNodeId(edge.target));
+    writeBackPositions(autoLayout(layoutNodes, layoutEdges));
     dirty = true;
     future = [];
   }
@@ -817,15 +967,18 @@
 <svelte:window onkeydown={onClipboardKey} onresize={onViewportResize} />
 
 <section class="gale-graph-page" data-mobile-view={mobileView} style="--gale-panel-width: {panelWidth}px">
-  <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
+  <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'} bind:clientWidth={canvasWidth} bind:clientHeight={canvasHeight}>
     <SvelteFlow
       bind:nodes={viewNodes}
       bind:edges={viewEdges}
       {nodeTypes}
       {edgeTypes}
       isValidConnection={(connection) => {
-        const flat = unprojectConnection(connection);
-        return flat !== null && isValidConnection(flat, nodes, edges);
+        const flat = unprojectConnection(connection, connectionContext());
+        if (flat === null) return false;
+        if (flat.kind === 'declare' || flat.kind === 'retarget') return true;
+        const candidate = flat.kind === 'replace-source' ? replacedSourceConnection(flat) : flat;
+        return candidate !== null && isValidConnection(candidate, nodes, edges);
       }}
       onbeforeconnect={onBeforeConnect}
       onnodedragstart={onNodeDragStart}
@@ -837,6 +990,7 @@
       fitView
     >
       <Background gap={20} size={1} />
+      <ViewportProbe onViewport={trackViewport} />
       <GraphToolbar
         {showEdgeLabels}
         canUndo={history.length > 0}
@@ -855,8 +1009,9 @@
         onExitScope={exitScope}
         {canGroup}
         onGroup={groupSelection}
+        fitNodeIds={scopeMemberIds}
       />
-      <ZoomControls />
+      <ZoomControls fitNodeIds={scopeMemberIds} />
     </SvelteFlow>
 
     <div class="gale-legend">
@@ -929,6 +1084,8 @@
       onEnterGroup={enterGroup}
       onSetMembership={setNodeGroup}
       onSelectNode={selectNode}
+      onRenamePort={renameGroupPort}
+      onRemovePort={removeGroupPort}
     />
     {#if saveWarnings.length > 0}
       <ul class="save-warnings">
@@ -965,6 +1122,8 @@
           onEnterGroup={enterGroup}
           onSetMembership={setNodeGroup}
           onSelectNode={selectNode}
+          onRenamePort={renameGroupPort}
+          onRemovePort={removeGroupPort}
           onClose={() => (sheetOpen = false)}
         />
       </div>

@@ -36,14 +36,14 @@
       {@const output = group.outputs[index]}
       <div class="row both">
         {#if input}
-          <Handle type="target" position={Position.Left} id={input.handle} class="port in {input.kind}" />
-          <span class="in-label">{input.label}</span>
+          <Handle type="target" position={Position.Left} id={input.handle} class="port in {input.kind}{input.wired ? '' : ' hollow'}" />
+          <span class="in-label" class:unwired={!input.wired}>{input.label}</span>
         {:else}
           <span></span>
         {/if}
         {#if output}
-          <span class="out-label">{output.label}</span>
-          <Handle type="source" position={Position.Right} id={output.handle} class="port out {output.kind}" />
+          <span class="out-label" class:unwired={!output.wired}>{output.label}</span>
+          <Handle type="source" position={Position.Right} id={output.handle} class="port out {output.kind}{output.wired ? '' : ' hollow'}" />
         {/if}
       </div>
     {/each}

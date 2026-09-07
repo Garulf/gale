@@ -13,8 +13,9 @@
   import { nodeKind } from '../ids.js';
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
+  import { effectivePorts } from '../groups.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode, onRenamePort, onRemovePort } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
   const sensorKind = getContext('galeSensorKind');
@@ -560,6 +561,34 @@
   </label>
 {/snippet}
 
+{#snippet portList(title, direction, groupId, ports)}
+  <div class="group">
+    <span class="eyebrow">{title}</span>
+    {#if ports.length === 0}
+      <p class="note">None yet. Open the group and drag from the {title} strip to add one.</p>
+    {:else}
+      <div class="list" data-testid="group-ports-{direction}">
+        {#each ports as port (port.node + '|' + port.handle)}
+          <div class="list-row" data-port={port.node + '|' + port.handle} data-wired={port.wired}>
+            <span class="swatch {port.kind}"></span>
+            <input
+              type="text"
+              class="port-name"
+              aria-label="Port name"
+              value={port.name || ''}
+              placeholder={port.label}
+              onchange={(e) => onRenamePort(groupId, direction, port.node, port.handle, e.target.value)}
+              onkeydown={blurOnEnter}
+            />
+            <span class="tip">{port.wired ? 'wired' : 'unwired'}</span>
+            <button type="button" class="btn" onclick={() => onRemovePort(groupId, direction, port.node, port.handle)}>Remove</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
 {#snippet smoothing(withHysteresis)}
   {@const config = node.data.curve.config}
   {#snippet hysteresisFields()}
@@ -693,6 +722,7 @@
 {:else if node.type === 'group'}
   {@const group = node.data.group}
   {@const memberWarnings = groupMemberWarnings(group.members)}
+  {@const ports = effectivePorts(groups.find((candidate) => candidate.id === group.id) || { members: group.members, inputs: [], outputs: [] }, nodes, edges)}
   <div class="identity">
     <span class="kind group"></span>
     <input
@@ -716,6 +746,8 @@
       </li>
     {/each}
   </ul>
+  {@render portList('Inputs', 'in', group.id, ports.inputs)}
+  {@render portList('Outputs', 'out', group.id, ports.outputs)}
   {#if memberWarnings.length > 0}
     <ul class="save-warnings" data-testid="group-warnings">
       {#each memberWarnings as warning}
@@ -1195,6 +1227,21 @@
 
   .swatch.temp {
     background: var(--temp);
+  }
+
+  .swatch.duty {
+    background: var(--duty);
+  }
+
+  .list-row input.port-name {
+    flex: 1;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    color: var(--ink);
+    font-size: 12.5px;
+    padding: 4px 6px;
   }
 
   .tip {
