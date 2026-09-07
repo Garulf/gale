@@ -3,12 +3,12 @@ use std::time::Duration;
 
 use std::time::Instant;
 
-use gale_hw::rate::{per_second, Counter};
+use gale_hw::rate::{per_second, plausible_watts, Counter};
 use gale_hw::{Backend, HwError, Id, Inventory, SensorInfo, SensorKind};
 
 use crate::decode::{
     brand_tctl_offset, ccd_register, ccd_temp_from_raw, energy_unit_joules, package_energy_counter,
-    supports_per_ccd, tctl_from_raw, ENERGY_COUNTER_WRAP, MAX_CCDS, MSR_PKG_ENERGY_STAT,
+    supports_per_ccd, tctl_from_raw, ENERGY_COUNTER_MODULUS, MAX_CCDS, MSR_PKG_ENERGY_STAT,
     MSR_RAPL_PWR_UNIT, THM_TCON_CUR_TMP,
 };
 
@@ -29,6 +29,7 @@ pub struct AmdCpuBackend {
     ccds: Vec<u32>,
     energy_unit: Option<f64>,
     previous_energy: Option<Counter>,
+    clock: Box<dyn FnMut() -> Instant + Send>,
 }
 
 fn id(name: &str) -> Id {
@@ -48,7 +49,13 @@ impl AmdCpuBackend {
             ccds: Vec::new(),
             energy_unit: None,
             previous_energy: None,
+            clock: Box::new(Instant::now),
         }
+    }
+
+    pub fn with_clock(mut self, clock: Box<dyn FnMut() -> Instant + Send>) -> Self {
+        self.clock = clock;
+        self
     }
 
     fn with_lock<T>(&mut self, f: impl FnOnce(&mut dyn CpuIo) -> T) -> Result<T, String> {
@@ -83,7 +90,8 @@ impl Backend for AmdCpuBackend {
                     .read_msr(MSR_RAPL_PWR_UNIT)
                     .and_then(|raw| {
                         io.read_msr(MSR_PKG_ENERGY_STAT)?;
-                        Ok(energy_unit_joules(raw))
+                        energy_unit_joules(raw)
+                            .ok_or_else(|| format!("implausible energy unit 0x{raw:x}"))
                     })
                     .map_err(|message| tracing::debug!(%message, "amd package energy unavailable"))
                     .ok();
@@ -176,11 +184,12 @@ impl Backend for AmdCpuBackend {
             return values;
         };
         if let (Some(unit), Some(raw)) = (energy_unit, energy) {
-            let sample = Counter::new(package_energy_counter(raw), Instant::now());
+            let sample = Counter::new(package_energy_counter(raw), (self.clock)());
             let watts = self
                 .previous_energy
-                .and_then(|previous| per_second(previous, sample, Some(ENERGY_COUNTER_WRAP)))
-                .map(|ticks_per_second| ticks_per_second * unit);
+                .and_then(|previous| per_second(previous, sample, Some(ENERGY_COUNTER_MODULUS)))
+                .map(|ticks_per_second| ticks_per_second * unit)
+                .and_then(plausible_watts);
             self.previous_energy = Some(sample);
             values.insert(id("power"), watts);
         }
@@ -234,11 +243,7 @@ mod tests {
             assert!(self.locked, "msr read outside the pci lock");
             self.calls.lock().unwrap().push(format!("msr 0x{msr:08x}"));
             let queue = self.msrs.get_mut(&msr).ok_or_else(|| "nak".to_string())?;
-            if queue.len() > 1 {
-                queue.pop_front().ok_or_else(|| "nak".to_string())
-            } else {
-                queue.front().copied().ok_or_else(|| "nak".to_string())
-            }
+            queue.pop_front().ok_or_else(|| "nak".to_string())
         }
 
         fn lock(&mut self, _timeout: Duration) -> Result<bool, String> {
@@ -347,10 +352,28 @@ mod tests {
         assert!(matches!(backend.enumerate(), Err(HwError::Io { .. })));
     }
     fn zen3_with_energy(accumulator: [u64; 3]) -> FakeCpuIo {
+        zen3_with_energy_unit(0x000A_1003, accumulator)
+    }
+
+    fn zen3_with_energy_unit(unit: u64, accumulator: [u64; 3]) -> FakeCpuIo {
         let (mut io, _) = zen3();
-        io.msrs.insert(MSR_RAPL_PWR_UNIT, [0x000A_1003].into());
+        io.msrs.insert(MSR_RAPL_PWR_UNIT, [unit].into());
         io.msrs.insert(MSR_PKG_ENERGY_STAT, accumulator.into());
         io
+    }
+
+    fn one_second_per_call() -> Box<dyn FnMut() -> Instant + Send> {
+        let base = Instant::now();
+        let mut seconds = 0;
+        Box::new(move || {
+            seconds += 1;
+            base + Duration::from_secs(seconds)
+        })
+    }
+
+    fn backend_with_energy(accumulator: [u64; 3]) -> AmdCpuBackend {
+        AmdCpuBackend::new(Box::new(zen3_with_energy(accumulator)), 0x21, "5800XT")
+            .with_clock(one_second_per_call())
     }
 
     #[test]
@@ -375,29 +398,42 @@ mod tests {
     }
 
     #[test]
-    fn the_first_energy_sample_reports_none_and_the_next_reports_watts() {
-        let mut backend = AmdCpuBackend::new(
-            Box::new(zen3_with_energy([0, 100_000, 200_000])),
-            0x21,
-            "5800XT",
-        );
+    fn the_first_energy_sample_reports_none_and_the_next_converts_ticks_to_watts() {
+        let mut backend = backend_with_energy([0, 100_000, 200_000]);
         backend.enumerate().unwrap();
         assert_eq!(backend.read_all()["cpu/amd/power"], None);
-        let watts = backend.read_all()["cpu/amd/power"].unwrap();
-        assert!(watts > 0.0, "expected a positive wattage, got {watts}");
+        assert_eq!(
+            backend.read_all()["cpu/amd/power"],
+            Some(100_000.0 / 65536.0)
+        );
     }
 
     #[test]
-    fn a_wrapped_32_bit_accumulator_still_yields_a_reading() {
+    fn a_wrapped_32_bit_accumulator_counts_across_the_modulus() {
+        let mut backend = backend_with_energy([0, 0xFFFF_FF00, 0x0000_0100]);
+        backend.enumerate().unwrap();
+        backend.read_all();
+        assert_eq!(backend.read_all()["cpu/amd/power"], Some(512.0 / 65536.0));
+    }
+
+    #[test]
+    fn an_implausible_wattage_after_a_suspend_is_discarded() {
+        let mut backend = backend_with_energy([0, 0, 200_000_000]);
+        backend.enumerate().unwrap();
+        backend.read_all();
+        assert_eq!(backend.read_all()["cpu/amd/power"], None);
+    }
+
+    #[test]
+    fn a_bogus_energy_unit_keeps_the_power_sensor_out_of_the_inventory() {
         let mut backend = AmdCpuBackend::new(
-            Box::new(zen3_with_energy([0, 0xFFFF_FF00, 0x0000_0100])),
+            Box::new(zen3_with_energy_unit(0x000A_0003, [0, 100_000, 200_000])),
             0x21,
             "5800XT",
         );
-        backend.enumerate().unwrap();
-        backend.read_all();
-        let watts = backend.read_all()["cpu/amd/power"].unwrap();
-        assert!(watts > 0.0, "expected a positive wattage, got {watts}");
+        let inventory = backend.enumerate().unwrap();
+        assert!(inventory.sensors.iter().all(|s| s.id != "cpu/amd/power"));
+        assert!(!backend.read_all().contains_key("cpu/amd/power"));
     }
 
     #[test]

@@ -54,11 +54,14 @@ pub fn ccd_temp_from_raw(raw: u32) -> Option<f64> {
 
 pub const MSR_RAPL_PWR_UNIT: u32 = 0xC001_0299;
 pub const MSR_PKG_ENERGY_STAT: u32 = 0xC001_029B;
-pub const ENERGY_COUNTER_WRAP: u64 = u32::MAX as u64;
+pub const ENERGY_COUNTER_MODULUS: u64 = 1u64 << 32;
+const ENERGY_UNIT_EXPONENTS: std::ops::RangeInclusive<u64> = 1..=31;
 
-pub fn energy_unit_joules(raw: u64) -> f64 {
+pub fn energy_unit_joules(raw: u64) -> Option<f64> {
     let exponent = (raw >> 8) & 0x1F;
-    1.0 / (1u64 << exponent) as f64
+    ENERGY_UNIT_EXPONENTS
+        .contains(&exponent)
+        .then(|| 1.0 / (1u64 << exponent) as f64)
 }
 
 pub fn package_energy_counter(raw: u64) -> u64 {
@@ -116,9 +119,20 @@ mod tests {
 
     #[test]
     fn the_energy_unit_comes_from_bits_12_to_8_of_the_rapl_unit_msr() {
-        assert_eq!(energy_unit_joules(0x000A_1003), 1.0 / 65536.0);
-        assert_eq!(energy_unit_joules(0x0000_0000), 1.0);
-        assert_eq!(energy_unit_joules(0x000A_0F03), 1.0 / 32768.0);
+        assert_eq!(energy_unit_joules(0x000A_1003), Some(1.0 / 65536.0));
+        assert_eq!(energy_unit_joules(0x000A_0F03), Some(1.0 / 32768.0));
+        assert_eq!(energy_unit_joules(0x0000_1F00), Some(1.0 / 2147483648.0));
+    }
+
+    #[test]
+    fn an_energy_unit_exponent_of_zero_is_rejected_rather_than_read_as_one_joule() {
+        assert_eq!(energy_unit_joules(0x0000_0000), None);
+        assert_eq!(energy_unit_joules(0x000A_0003), None);
+    }
+
+    #[test]
+    fn the_accumulator_modulus_is_one_past_the_widest_32_bit_value() {
+        assert_eq!(ENERGY_COUNTER_MODULUS, 1u64 << 32);
     }
 
     #[test]
