@@ -4,8 +4,9 @@ use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::System::Power::{
     CallNtPowerInformation, ProcessorInformation, PROCESSOR_POWER_INFORMATION,
 };
-use windows_sys::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
-use windows_sys::Win32::System::Threading::GetSystemTimes;
+use windows_sys::Win32::System::Threading::{
+    GetActiveProcessorCount, GetSystemTimes, ALL_PROCESSOR_GROUPS,
+};
 
 use crate::backend::{CpuFreq, CpuSources, CpuTimes, ProcStat};
 
@@ -44,9 +45,8 @@ impl ProcStat for SystemTimes {
 }
 
 fn processor_count() -> usize {
-    let mut info: SYSTEM_INFO = unsafe { std::mem::zeroed() };
-    unsafe { GetSystemInfo(&mut info) };
-    (info.dwNumberOfProcessors as usize).max(1)
+    let across_every_group = unsafe { GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) };
+    (across_every_group as usize).max(1)
 }
 
 pub struct ProcessorPowerInformation;

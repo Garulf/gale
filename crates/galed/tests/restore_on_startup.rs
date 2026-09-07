@@ -85,6 +85,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     let daemon = DaemonGuard(
         Command::new(env!("CARGO_BIN_EXE_galed"))
             .env("GALE_HWMON_ROOT", workdir.path().join("hwmon"))
+            .env("GALE_CPU_ROOT", workdir.path().join("cpu"))
             .env("GALE_CONFIG", &config_path)
             .env("GALE_RUNTIME_DIR", &runtime_dir)
             .env("RUST_LOG", "warn")

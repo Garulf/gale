@@ -270,6 +270,7 @@ bind = "127.0.0.1:0"
 
         let mut env = crate::test_support::EnvVarGuard::new();
         env.set("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
+        env.set("GALE_CPU_ROOT", workdir.path().join("cpu"));
         env.set("GALE_CONFIG", &config_path);
         env.set("GALE_RUNTIME_DIR", &runtime_dir);
 
@@ -348,6 +349,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 
         let mut env = crate::test_support::EnvVarGuard::new();
         env.set("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
+        env.set("GALE_CPU_ROOT", workdir.path().join("cpu"));
         env.set("GALE_CONFIG", &config_path);
         env.set("GALE_RUNTIME_DIR", &runtime_dir);
 

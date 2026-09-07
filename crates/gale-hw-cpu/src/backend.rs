@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use gale_hw::rate::{elapsed_secs, per_second, Counter};
+use gale_hw::rate::{elapsed_secs, per_second, plausible_watts, Counter};
 use gale_hw::{Backend, HwError, Id, Inventory, SensorInfo, SensorKind};
 
 pub const PREFIX: &str = "cpu";
@@ -23,7 +23,7 @@ pub trait CpuFreq: Send {
 
 pub trait Rapl: Send {
     fn read_uj(&mut self) -> Result<u64, String>;
-    fn wrap_at_uj(&self) -> Option<u64>;
+    fn energy_modulus_uj(&self) -> Option<u64>;
 }
 
 #[derive(Default)]
@@ -56,6 +56,7 @@ pub struct CpuBackend {
     sensors: Vec<SensorInfo>,
     previous_times: Option<(CpuTimes, Instant)>,
     previous_energy: Option<Counter>,
+    clock: Box<dyn FnMut() -> Instant + Send>,
 }
 
 fn id(name: &str) -> Id {
@@ -69,7 +70,13 @@ impl CpuBackend {
             sensors: Vec::new(),
             previous_times: None,
             previous_energy: None,
+            clock: Box::new(Instant::now),
         }
+    }
+
+    pub fn with_clock(mut self, clock: Box<dyn FnMut() -> Instant + Send>) -> Self {
+        self.clock = clock;
+        self
     }
 
     fn has(&self, name: &str) -> bool {
@@ -80,7 +87,7 @@ impl CpuBackend {
     fn read_usage(&mut self) -> Option<f64> {
         let source = self.sources.usage.as_mut()?;
         let sample = match source.read() {
-            Ok(times) => (times, Instant::now()),
+            Ok(times) => (times, (self.clock)()),
             Err(message) => {
                 tracing::debug!(%message, "cpu usage read failed");
                 return None;
@@ -107,17 +114,18 @@ impl CpuBackend {
     fn read_power(&mut self) -> Option<f64> {
         let source = self.sources.power.as_mut()?;
         let sample = match source.read_uj() {
-            Ok(microjoules) => Counter::new(microjoules, Instant::now()),
+            Ok(microjoules) => Counter::new(microjoules, (self.clock)()),
             Err(message) => {
                 tracing::debug!(%message, "cpu package power read failed");
                 return None;
             }
         };
-        let wrap_at = source.wrap_at_uj();
+        let modulus = source.energy_modulus_uj();
         let watts = self
             .previous_energy
-            .and_then(|previous| per_second(previous, sample, wrap_at))
-            .map(|microjoules_per_second| microjoules_per_second / MICROJOULES_PER_JOULE);
+            .and_then(|previous| per_second(previous, sample, modulus))
+            .map(|microjoules_per_second| microjoules_per_second / MICROJOULES_PER_JOULE)
+            .and_then(plausible_watts);
         self.previous_energy = Some(sample);
         watts
     }
@@ -229,7 +237,7 @@ mod tests {
     #[derive(Default)]
     struct FakeRapl {
         samples: VecDeque<Result<u64, String>>,
-        wrap_at: Option<u64>,
+        modulus: Option<u64>,
     }
 
     impl Rapl for FakeRapl {
@@ -238,9 +246,30 @@ mod tests {
                 .pop_front()
                 .unwrap_or_else(|| Err("exhausted".to_string()))
         }
-        fn wrap_at_uj(&self) -> Option<u64> {
-            self.wrap_at
+        fn energy_modulus_uj(&self) -> Option<u64> {
+            self.modulus
         }
+    }
+
+    fn one_second_per_call() -> Box<dyn FnMut() -> Instant + Send> {
+        let base = Instant::now();
+        let mut seconds = 0;
+        Box::new(move || {
+            seconds += 1;
+            base + Duration::from_secs(seconds)
+        })
+    }
+
+    fn power_only_backend(samples: [Result<u64, String>; 3]) -> CpuBackend {
+        CpuBackend::new(CpuSources {
+            usage: None,
+            clock: None,
+            power: Some(Box::new(FakeRapl {
+                samples: samples.into(),
+                modulus: None,
+            })),
+        })
+        .with_clock(one_second_per_call())
     }
 
     fn times(idle: u64, total: u64) -> Result<CpuTimes, String> {
@@ -328,9 +357,10 @@ mod tests {
             })),
             power: Some(Box::new(FakeRapl {
                 samples: [Ok(0), Ok(1_000_000), Ok(3_000_000)].into(),
-                wrap_at: Some(4_000_000),
+                modulus: Some(4_000_000),
             })),
         })
+        .with_clock(one_second_per_call())
     }
 
     #[test]
@@ -377,8 +407,23 @@ mod tests {
 
         let second = backend.read_all();
         assert_eq!(second["cpu/usage"], Some(75.0));
-        let watts = second["cpu/power"].unwrap();
-        assert!(watts > 0.0, "expected a positive wattage, got {watts}");
+        assert_eq!(second["cpu/power"], Some(1.0));
+    }
+
+    #[test]
+    fn package_power_divides_the_microjoule_delta_by_the_elapsed_seconds() {
+        let mut backend = power_only_backend([Ok(0), Ok(1_000_000), Ok(8_500_000)]);
+        backend.enumerate().unwrap();
+        assert_eq!(backend.read_all()["cpu/power"], None);
+        assert_eq!(backend.read_all()["cpu/power"], Some(7.5));
+    }
+
+    #[test]
+    fn an_implausible_wattage_after_a_suspend_is_discarded() {
+        let mut backend = power_only_backend([Ok(0), Ok(0), Ok(3_000_000_000)]);
+        backend.enumerate().unwrap();
+        backend.read_all();
+        assert_eq!(backend.read_all()["cpu/power"], None);
     }
 
     #[test]

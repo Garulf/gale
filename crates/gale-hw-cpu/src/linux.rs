@@ -5,6 +5,8 @@ use crate::backend::{CpuFreq, CpuSources, CpuTimes, ProcStat, Rapl};
 
 pub const ROOT_ENV: &str = "GALE_CPU_ROOT";
 
+const GUEST_FREE_FIELDS: usize = 8;
+const RAPL_PACKAGE_NAME_PREFIX: &str = "package";
 const RAPL_ZONES: [&str; 2] = [
     "sys/class/powercap/intel-rapl:0",
     "sys/class/powercap/intel-rapl-mmio:0",
@@ -67,7 +69,7 @@ pub fn parse_proc_stat(text: &str) -> Option<CpuTimes> {
     let idle = fields[3] + fields.get(4).copied().unwrap_or(0);
     Some(CpuTimes {
         idle,
-        total: fields.iter().sum(),
+        total: fields.iter().take(GUEST_FREE_FIELDS).sum(),
     })
 }
 
@@ -143,7 +145,7 @@ impl CpuFreq for CpuFreqSysfs {
 
 pub struct RaplSysfs {
     energy: PathBuf,
-    wrap_at: Option<u64>,
+    modulus: Option<u64>,
 }
 
 impl RaplSysfs {
@@ -151,18 +153,25 @@ impl RaplSysfs {
         for zone in RAPL_ZONES {
             let dir = root.join(zone);
             let energy = dir.join("energy_uj");
-            if read_u64(&energy).is_ok() {
-                return Some(Self {
-                    wrap_at: read_u64(&dir.join("max_energy_range_uj")).ok(),
-                    energy,
-                });
+            if !is_package_zone(&dir) || read_u64(&energy).is_err() {
+                continue;
             }
+            return Some(Self {
+                modulus: read_u64(&dir.join("max_energy_range_uj"))
+                    .ok()
+                    .and_then(|max| max.checked_add(1)),
+                energy,
+            });
         }
         amd_energy_input(root).map(|energy| Self {
             energy,
-            wrap_at: None,
+            modulus: None,
         })
     }
+}
+
+fn is_package_zone(dir: &Path) -> bool {
+    read_trimmed(&dir.join("name")).is_ok_and(|name| name.starts_with(RAPL_PACKAGE_NAME_PREFIX))
 }
 
 fn amd_energy_input(root: &Path) -> Option<PathBuf> {
@@ -187,8 +196,8 @@ impl Rapl for RaplSysfs {
         read_u64(&self.energy)
     }
 
-    fn wrap_at_uj(&self) -> Option<u64> {
-        self.wrap_at
+    fn energy_modulus_uj(&self) -> Option<u64> {
+        self.modulus
     }
 }
 
@@ -196,6 +205,16 @@ impl Rapl for RaplSysfs {
 mod tests {
     use super::*;
     use gale_hw::Backend;
+    use std::time::{Duration, Instant};
+
+    fn one_second_per_call() -> Box<dyn FnMut() -> Instant + Send> {
+        let base = Instant::now();
+        let mut seconds = 0;
+        Box::new(move || {
+            seconds += 1;
+            base + Duration::from_secs(seconds)
+        })
+    }
 
     fn write(path: PathBuf, contents: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -218,6 +237,10 @@ mod tests {
             "4000000\n",
         );
         write(root.join("sys/devices/system/cpu/cpufreq/boost"), "1\n");
+        write(
+            root.join("sys/class/powercap/intel-rapl:0/name"),
+            "package-0\n",
+        );
         write(
             root.join("sys/class/powercap/intel-rapl:0/energy_uj"),
             "1000000\n",
@@ -244,8 +267,34 @@ mod tests {
     }
 
     #[test]
+    fn proc_stat_leaves_out_guest_time_the_kernel_already_folded_into_user_and_nice() {
+        let times = parse_proc_stat("cpu  100 0 100 700 100 0 0 0 40 60\n").unwrap();
+        assert_eq!(
+            times,
+            CpuTimes {
+                idle: 800,
+                total: 1000
+            }
+        );
+    }
+
+    #[test]
     fn cpufreq_reads_khz_from_every_core_directory() {
         let dir = fixture();
+        let mut freq = CpuFreqSysfs::new(dir.path());
+        let mut cores = freq.read_mhz().unwrap();
+        cores.sort_by(f64::total_cmp);
+        assert_eq!(cores, vec![3000.0, 4000.0]);
+    }
+
+    #[test]
+    fn cpufreq_averages_the_cores_that_expose_a_scaling_file() {
+        let dir = fixture();
+        write(
+            dir.path()
+                .join("sys/devices/system/cpu/cpu2/cpufreq/scaling_max_freq"),
+            "5000000\n",
+        );
         let mut freq = CpuFreqSysfs::new(dir.path());
         let mut cores = freq.read_mhz().unwrap();
         cores.sort_by(f64::total_cmp);
@@ -271,12 +320,30 @@ mod tests {
         let dir = fixture();
         let mut rapl = RaplSysfs::discover(dir.path()).unwrap();
         assert_eq!(rapl.read_uj().unwrap(), 1_000_000);
-        assert_eq!(rapl.wrap_at_uj(), Some(262_143_328_850));
+        assert_eq!(rapl.energy_modulus_uj(), Some(262_143_328_851));
+    }
+
+    #[test]
+    fn a_powercap_zone_that_is_not_a_package_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path().join("sys/class/powercap/intel-rapl:0/name"),
+            "psys\n",
+        );
+        write(
+            dir.path().join("sys/class/powercap/intel-rapl:0/energy_uj"),
+            "1000000\n",
+        );
+        assert!(RaplSysfs::discover(dir.path()).is_none());
     }
 
     #[test]
     fn rapl_discovery_falls_back_to_the_mmio_zone_then_to_amd_energy() {
         let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path().join("sys/class/powercap/intel-rapl-mmio:0/name"),
+            "package-0\n",
+        );
         write(
             dir.path()
                 .join("sys/class/powercap/intel-rapl-mmio:0/energy_uj"),
@@ -299,7 +366,7 @@ mod tests {
         );
         let mut rapl = RaplSysfs::discover(amd.path()).unwrap();
         assert_eq!(rapl.read_uj().unwrap(), 77);
-        assert_eq!(rapl.wrap_at_uj(), None);
+        assert_eq!(rapl.energy_modulus_uj(), None);
     }
 
     #[test]
@@ -328,7 +395,8 @@ mod tests {
     #[test]
     fn a_full_fixture_enumerates_all_three_sensors_and_reads_them() {
         let dir = fixture();
-        let mut backend = crate::CpuBackend::new(sources_under(dir.path()));
+        let mut backend =
+            crate::CpuBackend::new(sources_under(dir.path())).with_clock(one_second_per_call());
         let inventory = backend.enumerate().unwrap();
         assert_eq!(inventory.sensors.len(), 3);
         let first = backend.read_all();
@@ -346,6 +414,6 @@ mod tests {
         );
         let second = backend.read_all();
         assert_eq!(second["cpu/usage"], Some(50.0));
-        assert!(second["cpu/power"].unwrap() > 0.0);
+        assert_eq!(second["cpu/power"], Some(0.5));
     }
 }
