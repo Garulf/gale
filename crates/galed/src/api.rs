@@ -23,6 +23,7 @@ pub struct ApiContext {
     pub store: Arc<ConfigStore>,
     pub inventory: Arc<RwLock<Inventory>>,
     pub api_key: Option<String>,
+    pub calibrator: Arc<crate::calibration::Calibrator>,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +52,12 @@ pub fn router(ctx: ApiContext) -> Router {
         )
         .route("/profiles/:name/activate", post(activate_profile))
         .route("/controls/*id", put(set_control).delete(clear_control))
+        .route(
+            "/calibrate/*id",
+            post(start_calibration)
+                .get(calibration_status)
+                .delete(cancel_calibration),
+        )
         .route("/webhook/:token", post(post_webhook))
         .route("/webhook-url/:name", get(get_webhook_url))
         .route("/ws", get(ws_upgrade))
@@ -512,6 +519,143 @@ async fn clear_control(State(ctx): State<ApiContext>, Path(id): Path<String>) ->
     }
 }
 
+struct HostActuator {
+    ctx: ApiContext,
+    control: String,
+    tach: String,
+}
+
+impl crate::calibration::Actuator for HostActuator {
+    async fn set_duty(&self, duty: f64) -> Result<(), String> {
+        self.ctx
+            .host
+            .set_manual(&self.control, duty)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    async fn settle(&self) {
+        tokio::time::sleep(std::time::Duration::from_secs(
+            crate::calibration::SETTLE_SECS,
+        ))
+        .await;
+    }
+
+    async fn rpm(&self) -> Option<f64> {
+        self.ctx
+            .host
+            .subscribe()
+            .borrow()
+            .sensors
+            .get(&self.tach)
+            .copied()
+            .flatten()
+    }
+
+    async fn release(&self) {
+        if let Err(error) = self.ctx.host.clear_manual(&self.control).await {
+            tracing::warn!(control = %self.control, %error, "could not release the control after calibration");
+        }
+    }
+
+    async fn persist(&self, result: crate::calibration::CalibrationResult) -> Result<(), String> {
+        let mut config = self.ctx.host.config();
+        let settings = config.controls.entry(self.control.clone()).or_default();
+        settings.min_duty = Some(result.min_duty);
+        settings.start_duty = Some(result.start_duty);
+        settings.stop_duty = Some(result.stop_duty);
+        apply_and_persist(&self.ctx, config)
+            .await
+            .map_err(|error| error.to_string())
+    }
+}
+
+async fn start_calibration(State(ctx): State<ApiContext>, Path(id): Path<String>) -> Response {
+    let known = ctx
+        .inventory
+        .read()
+        .unwrap()
+        .controls
+        .iter()
+        .any(|c| c.id == id);
+    if !known {
+        return (StatusCode::NOT_FOUND, format!("unknown control '{id}'")).into_response();
+    }
+    let tach = match crate::calibration::tach_for(&id, &ctx.inventory.read().unwrap()) {
+        Some(tach) => tach,
+        None => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("'{id}' has no paired rpm sensor to calibrate against"),
+            )
+                .into_response()
+        }
+    };
+    let cancel = match ctx.calibrator.begin(&id, &tach) {
+        Ok(cancel) => cancel,
+        Err(message) => return (StatusCode::CONFLICT, message).into_response(),
+    };
+    let actuator = HostActuator {
+        ctx: ctx.clone(),
+        control: id.clone(),
+        tach: tach.clone(),
+    };
+    let sweep = tokio::spawn({
+        let id = id.clone();
+        async move {
+            let calibrator = actuator.ctx.calibrator.clone();
+            crate::calibration::run(&actuator, &id, &tach, &calibrator, &cancel).await;
+        }
+    });
+    ctx.calibrator.track(sweep.abort_handle());
+    tokio::spawn(async move {
+        match sweep.await {
+            Ok(()) => {}
+            Err(error) if error.is_cancelled() => {}
+            Err(_) => {
+                tracing::error!(control = %id, "calibration task died, releasing the control");
+                if let Err(error) = ctx.host.clear_manual(&id).await {
+                    tracing::warn!(control = %id, %error, "could not release the control");
+                }
+                ctx.calibrator.finish(crate::calibration::Progress::Failed {
+                    control: id,
+                    error: "calibration task died".into(),
+                });
+            }
+        }
+    });
+    StatusCode::ACCEPTED.into_response()
+}
+
+async fn calibration_status(State(ctx): State<ApiContext>, Path(id): Path<String>) -> Response {
+    let progress = ctx.calibrator.progress();
+    let matches = match &progress {
+        crate::calibration::Progress::Idle => true,
+        crate::calibration::Progress::Running { control, .. }
+        | crate::calibration::Progress::Done { control, .. }
+        | crate::calibration::Progress::Failed { control, .. }
+        | crate::calibration::Progress::Cancelled { control } => *control == id,
+    };
+    if matches {
+        Json(progress).into_response()
+    } else {
+        Json(crate::calibration::Progress::Idle).into_response()
+    }
+}
+
+async fn cancel_calibration(State(ctx): State<ApiContext>, Path(id): Path<String>) -> Response {
+    let running = matches!(ctx.calibrator.progress(), crate::calibration::Progress::Running { ref control, .. } if *control == id);
+    if running && ctx.calibrator.cancel() {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            format!("no calibration running for '{id}'"),
+        )
+            .into_response()
+    }
+}
+
 fn webhook_value(body: &[u8]) -> Option<f64> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     match json.get("value")? {
@@ -685,6 +829,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             store,
             inventory: Arc::new(RwLock::new(Inventory::default())),
             api_key,
+            calibrator: Arc::new(crate::calibration::Calibrator::new()),
         };
         (router(ctx), host)
     }
@@ -1154,6 +1299,141 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         assert!(json["api"]["api_key"].is_null());
     }
 
+    fn calibration_inventory() -> Inventory {
+        Inventory {
+            sensors: vec![
+                gale_hw::SensorInfo {
+                    id: "hwmon/x/fan1".into(),
+                    label: "fan1".into(),
+                    kind: gale_hw::SensorKind::Rpm,
+                },
+                gale_hw::SensorInfo {
+                    id: "hwmon/x/temp1".into(),
+                    label: "t".into(),
+                    kind: gale_hw::SensorKind::Temp,
+                },
+            ],
+            controls: vec![
+                gale_hw::ControlInfo {
+                    id: "hwmon/x/pwm1".into(),
+                    label: "pwm1".into(),
+                },
+                gale_hw::ControlInfo {
+                    id: "hwmon/x/pwm9".into(),
+                    label: "pwm9".into(),
+                },
+            ],
+        }
+    }
+
+    #[tokio::test]
+    async fn calibration_rejects_unknown_controls_and_controls_without_a_tach() {
+        let (router, _host) = make_router_with_inventory(calibration_inventory());
+        let unknown = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/calibrate/hwmon/x/nope")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+        let no_tach = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/calibrate/hwmon/x/pwm9")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(no_tach.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn calibration_starts_once_reports_running_and_can_be_cancelled() {
+        let (router, _host) = make_router_with_inventory(calibration_inventory());
+        let started = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/calibrate/hwmon/x/pwm1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.status(), StatusCode::ACCEPTED);
+
+        let status = router
+            .clone()
+            .oneshot(
+                Request::get("/api/calibrate/hwmon/x/pwm1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let json = body_json(status).await;
+        assert_eq!(json["state"], "running");
+        assert_eq!(json["control"], "hwmon/x/pwm1");
+        assert_eq!(json["tach"], "hwmon/x/fan1");
+
+        let other = router
+            .clone()
+            .oneshot(
+                Request::get("/api/calibrate/hwmon/x/pwm9")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(body_json(other).await["state"], "idle");
+
+        let again = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/calibrate/hwmon/x/pwm1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(again.status(), StatusCode::CONFLICT);
+
+        let cancelled = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/calibrate/hwmon/x/pwm1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled.status(), StatusCode::NO_CONTENT);
+
+        let nothing = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/calibrate/hwmon/x/pwm9")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(nothing.status(), StatusCode::NOT_FOUND);
+    }
+
     fn make_router_with_inventory(inventory: Inventory) -> (axum::Router, Arc<EngineHost>) {
         let handle = BackendHandle::spawn(Box::new(NullBackend));
         let pool = BackendPool::new(vec![handle]);
@@ -1165,6 +1445,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             host: host.clone(),
             store,
             inventory: Arc::new(RwLock::new(inventory)),
+            calibrator: Arc::new(crate::calibration::Calibrator::new()),
             api_key: None,
         };
         (router(ctx), host)
@@ -1608,6 +1889,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
             host: host.clone(),
             store: store.clone(),
             inventory: Arc::new(RwLock::new(Inventory::default())),
+            calibrator: Arc::new(crate::calibration::Calibrator::new()),
             api_key: None,
         };
         let router = router(ctx);
