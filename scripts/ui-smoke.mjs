@@ -320,15 +320,28 @@ async function main() {
       await page.waitForSelector(cardSelector, { timeout: 5000 });
     });
 
-    await record('manual override badge appears within 3s of Hold', async () => {
+    await record('manual override badge appears within 3s of Manual, and the slider then sets the duty', async () => {
       const card = await findControlCard(page, CONTROL_LABEL);
+      assert(!(await card.$('input[type="range"]')), 'the slider must stay hidden while the fan follows its curve');
+      const manualButton = await card.$('[data-testid="fan-manual"]');
+      await manualButton.click();
+      await card.waitForSelector('input[type="range"]', { timeout: 3000 });
       const rangeInput = await card.$('input[type="range"]');
       await rangeInput.evaluate((el) => {
         el.value = '77';
         el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      const applyButton = await card.$('button');
-      await applyButton.click();
+      const controlId = await card.evaluate((el) => el.getAttribute('data-card-id'));
+      const deadline = Date.now() + 5000;
+      let applied = null;
+      while (Date.now() < deadline) {
+        const status = await fetchStatus();
+        applied = controlId ? status.manual[controlId] : Object.values(status.manual)[0];
+        if (applied === 77) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      assert(applied === 77, `slider change did not apply 77 %, manual is ${JSON.stringify(applied)}`);
       await page.waitForFunction(
         (label) => {
           const cards = Array.from(document.querySelectorAll('.card.control'));

@@ -177,7 +177,7 @@
   let draftValues = $derived.by(() => {
     const result = {};
     for (const fan of fans) {
-      if (drafts[fan.id] !== undefined) result[fan.id] = drafts[fan.id];
+      if (fan.manual && drafts[fan.id] !== undefined) result[fan.id] = drafts[fan.id];
       else result[fan.id] = fan.duty === null ? 50 : Math.round(fan.duty);
     }
     return result;
@@ -188,6 +188,7 @@
   }
 
   async function hold(id) {
+    if (pending[id]) return;
     pending = { ...pending, [id]: true };
     try {
       await setControl(id, draftValues[id]);
@@ -197,6 +198,11 @@
     } finally {
       pending = { ...pending, [id]: false };
     }
+  }
+
+  async function applyDraft(id, value) {
+    setDraft(id, value);
+    await hold(id);
   }
 
   async function release(id) {
@@ -310,18 +316,21 @@
               </div>
             {/if}
             <div class="control-body">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={draftValues[fan.id]}
-                aria-label="{fan.label} duty"
-                oninput={(event) => setDraft(fan.id, event.target.value)}
-              />
-              <span class="draft mono">{draftValues[fan.id]}%</span>
-              <button type="button" class="btn" disabled={pending[fan.id]} onclick={() => hold(fan.id)}>Hold</button>
               {#if fan.manual}
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={draftValues[fan.id]}
+                  aria-label="{fan.label} duty"
+                  disabled={pending[fan.id]}
+                  oninput={(event) => setDraft(fan.id, event.target.value)}
+                  onchange={(event) => applyDraft(fan.id, event.target.value)}
+                />
+                <span class="draft mono">{draftValues[fan.id]}%</span>
                 <button type="button" class="btn release" disabled={pending[fan.id]} onclick={() => release(fan.id)}>Release</button>
+              {:else}
+                <button type="button" class="btn" data-testid="fan-manual" disabled={pending[fan.id]} onclick={() => hold(fan.id)}>Manual</button>
               {/if}
               <button type="button" class="btn" disabled={!fan.curve} onclick={() => openCurve(fan)}>Curve →</button>
             </div>
