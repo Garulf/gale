@@ -67,6 +67,7 @@ fn validate_hardware(config: &GaleConfig) -> Result<(), ConfigError> {
             ("min_duty", settings.min_duty),
             ("start_duty", settings.start_duty),
             ("stop_duty", settings.stop_duty),
+            ("max_duty", settings.max_duty),
         ] {
             if let Some(value) = value {
                 if !value.is_finite() || !(0.0..=100.0).contains(&value) {

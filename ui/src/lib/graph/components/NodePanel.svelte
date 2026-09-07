@@ -93,6 +93,7 @@
     ['min_duty', 'min %', 'never below'],
     ['start_duty', 'start %', 'kick from stopped'],
     ['stop_duty', 'stop %', 'snap to 0 below'],
+    ['max_duty', 'max %', 'never above'],
   ];
   let controlLimitsError = $state('');
 
@@ -673,7 +674,7 @@
   {#if isSensor}
     <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Labels apply everywhere immediately and are kept in config.toml. The eye hides a channel from this profile's canvas (saved with the profile; wired channels stay visible). Unwired channels are folded on the canvas.</p>
   {:else}
-    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor. Both save immediately to config.toml.</p>
+    <p class="note">Rename a channel by editing its label; clear it to restore the hardware name. Limits apply to whatever curve drives the channel: below stop the fan snaps to 0, start kicks it from a stop, min is a hard floor, max is a hard ceiling (a max below min wins). Both save immediately to config.toml.</p>
   {/if}
   {@render membership()}
   <button type="button" class="btn" onclick={() => onHideNode(node.id)}>Hide from canvas</button>
@@ -966,7 +967,7 @@
 
   .limits {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 6px;
     padding: 0 0 8px 12px;
   }
@@ -1241,7 +1242,7 @@
 
   .segmented {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     border: 1px solid var(--line);
     border-radius: var(--r);
     overflow: hidden;
