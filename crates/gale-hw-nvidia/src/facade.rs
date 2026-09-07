@@ -1,4 +1,4 @@
-use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
+use nvml_wrapper::enum_wrappers::device::{Clock, TemperatureSensor};
 use nvml_wrapper::Nvml;
 use std::sync::Arc;
 
@@ -17,6 +17,11 @@ pub trait NvmlDevice: Send {
     fn restore_fan_default(&mut self, fan: u32) -> Result<(), String>;
     fn fan_controllable(&self, fan: u32) -> bool;
     fn min_max_fan_duty(&self, fan: u32) -> Option<(f64, f64)>;
+    fn utilization(&self) -> Option<(f64, f64)>;
+    fn memory(&self) -> Option<(f64, f64)>;
+    fn clocks(&self) -> Option<(f64, f64)>;
+    fn power_watts(&self) -> Option<f64>;
+    fn performance_state(&self) -> Option<f64>;
 }
 
 pub struct RealNvml {
@@ -117,5 +122,55 @@ impl NvmlDevice for RealNvmlDevice {
             .min_max_fan_speed()
             .ok()
             .map(|(min, max)| (f64::from(min), f64::from(max)))
+    }
+
+    fn utilization(&self) -> Option<(f64, f64)> {
+        let rates = self.device()?.utilization_rates().ok()?;
+        Some((f64::from(rates.gpu), f64::from(rates.memory)))
+    }
+
+    fn memory(&self) -> Option<(f64, f64)> {
+        let info = self.device()?.memory_info().ok()?;
+        const MIB: f64 = 1024.0 * 1024.0;
+        Some((info.used as f64 / MIB, info.total as f64 / MIB))
+    }
+
+    fn clocks(&self) -> Option<(f64, f64)> {
+        let device = self.device()?;
+        let graphics = device.clock_info(Clock::Graphics).ok()?;
+        let memory = device.clock_info(Clock::Memory).ok()?;
+        Some((f64::from(graphics), f64::from(memory)))
+    }
+
+    fn power_watts(&self) -> Option<f64> {
+        self.device()?
+            .power_usage()
+            .ok()
+            .map(|mw| f64::from(mw) / 1000.0)
+    }
+
+    fn performance_state(&self) -> Option<f64> {
+        use nvml_wrapper::enum_wrappers::device::PerformanceState as P;
+        let state = self.device()?.performance_state().ok()?;
+        let n = match state {
+            P::Zero => 0,
+            P::One => 1,
+            P::Two => 2,
+            P::Three => 3,
+            P::Four => 4,
+            P::Five => 5,
+            P::Six => 6,
+            P::Seven => 7,
+            P::Eight => 8,
+            P::Nine => 9,
+            P::Ten => 10,
+            P::Eleven => 11,
+            P::Twelve => 12,
+            P::Thirteen => 13,
+            P::Fourteen => 14,
+            P::Fifteen => 15,
+            P::Unknown => return None,
+        };
+        Some(f64::from(n))
     }
 }
