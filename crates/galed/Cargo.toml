@@ -8,6 +8,7 @@ license = "GPL-3.0-or-later"
 gale-core = { path = "../gale-core" }
 gale-hw = { path = "../gale-hw" }
 gale-hw-corsair = { path = "../gale-hw-corsair" }
+gale-hw-cpu = { path = "../gale-hw-cpu" }
 gale-hw-nvidia = { path = "../gale-hw-nvidia" }
 axum = { version = "0.7", features = ["ws"] }
 futures = "0.3"

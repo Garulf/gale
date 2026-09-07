@@ -66,6 +66,8 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     let mut platform_warnings: Vec<String> = Vec::new();
     #[cfg(target_os = "linux")]
     handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
+    #[cfg(any(target_os = "linux", windows))]
+    handles.push(BackendHandle::spawn(Box::new(gale_hw_cpu::probe())));
     let corsair_release_mode: ReleaseMode =
         crate::claims_journal::release_mode_from_config(&config.hardware.corsair.on_release);
     for backend in CorsairBackend::open_all(corsair_release_mode) {
@@ -268,6 +270,7 @@ bind = "127.0.0.1:0"
 
         let mut env = crate::test_support::EnvVarGuard::new();
         env.set("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
+        env.set("GALE_CPU_ROOT", workdir.path().join("cpu"));
         env.set("GALE_CONFIG", &config_path);
         env.set("GALE_RUNTIME_DIR", &runtime_dir);
 
@@ -346,6 +349,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
 
         let mut env = crate::test_support::EnvVarGuard::new();
         env.set("GALE_HWMON_ROOT", workdir.path().join("hwmon"));
+        env.set("GALE_CPU_ROOT", workdir.path().join("cpu"));
         env.set("GALE_CONFIG", &config_path);
         env.set("GALE_RUNTIME_DIR", &runtime_dir);
 
