@@ -102,7 +102,11 @@ fn sensor_unit(kind: SensorKind) -> (&'static str, Option<&'static str>) {
     match kind {
         SensorKind::Temp => ("°C", Some("temperature")),
         SensorKind::Rpm => ("RPM", None),
-        SensorKind::Duty => ("%", None),
+        SensorKind::Duty | SensorKind::Percent => ("%", None),
+        SensorKind::Clock => ("MHz", None),
+        SensorKind::Memory => ("MiB", Some("data_size")),
+        SensorKind::Power => ("W", Some("power")),
+        SensorKind::State => ("", None),
     }
 }
 
@@ -149,7 +153,9 @@ pub fn discovery(
             &slug(&sensor.id),
         );
         payload.insert("state_topic".into(), json!(topics.sensor_state(&sensor.id)));
-        payload.insert("unit_of_measurement".into(), json!(unit));
+        if !unit.is_empty() {
+            payload.insert("unit_of_measurement".into(), json!(unit));
+        }
         payload.insert("state_class".into(), json!("measurement"));
         if let Some(class) = class {
             payload.insert("device_class".into(), json!(class));
