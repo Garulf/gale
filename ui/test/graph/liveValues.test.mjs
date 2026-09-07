@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDeltaRate, isOverridden, sensorDisplay, curveOutput } from '../../src/lib/graph/liveValues.js';
+import { formatDeltaRate, isOverridden, sensorDisplay, curveOutput, isCurveInputKind } from '../../src/lib/graph/liveValues.js';
 
 test('formatDeltaRate formats a rate in degrees per minute', () => {
   assert.equal(formatDeltaRate(2.5), '2.5 C/min');
@@ -34,6 +34,23 @@ test('sensorDisplay splits a reading into text and unit by kind', () => {
   assert.deepEqual(sensorDisplay(1199.6, 'rpm'), { text: '1200', unit: 'rpm' });
   assert.deepEqual(sensorDisplay(45.4, 'duty'), { text: '45', unit: '%' });
   assert.deepEqual(sensorDisplay(null, 'duty'), { text: '—', unit: '%' });
+});
+
+test('sensorDisplay knows every kind', () => {
+  assert.deepEqual(sensorDisplay(312.46, 'power'), { text: '312.5', unit: 'W' });
+  assert.deepEqual(sensorDisplay(2505, 'clock'), { text: '2505', unit: 'MHz' });
+  assert.deepEqual(sensorDisplay(4096.4, 'memory'), { text: '4096', unit: 'MiB' });
+  assert.deepEqual(sensorDisplay(37, 'percent'), { text: '37', unit: '%' });
+  assert.deepEqual(sensorDisplay(2, 'state'), { text: 'P2', unit: '' });
+  assert.deepEqual(sensorDisplay(null, 'state'), { text: '—', unit: '' });
+});
+
+test('isCurveInputKind excludes only rpm and duty', () => {
+  for (const kind of ['temp', 'percent', 'clock', 'memory', 'power', 'state', undefined]) {
+    assert.equal(isCurveInputKind(kind), true, String(kind));
+  }
+  assert.equal(isCurveInputKind('rpm'), false);
+  assert.equal(isCurveInputKind('duty'), false);
 });
 
 test('curveOutput reads the daemon-published output for a curve id', () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evalCurve, curvePaths, sparklinePath, nextPointTemp, curvePoints } from '../src/lib/curveMath.js';
+import { evalCurve, curveScale, curvePaths, sparklinePath, nextPointTemp, curvePoints, axisFor } from '../src/lib/curveMath.js';
 
 const points = [
   [70, 100],
@@ -32,6 +32,29 @@ test('nextPointTemp picks the middle of the widest gap and never lands on an exi
   assert.equal(nextPointTemp([49, 50]), 75);
   assert.equal(nextPointTemp([0, 100]), 50);
   assert.equal(nextPointTemp([]), 50);
+});
+
+test('axisFor maps kinds to editor domains and falls back to temperature', () => {
+  assert.deepEqual(axisFor('power'), { max: 600, unit: 'W' });
+  assert.deepEqual(axisFor('clock'), { max: 4000, unit: 'MHz' });
+  assert.deepEqual(axisFor('memory'), { max: 32768, unit: 'MiB' });
+  assert.deepEqual(axisFor('state'), { max: 15, unit: '' });
+  assert.deepEqual(axisFor('percent'), { max: 100, unit: '%' });
+  assert.deepEqual(axisFor('temp'), { max: 100, unit: '°C' });
+  assert.deepEqual(axisFor(undefined), { max: 100, unit: '°C' });
+});
+
+test('curveScale and curvePaths honour a wider x domain', () => {
+  const scale = curveScale(200, 100, 0, 400);
+  assert.equal(scale.x(400), 200);
+  assert.equal(scale.x(100), 50);
+  const paths = curvePaths([[0, 0], [400, 100]], 200, 100, 0, 400);
+  assert.ok(paths.line.endsWith('L 200.0 0.0'));
+});
+
+test('nextPointTemp honours a wider x domain for its outer bound', () => {
+  assert.equal(nextPointTemp([100, 300], 400), 200);
+  assert.equal(nextPointTemp([], 400), 200);
 });
 
 test('curvePoints exposes point curves as-is and linear curves as their two ends', () => {

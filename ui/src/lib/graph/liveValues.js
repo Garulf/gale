@@ -28,11 +28,29 @@ export function isOverridden(snap, targetHandle) {
   return snap.overrides.includes(targetHandle);
 }
 
-const UNITS = { rpm: 'rpm', duty: '%', temp: '°C' };
+export const KIND_UNITS = {
+  temp: '°C',
+  rpm: 'rpm',
+  duty: '%',
+  percent: '%',
+  clock: 'MHz',
+  memory: 'MiB',
+  power: 'W',
+  state: '',
+};
+
+export function isCurveInputKind(kind) {
+  return kind === undefined || (kind !== 'rpm' && kind !== 'duty');
+}
 
 export function sensorDisplay(value, kind) {
-  const resolved = kind in UNITS ? kind : 'temp';
+  const resolved = kind in KIND_UNITS ? kind : 'temp';
   const missing = value === null || value === undefined;
-  const text = missing ? '—' : resolved === 'temp' ? value.toFixed(1) : String(Math.round(value));
-  return { text, unit: UNITS[resolved] };
+  let text = '—';
+  if (!missing) {
+    if (resolved === 'temp' || resolved === 'power') text = value.toFixed(1);
+    else if (resolved === 'state') text = `P${Math.round(value)}`;
+    else text = String(Math.round(value));
+  }
+  return { text, unit: KIND_UNITS[resolved] };
 }

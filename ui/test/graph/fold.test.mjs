@@ -56,6 +56,18 @@ test('a wired rpm row still counts against the visible budget, and remaining slo
   assert.deepEqual(handles(hidden), ['fan2']);
 });
 
+test('a power row is treated like a temp row for folding, ahead of an unwirable rpm row', () => {
+  const deviceRows = [
+    { handle: 'fan1', wired: false, kind: 'rpm' },
+    { handle: 'fan2', wired: false, kind: 'rpm' },
+    { handle: 'power1', wired: false, kind: 'power' },
+    { handle: 'temp1', wired: false, kind: 'temp' },
+  ];
+  const { visible, hidden } = foldRows(deviceRows, 2);
+  assert.deepEqual(handles(visible), ['power1', 'temp1']);
+  assert.deepEqual(handles(hidden), ['fan1', 'fan2']);
+});
+
 test('shownRows drops hidden rows unless they are wired', () => {
   const rows = [
     { handle: 'a', hidden: true, wired: false },

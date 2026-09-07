@@ -1,5 +1,6 @@
 import { nodeKind, deviceOf, isZeroInputVirtualType, isSingleInputCombineType } from './ids.js';
 import { virtualId } from '../sensors.js';
+import { isCurveInputKind } from './liveValues.js';
 
 const ID_CHAR = /[A-Za-z0-9_./-]/;
 const TEMP_CONSUMERS = new Set(['curve', 'virtual']);
@@ -94,10 +95,10 @@ export function kindMismatchedEdges(nodes, edges) {
   for (const edge of edges) {
     if (nodeKind(edge.source) !== 'sensor' || !TEMP_CONSUMERS.has(nodeKind(edge.target))) continue;
     const row = sensorRow(nodes, edge.source, edge.sourceHandle);
-    if (!row || row.kind === undefined || row.kind === 'temp') continue;
+    if (!row || isCurveInputKind(row.kind)) continue;
     flagged.push({
       nodeId: edge.target,
-      message: `"${row.label}" is a ${row.kind} reading, not a temperature; rewire "${edge.targetHandle}" from a temperature sensor`,
+      message: `"${row.label}" is a ${row.kind} reading and cannot drive a curve; rewire "${edge.targetHandle}" from a temperature or metric sensor`,
     });
   }
   return flagged;
