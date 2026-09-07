@@ -8,7 +8,7 @@
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
   import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints } from '../lib/curveMath.js';
-  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve } from '../lib/dashboard.js';
+  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
 
@@ -150,6 +150,8 @@
         manual: control.id in manual,
         rpm,
         rpmMissing: tach !== null && rpm === null,
+        spinPeriod: spinPeriodSeconds(tach ? rpm : null, tach ? null : duty),
+        isPump: /pump/i.test(control.label),
         curve,
         curveName: curve ? curve.id : '',
         curveKind: curveKind(curve),
@@ -268,7 +270,16 @@
         {#each fans as fan (fan.id)}
           <div class="card control" class:dimmed={fan.hidden} data-card-id={fan.id}>
             <div class="control-head">
-              <div class="names"><span class="label">{fan.label}</span><span class="device mono">{fan.device}</span></div>
+              <span class="spin-icon" class:spinning={fan.spinPeriod !== null} style:--spin-period="{fan.spinPeriod ?? 1}s" aria-hidden="true" data-testid="fan-icon" data-spinning={fan.spinPeriod !== null}>
+                {#if fan.isPump}
+                  <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M12 12 L12 4.5 A7.5 7.5 0 0 1 18.5 8 Z M12 12 L18.5 16 A7.5 7.5 0 0 1 12 19.5 Z M12 12 L5.5 16 A7.5 7.5 0 0 1 5.5 8 Z" fill="currentColor" /><circle cx="12" cy="12" r="1.8" fill="var(--surface)" /></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 12 C9 6 10 3 12 3 C14 3 15 6 12 12 Z M12 12 C18 9 21 10 21 12 C21 14 18 15 12 12 Z M12 12 C15 18 14 21 12 21 C10 21 9 18 12 12 Z M12 12 C6 15 3 14 3 12 C3 10 6 9 12 12 Z" fill="currentColor" /><circle cx="12" cy="12" r="2" fill="var(--surface)" /></svg>
+                {/if}
+              </span>
+              <div class="names">
+                <span class="label">{fan.label}</span><span class="device mono">{fan.device}</span>
+              </div>
               {#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(fan.id, !fan.hidden)}>{fan.hidden ? 'Show' : 'Hide'}</button>{/if}
               {#if fan.manual}<span class="badge pill">manual</span>{/if}
               <div class="readings">
@@ -400,6 +411,37 @@
 
   .card:hover {
     border-color: var(--line2);
+  }
+
+  .spin-icon {
+    display: inline-flex;
+    color: var(--muted);
+    margin-right: 8px;
+    flex: none;
+  }
+
+  .spin-icon svg {
+    transform-origin: 50% 50%;
+  }
+
+  .spin-icon.spinning {
+    color: var(--accent);
+  }
+
+  .spin-icon.spinning svg {
+    animation: spin var(--spin-period, 1s) linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin-icon.spinning svg {
+      animation: none;
+    }
   }
 
   .temp-head,

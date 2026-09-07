@@ -55,3 +55,22 @@ test('chartCurve follows mix, sync and offset nodes to a drawable source curve',
   assert.equal(chartCurve('fans', curves, {}).id, 'cpu');
   assert.equal(chartCurve('missing', curves, values), null);
 });
+
+import { spinPeriodSeconds } from '../src/lib/dashboard.js';
+
+test('spinPeriodSeconds turns rpm into one visual revolution period, clamped to a readable range', () => {
+  assert.equal(spinPeriodSeconds(0), null);
+  assert.equal(spinPeriodSeconds(null), null);
+  assert.equal(spinPeriodSeconds(600), 2);
+  assert.equal(spinPeriodSeconds(1200), 1);
+  assert.equal(spinPeriodSeconds(3000), 0.4);
+  assert.equal(spinPeriodSeconds(6000), 0.3);
+  assert.equal(spinPeriodSeconds(60), 6);
+});
+
+test('spinPeriodSeconds falls back to duty when there is no tach', () => {
+  assert.equal(spinPeriodSeconds(null, 100), 0.4);
+  assert.equal(spinPeriodSeconds(null, 50), 0.8);
+  assert.equal(spinPeriodSeconds(null, 0), null);
+  assert.equal(spinPeriodSeconds(0, 60), null);
+});
