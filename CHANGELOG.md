@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.0](https://github.com/Garulf/gale/compare/gale-v0.8.0...gale-v0.9.0) (2026-09-07)
+
+
+### Features
+
+* **daemon:** warn when a virtual sensor mixes input kinds ([74a0348](https://github.com/Garulf/gale/commit/74a0348ed6f76440a749873017d2aabfe6e75f64))
+* **dashboard:** metrics section for usage, clock, memory and power readings ([d47d96f](https://github.com/Garulf/gale/commit/d47d96fae580a7a7f29d9a83cfe71e9e90a91c45))
+* **hw:** add percent, clock, memory, power and state sensor kinds ([48b9359](https://github.com/Garulf/gale/commit/48b93590e33a98b9d41fccaa9e43686d804966ca))
+* **mqtt:** units and device classes for the new sensor kinds ([20f21fa](https://github.com/Garulf/gale/commit/20f21fa3118c8c626a9f23ec5797e3de2ba2a4d2))
+* new sensor kinds with GPU usage, VRAM, clocks, power and P-state ([d9317e1](https://github.com/Garulf/gale/commit/d9317e1e136b9beb5dd02e5ef73815752e4027b2))
+* **nvidia:** expose utilisation, VRAM, clocks, power and P-state as sensors ([20b3151](https://github.com/Garulf/gale/commit/20b315126e109aa46c753f6be40f86b9b914ceaa))
+* **ui:** kind-aware curve axis, node chart and edge labels ([442666b](https://github.com/Garulf/gale/commit/442666b8e2aa9776ade3757611e42d937adaa446))
+* **ui:** units, curve-input rule and axis domains for the new sensor kinds ([f5845a5](https://github.com/Garulf/gale/commit/f5845a5bb3d9b4ad0073b51c53ee1b1cc858b53f))
+
+
+### Bug Fixes
+
+* keep temperature visible, scale dashboard curves and virtual sensors by kind ([758a09a](https://github.com/Garulf/gale/commit/758a09ae875fe56dd2c94fc4743a643b07906740))
+
 ## [0.8.0](https://github.com/Garulf/gale/compare/gale-v0.7.0...gale-v0.8.0) (2026-09-07)
 
 
