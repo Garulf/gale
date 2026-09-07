@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve } from '../src/lib/dashboard.js';
+import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors } from '../src/lib/dashboard.js';
 
 test('shortDevice compacts known vendor prefixes', () => {
   assert.equal(shortDevice('hwmon/nct6798'), 'nct6798');
@@ -73,4 +73,19 @@ test('spinPeriodSeconds falls back to duty when there is no tach', () => {
   assert.equal(spinPeriodSeconds(null, 50), 0.8);
   assert.equal(spinPeriodSeconds(null, 0), null);
   assert.equal(spinPeriodSeconds(0, 60), null);
+});
+
+test('metricSensors lists non-temperature, non-fan hardware readings with units', () => {
+  const inventory = { sensors: [
+    { id: 'nvidia/0/temp', label: 'GPU 0 Temp', kind: 'temp' },
+    { id: 'nvidia/0/power', label: 'GPU 0 Power', kind: 'power' },
+    { id: 'nvidia/0/util', label: 'GPU 0 Usage', kind: 'percent' },
+    { id: 'hwmon/x/fan1', label: 'fan1', kind: 'rpm' },
+    { id: 'nvidia/0/fan0', label: 'GPU 0 Fan 0', kind: 'duty' },
+  ] };
+  assert.deepEqual(metricSensors(inventory).map((m) => [m.id, m.unit]), [
+    ['nvidia/0/power', 'W'],
+    ['nvidia/0/util', '%'],
+  ]);
+  assert.deepEqual(metricSensors(null), []);
 });

@@ -8,9 +8,10 @@
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
   import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints } from '../lib/curveMath.js';
-  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds } from '../lib/dashboard.js';
+  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
+  import { sensorDisplay } from '../lib/graph/liveValues.js';
 
   const CHART_W = 220;
   const CHART_H = 84;
@@ -91,6 +92,22 @@
   });
   let temps = $derived(editing ? allTemps : allTemps.filter((sensor) => !sensor.hidden));
 
+  let allMetrics = $derived.by(() => {
+    if (!inventory) return [];
+    const history = $sensorHistory;
+    return metricSensors(inventory).map((metric) => {
+      const value = values[metric.id] ?? null;
+      const samples = history.get(metric.id);
+      return {
+        ...metric,
+        value,
+        spark: sparklinePath(samples, 120, 36),
+        hidden: hiddenIds.includes(metric.id),
+      };
+    });
+  });
+  let metrics = $derived(editing ? allMetrics : allMetrics.filter((metric) => !metric.hidden));
+
   function curveFor(control) {
     if (!profile) return null;
     const curveId = profile.assignments ? profile.assignments[control.id] : undefined;
@@ -163,7 +180,11 @@
     });
   });
   let fans = $derived(editing ? allFans : allFans.filter((fan) => !fan.hidden));
-  let hiddenCount = $derived(allTemps.filter((sensor) => sensor.hidden).length + allFans.filter((fan) => fan.hidden).length);
+  let hiddenCount = $derived(
+    allTemps.filter((sensor) => sensor.hidden).length +
+    allFans.filter((fan) => fan.hidden).length +
+    allMetrics.filter((metric) => metric.hidden).length
+  );
 
   let stats = $derived(
     overview(
@@ -268,6 +289,22 @@
         {/each}
       </div>
     </section>
+
+    {#if metrics.length > 0}
+      <section>
+        <h2>Metrics</h2>
+        <div class="grid metrics">
+          {#each metrics as metric (metric.id)}
+            {@const reading = sensorDisplay(metric.value, metric.kind)}
+            <div class="card temp-card" class:dimmed={metric.hidden} data-card-id={metric.id}>
+              <div class="temp-head"><span class="label">{metric.label}</span><span class="device mono">{metric.device}</span>{#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(metric.id, !metric.hidden)}>{metric.hidden ? 'Show' : 'Hide'}</button>{/if}</div>
+              <div class="temp-value mono">{reading.text}<small>{reading.unit}</small></div>
+              <svg class="spark" viewBox="0 0 120 36"><path d={metric.spark} /></svg>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
 
     <section>
       <div class="section-head"><h2 class="section-title">Fans</h2><span class="hint">where each control sits on its curve</span></div>
@@ -404,7 +441,8 @@
     gap: 12px;
   }
 
-  .temps {
+  .temps,
+  .grid.metrics {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 12px;
@@ -712,7 +750,8 @@
       font-size: 18px;
     }
 
-    .temps {
+    .temps,
+    .grid.metrics {
       grid-template-columns: repeat(2, 1fr);
       gap: 10px;
     }

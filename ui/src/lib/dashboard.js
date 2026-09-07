@@ -1,4 +1,6 @@
 import { evalCurve, curvePoints } from './curveMath.js';
+import { KIND_UNITS } from './graph/liveValues.js';
+import { deviceOf } from './graph/ids.js';
 
 export function shortDevice(device) {
   if (device.startsWith('hwmon/')) return device.slice('hwmon/'.length);
@@ -88,4 +90,12 @@ export function chartCurve(curveId, curves, values, depth = 0) {
     return { ...pick.candidate, via: curveId };
   }
   return null;
+}
+
+export function metricSensors(inventory) {
+  if (!inventory || !inventory.sensors) return [];
+  return inventory.sensors
+    .filter((sensor) => !['temp', 'rpm', 'duty'].includes(sensor.kind))
+    .map((sensor) => ({ id: sensor.id, label: sensor.label, device: shortDevice(deviceOf(sensor.id)), kind: sensor.kind, unit: KIND_UNITS[sensor.kind] ?? '' }))
+    .sort((a, b) => a.device.localeCompare(b.device) || a.label.localeCompare(b.label));
 }
