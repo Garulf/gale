@@ -7,7 +7,7 @@
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
-  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, axisFor, clamp } from '../lib/curveMath.js';
+  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, axisSpan, clamp } from '../lib/curveMath.js';
   import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
   import { openInGraph } from '../lib/page.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
@@ -123,7 +123,7 @@
     if (!points) return null;
     const temp = values[drawn.config.sensor] ?? null;
     const kind = sensorKindFor(drawn.config.sensor, inventory);
-    const axis = axisFor(kind);
+    const axis = axisSpan(points, temp, kind);
     const paths = curvePaths(points, CHART_W, CHART_H, CHART_PAD, axis.max);
     const scale = curveScale(CHART_W, CHART_H, CHART_PAD, axis.max);
     const duty = liveDuty !== null ? liveDuty : temp === null ? null : evalCurve(points, temp);

@@ -4,7 +4,7 @@
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, curveOutput, sensorDisplay } from '../liveValues.js';
-  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, axisFor } from '../../curveMath.js';
+  import { curvePaths, curveScale, evalCurve, clamp, curvePoints, axisSpan } from '../../curveMath.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
 
   const CHART_W = 210;
@@ -43,8 +43,6 @@
     return connection && sensorKind ? sensorKind(connection.source, connection.sourceHandle) : undefined;
   });
 
-  let axis = $derived(axisFor(inputKind));
-
   let sensorTemp = $derived.by(() => {
     const connection = sensorConnections.current[0];
     if (!connection) return null;
@@ -60,6 +58,8 @@
     if (!connection) return null;
     return dutyValue($snapshot, connection.targetHandle);
   });
+
+  let axis = $derived(axisSpan(curvePoints(config) || [], sensorTemp, inputKind));
 
   let chart = $derived.by(() => {
     const points = curvePoints(config);
