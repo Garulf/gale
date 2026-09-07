@@ -564,6 +564,16 @@ mod tests {
     }
 
     #[test]
+    fn sensor_units_cover_every_kind() {
+        use gale_hw::SensorKind;
+        assert_eq!(sensor_unit(SensorKind::Power), ("W", Some("power")));
+        assert_eq!(sensor_unit(SensorKind::Memory), ("MiB", Some("data_size")));
+        assert_eq!(sensor_unit(SensorKind::Clock), ("MHz", None));
+        assert_eq!(sensor_unit(SensorKind::Percent), ("%", None));
+        assert_eq!(sensor_unit(SensorKind::State), ("", None));
+    }
+
+    #[test]
     fn discovery_describes_sensors_controls_and_the_profile_select() {
         let mut labels = BTreeMap::new();
         labels.insert("hwmon/x/pwm1".to_string(), "Front intake".to_string());
