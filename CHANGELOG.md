@@ -5,19 +5,12 @@
 
 ### Features
 
-* **controls:** add a per-control max duty ceiling ([e3e6fcb](https://github.com/Garulf/gale/commit/e3e6fcb9020a3bfad778c7f93d0af146ae0d9989))
 * **controls:** add a per-control max duty ceiling ([01513c6](https://github.com/Garulf/gale/commit/01513c6cc2c693737a50bb0cd545948bfd3a0562))
-* **controls:** detect a fan's min, start and stop duty from its tach ([1b71e13](https://github.com/Garulf/gale/commit/1b71e13d1a25388ff847082e493f7b1f1680e5bd))
 * **controls:** detect a fan's min, start and stop duty from its tach ([8e0c0ea](https://github.com/Garulf/gale/commit/8e0c0eae7e2c80e68ed272d9caffa209847c84f8))
-* **dashboard:** show the duty slider only while a fan is in manual ([35a3e51](https://github.com/Garulf/gale/commit/35a3e51e22c40e96d3a0e56daa43821762f80f95))
 * **dashboard:** show the duty slider only while a fan is in manual ([f2b6bf0](https://github.com/Garulf/gale/commit/f2b6bf072a7da63074718d5eebacca98ca7c4670))
-* **dashboard:** spin a fan or pump icon on each control card at the device's pace ([68fe98b](https://github.com/Garulf/gale/commit/68fe98b5f2a6ce0779189a9d13ffb05563a6212a))
 * **dashboard:** spin a fan or pump icon on each control card at the device's pace ([7f26af8](https://github.com/Garulf/gale/commit/7f26af87704fc83e0db68f64cf0f0236c92e82cb))
-* **engine:** publish every curve's output in the status snapshot ([08377e1](https://github.com/Garulf/gale/commit/08377e10a9e4d09dbb78388819f7cb8839df1cea))
 * **engine:** publish every curve's output in the status snapshot ([79d7902](https://github.com/Garulf/gale/commit/79d7902fa7fedbeb4ceae63d26d401add0c32d1c))
-* **ui:** let the graph side panel grow to 1080 px ([8ffc378](https://github.com/Garulf/gale/commit/8ffc378122abbfd88025146275d430859be928f0))
 * **ui:** let the graph side panel grow to 1080 px ([bb43e44](https://github.com/Garulf/gale/commit/bb43e44dcabadab2935b6993496aa00ac87ab9ba))
-* **ui:** mask the webhook URL and list the profile's webhooks in the panel ([eaff044](https://github.com/Garulf/gale/commit/eaff044d9142132411ecb9e309e8e3c656151f2d))
 * **ui:** mask the webhook URL and list the profile's webhooks in the panel ([0506807](https://github.com/Garulf/gale/commit/0506807f4ec79ba108abb67dd67453f28c9eb68e))
 
 
