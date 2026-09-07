@@ -975,7 +975,9 @@ async function main() {
       }, WEBHOOK_NODE);
       assert(nodeClicked, `${WEBHOOK_NODE} not found after reload`);
 
-      await waitForWebhookPanel(page, (state) => state.url === expected, `panel never showed ${expected} after reload`);
+      await waitForWebhookPanel(page, (state) => state.url && state.url.startsWith(`${BASE_URL}/api/webhook/`), 'panel never showed a masked URL after reload');
+      await page.click('[data-testid="webhook-reveal"]');
+      await waitForWebhookPanel(page, (state) => state.url === expected, `panel never revealed ${expected} after reload`);
     });
 
     await record('POSTing a value to the webhook URL shows on the node and in status', async () => {

@@ -19,7 +19,7 @@ export function maskWebhookUrl(url) {
 
 export function webhookSensorNodes(nodes) {
   return (nodes || [])
-    .filter((node) => node.type === 'virtual' && node.data.virtual.config.type === 'webhook')
+    .filter((node) => node.type === 'virtual' && node.hidden !== true && node.data.virtual.config.type === 'webhook')
     .map((node) => ({ id: node.id, name: node.data.virtual.name }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

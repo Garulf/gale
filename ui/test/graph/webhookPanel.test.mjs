@@ -46,6 +46,7 @@ test('webhookSensorNodes lists only webhook virtual sensors, sorted by name', ()
     { id: 'virtual:zeta', type: 'virtual', data: { virtual: { name: 'zeta', config: { type: 'webhook' } } } },
     { id: 'virtual:hot', type: 'virtual', data: { virtual: { name: 'hot', config: { type: 'max', inputs: [] } } } },
     { id: 'virtual:alpha', type: 'virtual', data: { virtual: { name: 'alpha', config: { type: 'webhook' } } } },
+    { id: 'virtual:ghost', type: 'virtual', hidden: true, data: { virtual: { name: 'ghost', config: { type: 'webhook' } } } },
     { id: 'curve:cpu', type: 'curve', data: { curve: { id: 'cpu', config: { type: 'flat', duty: 1 } } } },
   ];
   assert.deepEqual(webhookSensorNodes(nodes), [

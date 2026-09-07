@@ -951,7 +951,7 @@
           onUngroup={ungroupById}
           onEnterGroup={enterGroup}
           onSetMembership={setNodeGroup}
-      onSelectNode={selectNode}
+          onSelectNode={selectNode}
           onClose={() => (sheetOpen = false)}
         />
       </div>
