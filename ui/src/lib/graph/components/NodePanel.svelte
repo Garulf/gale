@@ -119,11 +119,17 @@
   const CALIBRATION_POLL_MS = 1500;
   let calibration = $state(null);
   let calibrationError = $state('');
+  let calibrationAborting = $state(false);
   let calibrationTimer = null;
 
   function stopCalibrationPolling() {
     if (calibrationTimer) clearInterval(calibrationTimer);
     calibrationTimer = null;
+  }
+
+  function startCalibrationPolling(handle) {
+    stopCalibrationPolling();
+    calibrationTimer = setInterval(() => pollCalibration(handle), CALIBRATION_POLL_MS);
   }
 
   async function pollCalibration(handle) {
@@ -132,31 +138,35 @@
       calibration = progress && progress.state !== 'idle' ? progress : null;
       if (!progress || progress.state !== 'running') {
         stopCalibrationPolling();
+        calibrationAborting = false;
         if (progress && progress.state === 'done') await refreshConfig();
       }
     } catch (err) {
       calibrationError = err.message;
+      calibrationAborting = false;
       stopCalibrationPolling();
     }
   }
 
   async function detectLimits(handle) {
     calibrationError = '';
+    calibrationAborting = false;
     try {
       await startCalibration(handle);
       calibration = { state: 'running', control: handle, phase: 'probe', duty: 50, rpm: null };
-      stopCalibrationPolling();
-      calibrationTimer = setInterval(() => pollCalibration(handle), CALIBRATION_POLL_MS);
+      startCalibrationPolling(handle);
     } catch (err) {
       calibrationError = err.message;
     }
   }
 
   async function abortCalibration(handle) {
+    calibrationAborting = true;
     try {
       await cancelCalibration(handle);
     } catch (err) {
       calibrationError = err.message;
+      calibrationAborting = false;
     }
   }
 
@@ -169,8 +179,45 @@
       const r = progress.result;
       return `Detected min ${r.min_duty} %, start ${r.start_duty} %, stop ${r.stop_duty} %`;
     }
+    if (progress.state === 'cancelled') return 'Detection cancelled';
     return `Detection failed: ${progress.error}`;
   }
+
+  let controlHandles = $derived(
+    node && node.type === 'deviceControl' ? node.data.deviceControl.rows.map((row) => row.handle).join('\n') : ''
+  );
+
+  $effect(() => {
+    const handles = controlHandles;
+    calibrationError = '';
+    if (untrack(() => calibration)?.state !== 'running') {
+      stopCalibrationPolling();
+      calibration = null;
+      calibrationAborting = false;
+    }
+    if (!handles) return;
+    let dropped = false;
+    (async () => {
+      for (const handle of handles.split('\n')) {
+        if (dropped || untrack(() => calibration)) return;
+        let progress;
+        try {
+          progress = await getCalibration(handle);
+        } catch {
+          return;
+        }
+        if (dropped) return;
+        if (progress && progress.state === 'running') {
+          calibration = progress;
+          startCalibrationPolling(progress.control);
+          return;
+        }
+      }
+    })();
+    return () => {
+      dropped = true;
+    };
+  });
 
   onDestroy(stopCalibrationPolling);
 
@@ -603,7 +650,7 @@
         <div class="calibrate">
           {#if calibration && calibration.control === row.handle && calibration.state === 'running'}
             <span class="note">{calibrationText(calibration)}</span>
-            <button type="button" class="btn" data-testid="control-calibrate-abort" onclick={() => abortCalibration(row.handle)}>Abort</button>
+            <button type="button" class="btn" data-testid="control-calibrate-abort" disabled={calibrationAborting} onclick={() => abortCalibration(row.handle)}>{calibrationAborting ? 'Aborting…' : 'Abort'}</button>
           {:else}
             <button type="button" class="btn" data-testid="control-calibrate" data-handle={row.handle} disabled={calibration && calibration.state === 'running'} title="Sweeps the duty down until the fan stalls and back up until it restarts, then fills min, start and stop" onclick={() => detectLimits(row.handle)}>Detect limits</button>
             {#if calibration && calibration.control === row.handle}

@@ -4,12 +4,14 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
+use tokio::task::AbortHandle;
 
 pub const STEP_PCT: f64 = 5.0;
 pub const PROBE_PCT: f64 = 50.0;
 pub const MARGIN_PCT: f64 = 2.0;
 pub const SETTLE_SECS: u64 = 4;
-const REST_CONFIRMATIONS: u8 = 3;
+const MAX_REST_WAITS: u8 = 6;
+const STALL_CONFIRMATIONS: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CalibrationResult {
@@ -39,6 +41,7 @@ pub struct Sweep {
     duty: f64,
     last_spinning: Option<f64>,
     stall: Option<f64>,
+    down_zeros: u8,
     rest_checks: u8,
 }
 
@@ -63,6 +66,7 @@ impl Sweep {
             duty: PROBE_PCT,
             last_spinning: None,
             stall: None,
+            down_zeros: 0,
             rest_checks: 0,
         }
     }
@@ -92,6 +96,7 @@ impl Sweep {
             }
             Phase::Down => {
                 if spinning(rpm) {
+                    self.down_zeros = 0;
                     self.last_spinning = Some(self.duty);
                     if self.duty <= 0.0 {
                         return Step::Finished(CalibrationResult {
@@ -103,6 +108,10 @@ impl Sweep {
                     self.duty = (self.duty - STEP_PCT).max(0.0);
                     return Step::SetDuty(self.duty);
                 }
+                self.down_zeros += 1;
+                if self.down_zeros < STALL_CONFIRMATIONS {
+                    return Step::SetDuty(self.duty);
+                }
                 self.stall = Some(self.duty);
                 self.phase = Phase::Rest;
                 self.duty = 0.0;
@@ -111,7 +120,7 @@ impl Sweep {
             Phase::Rest => {
                 if spinning(rpm) {
                     self.rest_checks += 1;
-                    if self.rest_checks >= REST_CONFIRMATIONS {
+                    if self.rest_checks > MAX_REST_WAITS {
                         return Step::Failed("fan keeps spinning at 0 %".into());
                     }
                     return Step::SetDuty(0.0);
@@ -141,13 +150,18 @@ impl Sweep {
 
 fn channel_of(id: &str) -> Option<&str> {
     let leaf = id.rsplit('/').next()?;
-    let digits = leaf.trim_end_matches(|c: char| !c.is_ascii_digit());
-    let start = digits
-        .rfind(|c: char| !c.is_ascii_digit())
-        .map(|i| i + 1)
+    let end = leaf
+        .char_indices()
+        .rev()
+        .find(|(_, c)| c.is_ascii_digit())
+        .map(|(i, c)| i + c.len_utf8())?;
+    let start = leaf[..end]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !c.is_ascii_digit())
+        .map(|(i, c)| i + c.len_utf8())
         .unwrap_or(0);
-    let channel = &digits[start..];
-    (!channel.is_empty()).then_some(channel)
+    Some(&leaf[start..end])
 }
 
 fn device_of(id: &str) -> &str {
@@ -192,6 +206,9 @@ pub enum Progress {
         control: String,
         error: String,
     },
+    Cancelled {
+        control: String,
+    },
 }
 
 pub trait Actuator: Send + Sync {
@@ -207,18 +224,18 @@ pub async fn run<A: Actuator>(
     actuator: &A,
     control: &str,
     tach: &str,
-    progress: &watch::Sender<Progress>,
+    calibrator: &Calibrator,
     cancel: &AtomicBool,
 ) -> Progress {
+    let progress = calibrator.sender();
     let mut sweep = Sweep::new();
     let mut step = sweep.first();
     let outcome = loop {
         match step {
             Step::SetDuty(duty) => {
                 if cancel.load(Ordering::SeqCst) {
-                    break Progress::Failed {
+                    break Progress::Cancelled {
                         control: control.to_string(),
-                        error: "cancelled".into(),
                     };
                 }
                 if let Err(error) = actuator.set_duty(duty).await {
@@ -266,13 +283,15 @@ pub async fn run<A: Actuator>(
         }
     };
     actuator.release().await;
-    progress.send_replace(outcome.clone());
+    calibrator.finish(outcome.clone());
     outcome
 }
 
 pub struct Calibrator {
     progress: watch::Sender<Progress>,
+    busy: AtomicBool,
     active: Mutex<Option<Arc<AtomicBool>>>,
+    task: Mutex<Option<AbortHandle>>,
 }
 
 impl Default for Calibrator {
@@ -286,7 +305,9 @@ impl Calibrator {
         let (progress, _) = watch::channel(Progress::Idle);
         Self {
             progress,
+            busy: AtomicBool::new(false),
             active: Mutex::new(None),
+            task: Mutex::new(None),
         }
     }
 
@@ -295,30 +316,61 @@ impl Calibrator {
     }
 
     pub fn is_running(&self) -> bool {
-        matches!(self.progress(), Progress::Running { .. })
+        self.busy.load(Ordering::SeqCst)
     }
 
-    pub fn begin(&self) -> Result<Arc<AtomicBool>, String> {
+    pub fn begin(&self, control: &str, tach: &str) -> Result<Arc<AtomicBool>, String> {
         let mut active = self.active.lock().unwrap();
-        if self.is_running() {
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return Err("a calibration is already running".into());
         }
         let cancel = Arc::new(AtomicBool::new(false));
         *active = Some(cancel.clone());
+        self.progress.send_replace(Progress::Running {
+            control: control.to_string(),
+            tach: tach.to_string(),
+            phase: Phase::Probe,
+            duty: PROBE_PCT,
+            rpm: None,
+        });
         Ok(cancel)
+    }
+
+    pub fn track(&self, task: AbortHandle) {
+        *self.task.lock().unwrap() = Some(task);
     }
 
     pub fn sender(&self) -> &watch::Sender<Progress> {
         &self.progress
     }
 
+    pub fn finish(&self, outcome: Progress) {
+        *self.active.lock().unwrap() = None;
+        *self.task.lock().unwrap() = None;
+        self.busy.store(false, Ordering::SeqCst);
+        self.progress.send_replace(outcome);
+    }
+
     pub fn cancel(&self) -> bool {
         match self.active.lock().unwrap().as_ref() {
-            Some(flag) if self.is_running() => {
+            Some(flag) => {
                 flag.store(true, Ordering::SeqCst);
                 true
             }
-            _ => false,
+            None => false,
+        }
+    }
+
+    pub fn shutdown(&self) {
+        if let Some(flag) = self.active.lock().unwrap().take() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        if let Some(task) = self.task.lock().unwrap().take() {
+            task.abort();
         }
     }
 }
@@ -392,6 +444,37 @@ mod tests {
     }
 
     #[test]
+    fn a_single_zero_reading_on_the_way_down_does_not_end_the_sweep() {
+        let mut sweep = Sweep::new();
+        let glitched = AtomicBool::new(false);
+        let (outcome, duties) = drive(&mut sweep, |phase, duty| match phase {
+            Phase::Probe => Some(600.0),
+            Phase::Down => {
+                if duty == 45.0 && !glitched.swap(true, Ordering::SeqCst) {
+                    return None;
+                }
+                (duty >= 20.0).then_some(600.0)
+            }
+            Phase::Rest => None,
+            Phase::Up => (duty >= 30.0).then_some(500.0),
+        });
+        assert_eq!(
+            outcome,
+            Step::Finished(CalibrationResult {
+                min_duty: 22.0,
+                start_duty: 32.0,
+                stop_duty: 17.0,
+            }),
+            "one zero reading must be re-checked, not taken as the stall"
+        );
+        assert_eq!(
+            duties.iter().filter(|duty| **duty == 45.0).count(),
+            2,
+            "the glitched step must be probed a second time before the sweep moves on"
+        );
+    }
+
+    #[test]
     fn sweep_fails_when_a_fan_stalls_but_never_restarts() {
         let mut sweep = Sweep::new();
         let (outcome, duties) = drive(&mut sweep, |phase, duty| match phase {
@@ -451,6 +534,19 @@ mod tests {
         assert_eq!(tach_for("nvidia/0/fan0", &inv), None);
     }
 
+    #[test]
+    fn channel_pairing_survives_non_ascii_control_ids() {
+        let inv = inventory(&[
+            ("hwmon/l\u{00fc}fter/fan2", SensorKind::Rpm),
+            ("hwmon/l\u{00fc}fter/temp1", SensorKind::Temp),
+        ]);
+        assert_eq!(
+            tach_for("hwmon/l\u{00fc}fter/pwm2\u{00b0}", &inv).as_deref(),
+            Some("hwmon/l\u{00fc}fter/fan2")
+        );
+        assert_eq!(tach_for("hwmon/l\u{00fc}fter/pwm\u{00b0}", &inv), None);
+    }
+
     struct FakeActuator {
         duties: Mutex<Vec<f64>>,
         released: AtomicBool,
@@ -507,12 +603,12 @@ mod tests {
     async fn run_drives_the_actuator_persists_the_result_and_releases_the_control() {
         let actuator = FakeActuator::new();
         let calibrator = Calibrator::new();
-        let cancel = calibrator.begin().unwrap();
+        let cancel = calibrator.begin("hwmon/x/pwm1", "hwmon/x/fan1").unwrap();
         let outcome = run(
             &actuator,
             "hwmon/x/pwm1",
             "hwmon/x/fan1",
-            calibrator.sender(),
+            &calibrator,
             &cancel,
         )
         .await;
@@ -534,36 +630,76 @@ mod tests {
     async fn cancel_stops_the_sweep_and_still_releases_the_control() {
         let actuator = FakeActuator::new();
         let calibrator = Calibrator::new();
-        let cancel = calibrator.begin().unwrap();
+        let cancel = calibrator.begin("hwmon/x/pwm1", "hwmon/x/fan1").unwrap();
         cancel.store(true, Ordering::SeqCst);
         let outcome = run(
             &actuator,
             "hwmon/x/pwm1",
             "hwmon/x/fan1",
-            calibrator.sender(),
+            &calibrator,
             &cancel,
         )
         .await;
-        assert!(matches!(outcome, Progress::Failed { ref error, .. } if error == "cancelled"));
+        assert!(
+            matches!(outcome, Progress::Cancelled { ref control } if control == "hwmon/x/pwm1")
+        );
+        assert!(matches!(calibrator.progress(), Progress::Cancelled { .. }));
         assert!(actuator.released.load(Ordering::SeqCst));
         assert!(actuator.persisted.lock().unwrap().is_none());
+        assert!(!calibrator.is_running());
     }
 
     #[test]
     fn only_one_calibration_runs_at_a_time() {
         let calibrator = Calibrator::new();
-        let _cancel = calibrator.begin().unwrap();
-        calibrator.sender().send_replace(Progress::Running {
-            control: "c".into(),
-            tach: "t".into(),
-            phase: Phase::Probe,
-            duty: 50.0,
-            rpm: None,
-        });
-        assert!(calibrator.begin().is_err());
+        let _cancel = calibrator.begin("c", "t").unwrap();
+        assert!(calibrator.is_running());
+        assert!(matches!(calibrator.progress(), Progress::Running { .. }));
+        assert!(calibrator.begin("c", "t").is_err());
         assert!(calibrator.cancel());
-        calibrator.sender().send_replace(Progress::Idle);
+        calibrator.finish(Progress::Cancelled {
+            control: "c".into(),
+        });
         assert!(!calibrator.cancel());
-        assert!(calibrator.begin().is_ok());
+        assert!(calibrator.begin("c", "t").is_ok());
+    }
+
+    #[test]
+    fn begin_publishes_running_under_the_same_lock_it_claims() {
+        let calibrator = Arc::new(Calibrator::new());
+        let claims = Arc::new(AtomicUsize::new(0));
+        let running_when_claimed = Arc::new(AtomicUsize::new(0));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let calibrator = calibrator.clone();
+                let claims = claims.clone();
+                let running_when_claimed = running_when_claimed.clone();
+                std::thread::spawn(move || {
+                    if calibrator.begin("c", "t").is_ok() {
+                        claims.fetch_add(1, Ordering::SeqCst);
+                        if matches!(calibrator.progress(), Progress::Running { .. }) {
+                            running_when_claimed.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(claims.load(Ordering::SeqCst), 1);
+        assert_eq!(running_when_claimed.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_the_sweep_and_aborts_the_tracked_task() {
+        let calibrator = Calibrator::new();
+        let cancel = calibrator.begin("hwmon/x/pwm1", "hwmon/x/fan1").unwrap();
+        let task = tokio::spawn(std::future::pending::<()>());
+        calibrator.track(task.abort_handle());
+        calibrator.shutdown();
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!calibrator.cancel());
     }
 }

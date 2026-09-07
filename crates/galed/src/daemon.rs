@@ -163,6 +163,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
         calibrator: Arc::new(crate::calibration::Calibrator::new()),
         api_key: config.api.api_key.clone(),
     };
+    let calibrator = ctx.calibrator.clone();
     let mqtt_handle = config.mqtt.enabled.then(|| {
         tracing::info!(host = %config.mqtt.host, port = config.mqtt.port, "mqtt integration enabled");
         tokio::spawn(crate::mqtt::run(ctx.clone(), config.mqtt.clone()))
@@ -175,6 +176,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
             if let Some(handle) = mqtt_handle {
                 handle.abort();
             }
+            calibrator.shutdown();
             host.release_all().await;
             return Err(DaemonError::Bind(config.api.bind.clone(), error));
         }
@@ -200,6 +202,7 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     if let Some(handle) = mqtt_handle {
         handle.abort();
     }
+    calibrator.shutdown();
     tracing::info!("shutting down, releasing all controls");
     host.release_all().await;
     Ok(())

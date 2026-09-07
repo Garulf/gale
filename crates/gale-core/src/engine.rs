@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn minimum_duty_is_a_hard_floor_even_below_stop() {
+    fn stop_duty_wins_over_the_minimum_duty() {
         let mut set = CurveSet::new();
         set.insert("low".into(), Box::new(FlatCurve { duty: 5.0 }));
         let assignments: HashMap<String, String> = [("pwm1".to_string(), "low".to_string())].into();
@@ -390,6 +390,6 @@ mod tests {
         )]
         .into();
         let mut engine = FanEngine::new(set, assignments).with_control_settings(settings);
-        assert_eq!(engine.tick(&mut sensors(&[]), 1.0)["pwm1"], 25.0);
+        assert_eq!(engine.tick(&mut sensors(&[]), 1.0)["pwm1"], 0.0);
     }
 }

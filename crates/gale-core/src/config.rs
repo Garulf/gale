@@ -62,14 +62,17 @@ impl ControlSettings {
     }
 
     pub fn shape(&self, requested: f64, previous: f64) -> f64 {
-        let mut duty = requested;
         if let Some(stop) = self.stop_duty {
-            if duty < stop {
-                duty = 0.0;
+            if requested < stop {
+                return 0.0;
             }
         }
+        if requested <= 0.0 {
+            return 0.0;
+        }
+        let mut duty = requested;
         if let Some(start) = self.start_duty {
-            if previous <= 0.0 && duty > 0.0 {
+            if previous <= 0.0 {
                 duty = duty.max(start);
             }
         }
@@ -1899,5 +1902,29 @@ default = ["sensor:hwmon/nct6798"]
             without_engine.virtual_sensor_ids(),
             with_engine.virtual_sensor_ids()
         );
+    }
+
+    #[test]
+    fn calibrated_limits_still_let_a_fan_stop() {
+        let calibrated = ControlSettings {
+            min_duty: Some(22.0),
+            start_duty: Some(32.0),
+            stop_duty: Some(17.0),
+        };
+        assert_eq!(calibrated.shape(5.0, 40.0), 0.0);
+        assert_eq!(calibrated.shape(20.0, 0.0), 32.0);
+        assert_eq!(calibrated.shape(20.0, 32.0), 22.0);
+        assert_eq!(calibrated.shape(0.0, 32.0), 0.0);
+    }
+
+    #[test]
+    fn a_zero_request_stays_off_even_with_a_minimum_duty() {
+        let floored = ControlSettings {
+            min_duty: Some(25.0),
+            start_duty: None,
+            stop_duty: None,
+        };
+        assert_eq!(floored.shape(0.0, 0.0), 0.0);
+        assert_eq!(floored.shape(10.0, 0.0), 25.0);
     }
 }

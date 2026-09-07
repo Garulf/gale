@@ -591,27 +591,38 @@ async fn start_calibration(State(ctx): State<ApiContext>, Path(id): Path<String>
                 .into_response()
         }
     };
-    let cancel = match ctx.calibrator.begin() {
+    let cancel = match ctx.calibrator.begin(&id, &tach) {
         Ok(cancel) => cancel,
         Err(message) => return (StatusCode::CONFLICT, message).into_response(),
     };
-    ctx.calibrator
-        .sender()
-        .send_replace(crate::calibration::Progress::Running {
-            control: id.clone(),
-            tach: tach.clone(),
-            phase: crate::calibration::Phase::Probe,
-            duty: crate::calibration::PROBE_PCT,
-            rpm: None,
-        });
     let actuator = HostActuator {
         ctx: ctx.clone(),
         control: id.clone(),
         tach: tach.clone(),
     };
+    let sweep = tokio::spawn({
+        let id = id.clone();
+        async move {
+            let calibrator = actuator.ctx.calibrator.clone();
+            crate::calibration::run(&actuator, &id, &tach, &calibrator, &cancel).await;
+        }
+    });
+    ctx.calibrator.track(sweep.abort_handle());
     tokio::spawn(async move {
-        let progress = actuator.ctx.calibrator.sender().clone();
-        crate::calibration::run(&actuator, &id, &tach, &progress, &cancel).await;
+        match sweep.await {
+            Ok(()) => {}
+            Err(error) if error.is_cancelled() => {}
+            Err(_) => {
+                tracing::error!(control = %id, "calibration task died, releasing the control");
+                if let Err(error) = ctx.host.clear_manual(&id).await {
+                    tracing::warn!(control = %id, %error, "could not release the control");
+                }
+                ctx.calibrator.finish(crate::calibration::Progress::Failed {
+                    control: id,
+                    error: "calibration task died".into(),
+                });
+            }
+        }
     });
     StatusCode::ACCEPTED.into_response()
 }
@@ -622,7 +633,8 @@ async fn calibration_status(State(ctx): State<ApiContext>, Path(id): Path<String
         crate::calibration::Progress::Idle => true,
         crate::calibration::Progress::Running { control, .. }
         | crate::calibration::Progress::Done { control, .. }
-        | crate::calibration::Progress::Failed { control, .. } => *control == id,
+        | crate::calibration::Progress::Failed { control, .. }
+        | crate::calibration::Progress::Cancelled { control } => *control == id,
     };
     if matches {
         Json(progress).into_response()
