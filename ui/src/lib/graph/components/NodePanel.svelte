@@ -5,7 +5,7 @@
   import { snapshot } from '../../store.js';
   import { getWebhookUrl, putControlSettings } from '../../api.js';
   import { daemonConfig, refreshConfig } from '../../config.js';
-  import { isWebhookNotFound, webhookNameFor } from '../webhookPanel.js';
+  import { isWebhookNotFound, webhookNameFor, maskWebhookUrl, webhookSensorNodes } from '../webhookPanel.js';
   import { SENSOR_TYPES } from '../../sensors.js';
   import { CURVE_TYPES } from '../edit.js';
   import { tempValue, dutyValue, formatDeltaRate, sensorDisplay } from '../liveValues.js';
@@ -14,7 +14,7 @@
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
 
@@ -323,8 +323,10 @@
   let webhookUrlError = $state('');
   let webhookNeedsSave = $state(false);
   let copied = $state(false);
+  let webhookRevealed = $state(false);
 
   let webhookName = $derived.by(() => webhookNameFor(node));
+  let registeredWebhooks = $derived(webhookSensorNodes(nodes));
 
   $effect(() => {
     const name = webhookName;
@@ -333,6 +335,7 @@
     webhookUrlError = '';
     webhookNeedsSave = false;
     copied = false;
+    webhookRevealed = false;
     if (!name) return;
     let cancelled = false;
     getWebhookUrl(name)
@@ -634,6 +637,16 @@
         {@render webhookTimeout()}
       {/if}
     </div>
+    {#if registeredWebhooks.length > 1 && onSelectNode}
+      <label class="field">
+        <span>Registered webhooks</span>
+        <select data-testid="webhook-registered" value={node.id} onchange={(e) => onSelectNode(e.target.value)}>
+          {#each registeredWebhooks as hook (hook.id)}
+            <option value={hook.id}>{hook.name}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
     <div class="group">
       <span class="eyebrow">Webhook URL</span>
       {#if webhookNeedsSave}
@@ -642,7 +655,8 @@
         <p class="error">{webhookUrlError}</p>
       {:else}
         <div class="url-row">
-          <input type="text" class="url mono" data-testid="webhook-url" readonly value={webhookUrl} aria-label="Webhook URL" />
+          <input type="text" class="url mono" data-testid="webhook-url" readonly value={webhookRevealed ? webhookUrl : maskWebhookUrl(webhookUrl)} aria-label="Webhook URL" />
+          <button type="button" class="btn" data-testid="webhook-reveal" disabled={!webhookUrl} onclick={() => (webhookRevealed = !webhookRevealed)}>{webhookRevealed ? 'Hide' : 'Reveal'}</button>
           <button type="button" class="btn" data-testid="webhook-copy" disabled={!webhookUrl} onclick={copyWebhookUrl}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
       {/if}
