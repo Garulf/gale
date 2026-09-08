@@ -163,7 +163,18 @@ impl Backend for CpuBackend {
                     kind: SensorKind::Clock,
                 }),
                 Ok(_) => tracing::debug!("cpu clock reported no live cores"),
-                Err(message) => tracing::debug!(%message, "cpu clock unavailable"),
+                Err(message) => {
+                    tracing::debug!(
+                        %message,
+                        "cpu clock read failed during enumeration; registering the sensor \
+                         anyway since some sources need a warm-up read before they settle"
+                    );
+                    sensors.push(SensorInfo {
+                        id: id("clock"),
+                        label: "CPU Clock".to_string(),
+                        kind: SensorKind::Clock,
+                    });
+                }
             }
         }
         if let Some(source) = self.sources.power.as_mut() {
@@ -403,6 +414,31 @@ mod tests {
         );
         assert_eq!(inventory.sensors[2].label, "CPU Package Power");
         assert!(inventory.controls.is_empty());
+    }
+
+    #[test]
+    fn a_transient_read_error_during_enumeration_does_not_drop_the_clock_sensor() {
+        let mut backend = CpuBackend::new(CpuSources {
+            usage: None,
+            clock: Some(Box::new(FakeFreq {
+                samples: [
+                    Err("PdhGetFormattedCounterValue failed: 0xc0000bc6".to_string()),
+                    Ok(vec![3200.0]),
+                ]
+                .into(),
+            })),
+            power: None,
+        });
+        let inventory = backend.enumerate().unwrap();
+        assert_eq!(
+            inventory
+                .sensors
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cpu/clock"]
+        );
+        assert_eq!(backend.read_all()["cpu/clock"], Some(3200.0));
     }
 
     #[test]
