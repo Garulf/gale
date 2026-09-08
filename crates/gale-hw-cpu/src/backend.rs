@@ -51,6 +51,13 @@ pub fn mean_mhz(cores: &[f64]) -> Option<f64> {
     Some(live.iter().sum::<f64>() / live.len() as f64)
 }
 
+pub fn effective_mhz_from_percent(percent_of_base: f64, base_mhz: f64) -> Option<f64> {
+    if percent_of_base <= 0.0 || base_mhz <= 0.0 {
+        return None;
+    }
+    Some(percent_of_base / 100.0 * base_mhz)
+}
+
 pub struct CpuBackend {
     sources: CpuSources,
     sensors: Vec<SensorInfo>,
@@ -345,6 +352,21 @@ mod tests {
         assert_eq!(mean_mhz(&[3000.0, 4000.0, 0.0]), Some(3500.0));
         assert_eq!(mean_mhz(&[]), None);
         assert_eq!(mean_mhz(&[0.0]), None);
+    }
+
+    #[test]
+    fn effective_mhz_scales_the_base_clock_by_the_performance_percent() {
+        assert_eq!(effective_mhz_from_percent(100.0, 3801.0), Some(3801.0));
+        assert_eq!(effective_mhz_from_percent(50.0, 3801.0), Some(1900.5));
+        assert_eq!(effective_mhz_from_percent(120.0, 3801.0), Some(4561.2));
+    }
+
+    #[test]
+    fn effective_mhz_rejects_nonsense_percents_and_base_clocks() {
+        assert_eq!(effective_mhz_from_percent(0.0, 3801.0), None);
+        assert_eq!(effective_mhz_from_percent(-10.0, 3801.0), None);
+        assert_eq!(effective_mhz_from_percent(100.0, 0.0), None);
+        assert_eq!(effective_mhz_from_percent(100.0, -1.0), None);
     }
 
     fn backend_with_all_sources() -> CpuBackend {
