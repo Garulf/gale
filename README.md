@@ -7,9 +7,22 @@
 
 # Gale
 
-An API-first fan control daemon for Linux.
+An API-first fan control daemon for Linux and Windows.
 
-[![License](https://img.shields.io/github/license/Garulf/gale)](https://github.com/Garulf/gale/blob/main/LICENSE) [![version](https://img.shields.io/badge/version-0.1.0-informational)](https://github.com/Garulf/gale)
+[![License](https://img.shields.io/github/license/Garulf/gale)](https://github.com/Garulf/gale/blob/main/LICENSE) [![version](https://img.shields.io/badge/version-0.10.0-informational)](https://github.com/Garulf/gale)
+
+![The graph editor wiring sensors, curves and fans on one canvas](docs/screenshots/graph-light.png#gh-light-mode-only)![The graph editor wiring sensors, curves and fans on one canvas](docs/screenshots/graph-dark.png#gh-dark-mode-only)
+
+<details>
+<summary>More screenshots</summary>
+
+![Dashboard fan cards showing where each control sits on its curve](docs/screenshots/fans-light.png#gh-light-mode-only)![Dashboard fan cards showing where each control sits on its curve](docs/screenshots/fans-dark.png#gh-dark-mode-only)
+
+![A point curve with hysteresis and response limiting in the node panel](docs/screenshots/curve-editor-light.png#gh-light-mode-only)![A point curve with hysteresis and response limiting in the node panel](docs/screenshots/curve-editor-dark.png#gh-dark-mode-only)
+
+![A group opened as a sub-canvas with its input and output connectors](docs/screenshots/group-light.png#gh-light-mode-only)![A group opened as a sub-canvas with its input and output connectors](docs/screenshots/group-dark.png#gh-dark-mode-only)
+
+</details>
 
 ## Installation
 
@@ -42,28 +55,38 @@ Uninstall with:
 .\install.ps1 -Uninstall
 ```
 
-Windows motherboard (Super I/O) fan control is not yet supported; it lands in
-the next release. Corsair and NVIDIA GPU control work today.
+Motherboard fan control on Windows goes through the Nuvoton Super I/O chip and
+needs the [PawnIO](https://pawnio.eu) driver installed; the same driver backs the
+AMD CPU, DIMM and ASUS embedded-controller sensors. Corsair and NVIDIA control
+work without it.
 
 ## Usage
 
 ### Features
 
-- Curve-driven fan control over hwmon (motherboard/CPU headers) and four Corsair
-  device families: Commander Core, Commander Pro, Corsair PSU, and Hydro Platinum
-- NVIDIA GPU fan control via NVML
+- Curve-driven fan control over hwmon (motherboard/CPU headers on Linux) and four
+  Corsair device families: Commander Core, Commander Pro, Corsair PSU, and Hydro Platinum
+- NVIDIA GPU fan control via NVML, including true fan stop: a duty of 0 hands the fans
+  back to the driver's own policy, because NVML clamps a manual level to the card's minimum
 - A REST and WebSocket API served alongside an embedded web UI, no separate
   frontend to install
-- Windows sensors beyond the Super I/O chip, through the same PawnIO driver FanControl
-  uses: AMD Ryzen CPU temperatures (Tctl, Tdie, per-CCD), DDR4 and DDR5 DIMM
-  temperatures, and ASUS embedded-controller sensors such as the chipset fan
+- Windows sensors through the same PawnIO driver FanControl uses: the Nuvoton Super I/O
+  chip, AMD Ryzen CPU temperatures (Tctl, Tdie, per-CCD) and package power, DDR4 and DDR5
+  DIMM temperatures, and ASUS embedded-controller sensors such as the chipset fan
+- Readings beyond temperature and rpm, usable as curve inputs and shown on the dashboard:
+  CPU usage, clock and package power; GPU usage, VRAM, core and memory clocks, power draw
+  and performance state
 - Curve types: point, linear, trigger, target, flat, and the duty operators max, min,
   average, sum, subtract, offset, and sync
 - Virtual sensors: max, min, mean (optionally smoothed over a window), sum, subtract, offset and
   delta nodes that combine or transform sensors before a curve reads them, plus
   webhook nodes that take their value from an HTTP POST
 - Graph editor: one canvas per profile wiring device sensors, virtual sensors, curves
-  and device controls together, with live values on every port and edge
+  and device controls together, with live values on every port and edge, and groups that
+  fold a set of nodes into one node you can open as a sub-canvas
+- Per-control limits with a calibration routine that finds a fan's stop, start and
+  minimum duty by sweeping it against its own tachometer
+- Home Assistant integration over MQTT discovery
 - Journaled claims so a killed daemon restores prior fan state on the next start
 
 ### Quick start
@@ -110,9 +133,21 @@ so a max-of-two-probes node and a max-of-two-curves node are separate entries ra
 than one node with a mode switch.
 
 Each hardware control can carry its own limits under `[controls."<id>"]`: a stop
-duty below which the fan snaps to 0, a start duty that kicks it from a stop, and a
-hard minimum. They apply to whatever curve drives the control and are edited from
-the control node's panel.
+duty below which the fan snaps to 0, a start duty that kicks it from a stop, a hard
+minimum and a maximum ceiling. They apply to whatever curve drives the control and
+are edited from the control node's panel, where Detect limits sweeps the fan against
+its paired tachometer and fills them in from where it actually stalls and restarts.
+
+A curve's x axis follows the kind of sensor feeding it, so a curve on a GPU memory
+clock is drawn in MHz and one on package power in watts, and the axis grows to fit
+readings past its default. Rpm and duty sensors are not offered as curve inputs.
+
+Selecting several nodes and pressing Ctrl+G folds them into a group node. Double
+clicking it opens the group as its own canvas with the rest of the profile hidden,
+and connector strips at the left and right edges carry the group's inputs and
+outputs, so wiring across the boundary works from either side. Groups are a view
+over the same flat profile: they are stored under `[ui.groups.<profile>]` and the
+daemon never reads them.
 
 Curve nodes can load a shape from a preset. Quiet, Balanced and Performance ship
 built in, and Save as stores the node's current shape under `[presets.<name>]` in
@@ -226,8 +261,16 @@ is guarded by its own token:
 | GET    | `/api/inventory`          | Detected sensors and controls, plus the active profile's virtual sensors |
 | GET    | `/api/config`             | Current config                       |
 | PUT    | `/api/config`             | Replace and reload the config        |
+| GET    | `/api/config.toml`        | The config as TOML, secrets redacted |
 | GET    | `/api/warnings`           | Non-fatal startup and runtime issues |
+| PUT    | `/api/profiles/:name`     | Create or replace a profile          |
+| DELETE | `/api/profiles/:name`     | Delete a profile, 422 on the active one |
 | POST   | `/api/profiles/:name/activate` | Switch the active profile       |
+| GET    | `/api/presets`            | Built-in and user curve presets      |
+| PUT/DELETE | `/api/presets/:name`  | Save or remove a user preset         |
+| PUT/DELETE | `/api/labels/*id`     | Rename a hardware channel, or restore its name |
+| PUT/DELETE | `/api/control-settings/*id` | Set or clear a control's duty limits |
+| POST/GET/DELETE | `/api/calibrate/*id` | Start, poll or cancel a fan calibration sweep |
 | PUT    | `/api/controls/*id`       | Set a manual override duty           |
 | DELETE | `/api/controls/*id`       | Clear a manual override              |
 | POST   | `/api/webhook/:token`     | Push `{"value": <number or bool>}` into a webhook sensor; the token is the credential, no API key |
@@ -236,15 +279,20 @@ is guarded by its own token:
 
 ## Hardware support
 
-| Family                | Status                          |
-| ---------------------- | -------------------------------- |
-| hwmon (motherboard/CPU) | supported                       |
-| Corsair Commander Core  | supported, runtime-unverified against real hardware |
-| Corsair Commander Pro   | supported, runtime-unverified against real hardware |
-| Corsair PSU             | supported, runtime-unverified against real hardware |
-| Corsair Hydro Platinum  | supported, runtime-unverified against real hardware |
-| NVIDIA GPU (NVML)       | supported, runtime-unverified against real hardware |
-| Nuvoton NCT67xx Super I/O (Windows, PawnIO) | supported, only NCT6798D targeted, runtime-unverified against real hardware |
+| Family | Status |
+| ------ | ------ |
+| hwmon (motherboard, CPU, Linux) | supported |
+| Corsair Commander Pro | supported, verified on hardware |
+| Corsair Commander Core | supported, not verified on hardware |
+| Corsair PSU | supported, not verified on hardware |
+| Corsair Hydro Platinum | supported, not verified on hardware |
+| NVIDIA GPU (NVML) | supported, verified on hardware |
+| Nuvoton NCT67xx Super I/O (Windows, PawnIO) | supported, verified on an NCT6798D |
+| AMD Ryzen CPU temperatures and package power (Windows, PawnIO) | supported, verified on a Ryzen 7 5800XT |
+| DDR4 and DDR5 DIMM temperatures (Windows, PawnIO) | supported, verified on DDR4 |
+| ASUS embedded controller (Windows, PawnIO) | supported, verified on a PRIME X570-PRO |
+| CPU usage and clock | supported on Linux and Windows |
+| AMD GPU | not supported |
 
 ### Release semantics
 
