@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.0](https://github.com/Garulf/gale/compare/gale-v0.10.0...gale-v0.11.0) (2026-09-09)
+
+
+### Features
+
+* **ui:** draw every curve chart on the observed axis and label hysteresis with the sensor unit ([fba205f](https://github.com/Garulf/gale/commit/fba205fc3d97e8b77532281b125de17d092d33fa))
+* **ui:** fit the curve axis to observed values with nice ceilings ([a2a7d33](https://github.com/Garulf/gale/commit/a2a7d33b8b026462c7fc61b77d50e5b1be02c3ac))
+* **ui:** fit the curve axis to the observed range ([0110770](https://github.com/Garulf/gale/commit/01107709ec0ed728412c658497ca348e01f56154))
+* **ui:** take a fitted axis in the point curve editor and stop clamping typed x values ([2ac2a78](https://github.com/Garulf/gale/commit/2ac2a789878cfe16e7c4159e4bf68e52a6471ac3))
+
+
+### Bug Fixes
+
+* report a live cpu/clock on Windows ([#46](https://github.com/Garulf/gale/issues/46)) ([f824b62](https://github.com/Garulf/gale/commit/f824b621fba6324c4f677483b2993aaafd600de0))
+* **ui:** finer axis ceilings, sticky axis growth and one unit table for curve charts ([7c534b9](https://github.com/Garulf/gale/commit/7c534b9458cabc2c744f7b318ee5df2704324725))
+
 ## [0.10.0](https://github.com/Garulf/gale/compare/gale-v0.9.0...gale-v0.10.0) (2026-09-07)
 
 
