@@ -51,6 +51,13 @@ pub fn mean_mhz(cores: &[f64]) -> Option<f64> {
     Some(live.iter().sum::<f64>() / live.len() as f64)
 }
 
+pub fn effective_mhz_from_percent(percent_of_base: f64, base_mhz: f64) -> Option<f64> {
+    if percent_of_base <= 0.0 || base_mhz <= 0.0 {
+        return None;
+    }
+    Some(percent_of_base / 100.0 * base_mhz)
+}
+
 pub struct CpuBackend {
     sources: CpuSources,
     sensors: Vec<SensorInfo>,
@@ -156,7 +163,18 @@ impl Backend for CpuBackend {
                     kind: SensorKind::Clock,
                 }),
                 Ok(_) => tracing::debug!("cpu clock reported no live cores"),
-                Err(message) => tracing::debug!(%message, "cpu clock unavailable"),
+                Err(message) => {
+                    tracing::debug!(
+                        %message,
+                        "cpu clock read failed during enumeration; registering the sensor \
+                         anyway since some sources need a warm-up read before they settle"
+                    );
+                    sensors.push(SensorInfo {
+                        id: id("clock"),
+                        label: "CPU Clock".to_string(),
+                        kind: SensorKind::Clock,
+                    });
+                }
             }
         }
         if let Some(source) = self.sources.power.as_mut() {
@@ -347,6 +365,21 @@ mod tests {
         assert_eq!(mean_mhz(&[0.0]), None);
     }
 
+    #[test]
+    fn effective_mhz_scales_the_base_clock_by_the_performance_percent() {
+        assert_eq!(effective_mhz_from_percent(100.0, 3801.0), Some(3801.0));
+        assert_eq!(effective_mhz_from_percent(50.0, 3801.0), Some(1900.5));
+        assert_eq!(effective_mhz_from_percent(120.0, 3801.0), Some(4561.2));
+    }
+
+    #[test]
+    fn effective_mhz_rejects_nonsense_percents_and_base_clocks() {
+        assert_eq!(effective_mhz_from_percent(0.0, 3801.0), None);
+        assert_eq!(effective_mhz_from_percent(-10.0, 3801.0), None);
+        assert_eq!(effective_mhz_from_percent(100.0, 0.0), None);
+        assert_eq!(effective_mhz_from_percent(100.0, -1.0), None);
+    }
+
     fn backend_with_all_sources() -> CpuBackend {
         CpuBackend::new(CpuSources {
             usage: Some(Box::new(FakeStat {
@@ -381,6 +414,31 @@ mod tests {
         );
         assert_eq!(inventory.sensors[2].label, "CPU Package Power");
         assert!(inventory.controls.is_empty());
+    }
+
+    #[test]
+    fn a_transient_read_error_during_enumeration_does_not_drop_the_clock_sensor() {
+        let mut backend = CpuBackend::new(CpuSources {
+            usage: None,
+            clock: Some(Box::new(FakeFreq {
+                samples: [
+                    Err("PdhGetFormattedCounterValue failed: 0xc0000bc6".to_string()),
+                    Ok(vec![3200.0]),
+                ]
+                .into(),
+            })),
+            power: None,
+        });
+        let inventory = backend.enumerate().unwrap();
+        assert_eq!(
+            inventory
+                .sensors
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cpu/clock"]
+        );
+        assert_eq!(backend.read_all()["cpu/clock"], Some(3200.0));
     }
 
     #[test]
