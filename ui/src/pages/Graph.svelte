@@ -23,7 +23,6 @@
     groupNodeId,
     isGroupNodeId,
     isPortsNodeId,
-    portsNodeDirection,
     groupIdOf,
     declareInput,
     declareOutput,
@@ -54,7 +53,6 @@
   import NodePanel from '../lib/graph/components/NodePanel.svelte';
   import GraphToolbar from '../lib/graph/components/GraphToolbar.svelte';
   import ZoomControls from '../lib/graph/components/ZoomControls.svelte';
-  import ViewportProbe from '../lib/graph/components/ViewportProbe.svelte';
   import ChainView from '../lib/graph/components/ChainView.svelte';
 
   let config = $state.raw(null);
@@ -157,58 +155,13 @@
       return;
     }
     const view = projectScope(nodes, edges, groups, scope);
-    viewNodes = untrack(() => dockStrips(carryCanvasState(viewNodes, view.nodes.map(dockable))));
+    viewNodes = untrack(() => carryCanvasState(viewNodes, view.nodes.map(dockable)));
     viewEdges = toFlowEdges(view.edges, showEdgeLabels);
   });
-
-  const STRIP_MARGIN = 16;
-  const STRIP_WIDTH = 180;
-  const STRIP_HEIGHT = 96;
-  let viewport = $state.raw({ x: 0, y: 0, zoom: 1 });
-  let canvasWidth = $state(0);
-  let canvasHeight = $state(0);
 
   function dockable(node) {
     if (!isPortsNodeId(node.id)) return node;
     return { ...node, draggable: false, selectable: false, deletable: false, zIndex: 20 };
-  }
-
-  function dockedPosition(node) {
-    const width = (node.measured && node.measured.width) || node.width || STRIP_WIDTH;
-    const height = (node.measured && node.measured.height) || node.height || STRIP_HEIGHT;
-    const scaled = width * viewport.zoom;
-    const leftEdge = STRIP_MARGIN + scaled + STRIP_MARGIN;
-    const screenX =
-      portsNodeDirection(node.id) === 'in' ? STRIP_MARGIN : Math.max(leftEdge, canvasWidth - scaled - STRIP_MARGIN);
-    const screenY = Math.max(0, (canvasHeight - height * viewport.zoom) / 2);
-    return { x: (screenX - viewport.x) / viewport.zoom, y: (screenY - viewport.y) / viewport.zoom };
-  }
-
-  function dockStrips(list) {
-    if (!scope || canvasWidth === 0 || canvasHeight === 0) return list;
-    let moved = false;
-    const docked = list.map((node) => {
-      if (!isPortsNodeId(node.id)) return node;
-      const position = dockedPosition(node);
-      if (Math.abs(position.x - node.position.x) < 0.5 && Math.abs(position.y - node.position.y) < 0.5) return node;
-      moved = true;
-      return { ...node, position };
-    });
-    return moved ? docked : list;
-  }
-
-  $effect(() => {
-    const { zoom } = viewport;
-    if (zoom === 0 || !scope || canvasWidth === 0 || canvasHeight === 0) return;
-    const current = untrack(() => viewNodes);
-    const docked = dockStrips(current);
-    if (docked !== current) viewNodes = docked;
-  });
-
-  function trackViewport(next) {
-    const current = untrack(() => viewport);
-    if (next.x === current.x && next.y === current.y && next.zoom === current.zoom) return;
-    viewport = { x: next.x, y: next.y, zoom: next.zoom };
   }
 
   function hideNode(id) {
@@ -967,7 +920,7 @@
 <svelte:window onkeydown={onClipboardKey} onresize={onViewportResize} />
 
 <section class="gale-graph-page" data-mobile-view={mobileView} style="--gale-panel-width: {panelWidth}px">
-  <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'} bind:clientWidth={canvasWidth} bind:clientHeight={canvasHeight}>
+  <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
     <SvelteFlow
       bind:nodes={viewNodes}
       bind:edges={viewEdges}
@@ -990,7 +943,6 @@
       fitView
     >
       <Background gap={20} size={1} />
-      <ViewportProbe onViewport={trackViewport} />
       <GraphToolbar
         {showEdgeLabels}
         canUndo={history.length > 0}
