@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.1](https://github.com/Garulf/gale/compare/gale-v0.11.0...gale-v0.11.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **gale-hw-asus-ec:** remove duplicate board table entries ([53f7e01](https://github.com/Garulf/gale/commit/53f7e01a6f72c9f53dddfb2eccaa8b20bde6c2a1))
+* **gale-hw-cpu:** report a live clock on non-English Windows and non-PDH platforms ([5e0df41](https://github.com/Garulf/gale/commit/5e0df419779742f601970d97a30a998d0ffe68ea))
+* surface previously silently-swallowed errors ([a15c8b3](https://github.com/Garulf/gale/commit/a15c8b3d7143ab9b55fb72bb5eb62552ec390945))
+
 ## [0.11.0](https://github.com/Garulf/gale/compare/gale-v0.10.0...gale-v0.11.0) (2026-09-09)
 
 
