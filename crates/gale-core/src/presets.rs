@@ -85,7 +85,7 @@ pub fn is_builtin_name(name: &str) -> bool {
 }
 
 fn duty_in_range(duty: f64) -> bool {
-    duty.is_finite() && (0.0..=100.0).contains(&duty)
+    crate::config::is_valid_duty(duty)
 }
 
 fn shape_error(name: &str, preset: &CurvePreset) -> Option<String> {

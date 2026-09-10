@@ -27,7 +27,7 @@ type PawnioExecute = unsafe extern "system" fn(
 ) -> i32;
 type PawnioClose = unsafe extern "system" fn(HANDLE) -> i32;
 
-pub(crate) fn wide(value: &str) -> Vec<u16> {
+pub fn wide(value: &str) -> Vec<u16> {
     OsString::from(value)
         .encode_wide()
         .chain(std::iter::once(0))
@@ -68,14 +68,14 @@ fn candidate_libraries() -> Vec<String> {
 }
 
 fn load_library() -> Result<libloading::Library, String> {
-    let mut last_error = "PawnIOLib.dll could not be found".to_string();
+    let mut attempts = Vec::new();
     for path in candidate_libraries() {
         match unsafe { libloading::Library::new(path.as_str()) } {
             Ok(library) => return Ok(library),
-            Err(err) => last_error = err.to_string(),
+            Err(err) => attempts.push(format!("{path}: {err}")),
         }
     }
-    Err(last_error)
+    Err(attempts.join("; "))
 }
 
 pub struct Module {
@@ -100,6 +100,11 @@ impl Module {
                 .map(|s| *s)
                 .map_err(|err| PawnIoError::LibraryLoad(err.to_string()))
         };
+        // SAFETY: libloading::Library::get resolves each symbol only by name and
+        // hands back an untyped pointer, so nothing here checks that PawnIOLib.dll's
+        // actual export matches the extern "system" fn signature we transmute to.
+        // Soundness rests entirely on PawnIOLib.dll's ABI matching PawnIO's published
+        // C header (pawnio_version/open/load/execute/close), which we don't control.
         let version_fn: PawnioVersion =
             unsafe { std::mem::transmute(symbol(b"pawnio_version\0")?) };
         let open_fn: PawnioOpen = unsafe { std::mem::transmute(symbol(b"pawnio_open\0")?) };

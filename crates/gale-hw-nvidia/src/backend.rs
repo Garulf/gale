@@ -99,6 +99,62 @@ impl Default for NvidiaBackend {
     }
 }
 
+fn enumerate_temp(sensors: &mut HashMap<Id, SensorTarget>, gpu: u32, inventory: &mut Inventory) {
+    let temp_id = format!("nvidia/{gpu}/temp");
+    sensors.insert(temp_id.clone(), SensorTarget::Temp(gpu));
+    inventory.sensors.push(SensorInfo {
+        id: temp_id,
+        label: format!("GPU {gpu} Temp"),
+        kind: SensorKind::Temp,
+    });
+}
+
+fn enumerate_fans(
+    sensors: &mut HashMap<Id, SensorTarget>,
+    controls: &mut HashMap<Id, FanControl>,
+    gpu: u32,
+    device: &dyn NvmlDevice,
+    inventory: &mut Inventory,
+) {
+    for fan in 0..device.fan_count() {
+        let fan_id = format!("nvidia/{gpu}/fan{fan}");
+        sensors.insert(fan_id.clone(), SensorTarget::Fan(gpu, fan));
+        inventory.sensors.push(SensorInfo {
+            id: fan_id.clone(),
+            label: format!("GPU {gpu} Fan {fan}"),
+            kind: SensorKind::Duty,
+        });
+        if device.fan_controllable(fan) {
+            let (min_duty, max_duty) = device.min_max_fan_duty(fan).unwrap_or((0.0, 100.0));
+            controls.insert(
+                fan_id.clone(),
+                FanControl {
+                    gpu,
+                    fan,
+                    min_duty,
+                    max_duty,
+                },
+            );
+            inventory.controls.push(ControlInfo {
+                id: fan_id,
+                label: format!("GPU {gpu} Fan {fan}"),
+            });
+        }
+    }
+}
+
+fn enumerate_metrics(sensors: &mut HashMap<Id, SensorTarget>, gpu: u32, inventory: &mut Inventory) {
+    for (metric, suffix, label, kind) in METRICS {
+        let id = format!("nvidia/{gpu}/{suffix}");
+        sensors.insert(id.clone(), SensorTarget::Metric(gpu, metric));
+        inventory.sensors.push(SensorInfo {
+            id,
+            label: format!("GPU {gpu} {label}"),
+            kind,
+        });
+    }
+}
+
 fn non_finite_error(id: &str) -> HwError {
     HwError::Io {
         path: id.to_string(),
@@ -142,50 +198,15 @@ impl Backend for NvidiaBackend {
                     continue;
                 }
             };
-            let temp_id = format!("nvidia/{gpu}/temp");
-            self.sensors
-                .insert(temp_id.clone(), SensorTarget::Temp(gpu));
-            inventory.sensors.push(SensorInfo {
-                id: temp_id,
-                label: format!("GPU {gpu} Temp"),
-                kind: SensorKind::Temp,
-            });
-            for fan in 0..device.fan_count() {
-                let fan_id = format!("nvidia/{gpu}/fan{fan}");
-                self.sensors
-                    .insert(fan_id.clone(), SensorTarget::Fan(gpu, fan));
-                inventory.sensors.push(SensorInfo {
-                    id: fan_id.clone(),
-                    label: format!("GPU {gpu} Fan {fan}"),
-                    kind: SensorKind::Duty,
-                });
-                if device.fan_controllable(fan) {
-                    let (min_duty, max_duty) = device.min_max_fan_duty(fan).unwrap_or((0.0, 100.0));
-                    self.controls.insert(
-                        fan_id.clone(),
-                        FanControl {
-                            gpu,
-                            fan,
-                            min_duty,
-                            max_duty,
-                        },
-                    );
-                    inventory.controls.push(ControlInfo {
-                        id: fan_id,
-                        label: format!("GPU {gpu} Fan {fan}"),
-                    });
-                }
-            }
-            for (metric, suffix, label, kind) in METRICS {
-                let id = format!("nvidia/{gpu}/{suffix}");
-                self.sensors
-                    .insert(id.clone(), SensorTarget::Metric(gpu, metric));
-                inventory.sensors.push(SensorInfo {
-                    id,
-                    label: format!("GPU {gpu} {label}"),
-                    kind,
-                });
-            }
+            enumerate_temp(&mut self.sensors, gpu, &mut inventory);
+            enumerate_fans(
+                &mut self.sensors,
+                &mut self.controls,
+                gpu,
+                device.as_ref(),
+                &mut inventory,
+            );
+            enumerate_metrics(&mut self.sensors, gpu, &mut inventory);
         }
         inventory.sensors.sort_by(|a, b| a.id.cmp(&b.id));
         inventory.controls.sort_by(|a, b| a.id.cmp(&b.id));

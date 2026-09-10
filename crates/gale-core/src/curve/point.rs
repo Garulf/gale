@@ -1,4 +1,4 @@
-use crate::curve::{Curve, EvalContext, Hysteresis, ResponseLimit};
+use crate::curve::{Curve, EvalContext, Hysteresis, ResponseLimit, WithHysteresis, WithResponse};
 use crate::Id;
 
 pub struct PointCurve {
@@ -19,16 +19,6 @@ impl PointCurve {
         }
     }
 
-    pub fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
-        self.hysteresis = Hysteresis::new(up, down);
-        self
-    }
-
-    pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
-        self.response = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
-        self
-    }
-
     fn duty_for(&self, temp: f64) -> Option<f64> {
         let (first, last) = (self.points.first()?, self.points.last()?);
         if temp <= first.0 {
@@ -41,6 +31,18 @@ impl PointCurve {
         let (t0, d0) = self.points[upper - 1];
         let (t1, d1) = self.points[upper];
         Some(d0 + (d1 - d0) * (temp - t0) / (t1 - t0))
+    }
+}
+
+impl WithHysteresis for PointCurve {
+    fn hysteresis_mut(&mut self) -> &mut Hysteresis {
+        &mut self.hysteresis
+    }
+}
+
+impl WithResponse for PointCurve {
+    fn response_mut(&mut self) -> &mut ResponseLimit {
+        &mut self.response
     }
 }
 

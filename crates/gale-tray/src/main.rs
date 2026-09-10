@@ -50,20 +50,11 @@ fn main() {
 
 #[cfg(windows)]
 fn show_error_message_box(message: &str) {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
+    use gale_pawnio::wide;
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
-    let to_wide = |value: &str| -> Vec<u16> {
-        OsStr::new(value)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    };
-
-    let text = to_wide(message);
-    let title = to_wide("Gale tray");
+    let text = wide(message);
+    let title = wide("Gale tray");
 
     unsafe {
         MessageBoxW(

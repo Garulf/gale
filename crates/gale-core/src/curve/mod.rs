@@ -15,6 +15,28 @@ pub trait Curve: Send {
     fn evaluate(&mut self, ctx: &EvalContext) -> Option<f64>;
 }
 
+/// Shared `with_hysteresis` builder for curve types that hold a `Hysteresis` field,
+/// so each curve only has to say where that field lives.
+pub trait WithHysteresis: Sized {
+    fn hysteresis_mut(&mut self) -> &mut Hysteresis;
+
+    fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
+        *self.hysteresis_mut() = Hysteresis::new(up, down);
+        self
+    }
+}
+
+/// Shared `with_response` builder for curve types that hold a `ResponseLimit` field,
+/// so each curve only has to say where that field lives.
+pub trait WithResponse: Sized {
+    fn response_mut(&mut self) -> &mut ResponseLimit;
+
+    fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
+        *self.response_mut() = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Hysteresis {
     band: Option<(f64, f64)>,

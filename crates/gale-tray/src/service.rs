@@ -89,19 +89,13 @@ pub fn stop() -> Result<(), String> {
     }
 }
 
-fn to_wide(value: &str) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    OsStr::new(value)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
-}
-
 fn relaunch_elevated(arg: &str) -> Result<(), String> {
+    use gale_pawnio::wide;
+
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let current_exe = to_wide(&current_exe.to_string_lossy());
-    let verb = to_wide("runas");
-    let arg = to_wide(arg);
+    let current_exe = wide(&current_exe.to_string_lossy());
+    let verb = wide("runas");
+    let arg = wide(arg);
 
     let result = unsafe {
         ShellExecuteW(

@@ -6,7 +6,7 @@ pub mod mutex;
 pub mod driver;
 
 #[cfg(windows)]
-pub use driver::{is_installed, Module};
+pub use driver::{is_installed, wide, Module};
 pub use error::{PawnIoError, PAWNIO_URL};
 #[cfg(windows)]
 pub use mutex::{MutexGuard, NamedMutex};

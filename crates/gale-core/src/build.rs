@@ -9,7 +9,7 @@ use crate::curve::point::PointCurve;
 use crate::curve::sync::SyncCurve;
 use crate::curve::target::TargetCurve;
 use crate::curve::trigger::TriggerCurve;
-use crate::curve::{Curve, CurveSet};
+use crate::curve::{Curve, CurveSet, WithHysteresis, WithResponse};
 use crate::engine::FanEngine;
 use crate::presets::validate_presets;
 use crate::r#virtual::VirtualSensors;
@@ -70,7 +70,7 @@ fn validate_hardware(config: &GaleConfig) -> Result<(), ConfigError> {
             ("max_duty", settings.max_duty),
         ] {
             if let Some(value) = value {
-                if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+                if !crate::config::is_valid_duty(value) {
                     return Err(ConfigError::Invalid(format!(
                         "controls.'{control}'.{field} must be between 0 and 100"
                     )));

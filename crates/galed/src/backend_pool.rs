@@ -20,6 +20,18 @@ fn timed_out(id: &str) -> HwError {
     }
 }
 
+fn keep_previous_owners(
+    previous: &HashMap<Id, usize>,
+    index: usize,
+    owners: &mut HashMap<Id, usize>,
+) {
+    for (id, owner) in previous {
+        if *owner == index {
+            owners.insert(id.clone(), index);
+        }
+    }
+}
+
 impl BackendPool {
     pub fn new(handles: Vec<BackendHandle>) -> Self {
         Self {
@@ -52,19 +64,11 @@ impl BackendPool {
                 }
                 Ok(Err(error)) => {
                     tracing::warn!(backend = index, %error, "backend enumerate failed, skipping");
-                    for (id, owner) in &previous_owners {
-                        if *owner == index {
-                            owners.insert(id.clone(), index);
-                        }
-                    }
+                    keep_previous_owners(&previous_owners, index, &mut owners);
                 }
                 Err(_) => {
                     tracing::warn!(backend = index, "backend enumerate timed out, skipping");
-                    for (id, owner) in &previous_owners {
-                        if *owner == index {
-                            owners.insert(id.clone(), index);
-                        }
-                    }
+                    keep_previous_owners(&previous_owners, index, &mut owners);
                 }
             }
         }
@@ -112,21 +116,27 @@ impl BackendPool {
 
     pub async fn set_duty(&self, id: &str, pct: f64) -> Result<(), HwError> {
         let index = self.owner_of(id)?;
-        match tokio::time::timeout(WRITE_TIMEOUT, self.handles[index].set_duty(id, pct)).await {
-            Ok(result) => result,
-            Err(_) => {
-                tracing::warn!(backend = index, %id, "set_duty timed out");
-                Err(timed_out(id))
-            }
-        }
+        self.with_write_timeout(index, id, "set_duty", self.handles[index].set_duty(id, pct))
+            .await
     }
 
     pub async fn release(&self, id: &str) -> Result<(), HwError> {
         let index = self.owner_of(id)?;
-        match tokio::time::timeout(WRITE_TIMEOUT, self.handles[index].release(id)).await {
+        self.with_write_timeout(index, id, "release", self.handles[index].release(id))
+            .await
+    }
+
+    async fn with_write_timeout(
+        &self,
+        index: usize,
+        id: &str,
+        operation: &str,
+        future: impl std::future::Future<Output = Result<(), HwError>>,
+    ) -> Result<(), HwError> {
+        match tokio::time::timeout(WRITE_TIMEOUT, future).await {
             Ok(result) => result,
             Err(_) => {
-                tracing::warn!(backend = index, %id, "release timed out");
+                tracing::warn!(backend = index, %id, operation, "backend write timed out");
                 Err(timed_out(id))
             }
         }

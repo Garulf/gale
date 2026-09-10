@@ -1,4 +1,4 @@
-use crate::curve::{Curve, EvalContext, ResponseLimit};
+use crate::curve::{Curve, EvalContext, ResponseLimit, WithResponse};
 use crate::Id;
 
 pub struct TriggerCurve {
@@ -23,10 +23,11 @@ impl TriggerCurve {
             response: ResponseLimit::default(),
         }
     }
+}
 
-    pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
-        self.response = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
-        self
+impl WithResponse for TriggerCurve {
+    fn response_mut(&mut self) -> &mut ResponseLimit {
+        &mut self.response
     }
 }
 

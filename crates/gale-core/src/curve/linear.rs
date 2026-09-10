@@ -1,4 +1,4 @@
-use crate::curve::{Curve, EvalContext, Hysteresis, ResponseLimit};
+use crate::curve::{Curve, EvalContext, Hysteresis, ResponseLimit, WithHysteresis, WithResponse};
 use crate::Id;
 
 pub struct LinearCurve {
@@ -24,16 +24,6 @@ impl LinearCurve {
         }
     }
 
-    pub fn with_hysteresis(mut self, up: f64, down: f64) -> Self {
-        self.hysteresis = Hysteresis::new(up, down);
-        self
-    }
-
-    pub fn with_response(mut self, rise_pct_per_sec: f64, fall_pct_per_sec: f64) -> Self {
-        self.response = ResponseLimit::new(rise_pct_per_sec, fall_pct_per_sec);
-        self
-    }
-
     fn duty_for(&self, temp: f64) -> f64 {
         if temp <= self.min_temp {
             return self.min_duty;
@@ -43,6 +33,18 @@ impl LinearCurve {
         }
         let span = self.max_temp - self.min_temp;
         self.min_duty + (self.max_duty - self.min_duty) * (temp - self.min_temp) / span
+    }
+}
+
+impl WithHysteresis for LinearCurve {
+    fn hysteresis_mut(&mut self) -> &mut Hysteresis {
+        &mut self.hysteresis
+    }
+}
+
+impl WithResponse for LinearCurve {
+    fn response_mut(&mut self) -> &mut ResponseLimit {
+        &mut self.response
     }
 }
 

@@ -199,56 +199,10 @@ impl CorsairBackend {
     pub fn open_all(release_mode: ReleaseMode) -> Vec<CorsairBackend> {
         let mut opened: Vec<(String, Option<String>, Box<dyn CorsairDevice>)> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
-            let mut candidates: Vec<Candidate> = Vec::new();
-            for info in api.device_list() {
-                let vid = info.vendor_id();
-                let pid = info.product_id();
-                let Some((kind, _)) = driver_for(vid, pid) else {
-                    continue;
-                };
-                if matches!(kind, DriverKind::CommanderCore { .. })
-                    && info.interface_number() != COMMANDER_CORE_INTERFACE
-                {
-                    continue;
-                }
-                candidates.push(Candidate {
-                    vid,
-                    pid,
-                    interface: info.interface_number(),
-                    serial: info.serial_number().map(str::to_string),
-                    path: info.path().to_owned(),
-                    usage_page: info.usage_page(),
-                });
-            }
+            let candidates = discover_candidates(&api);
             for group in group_candidates(candidates) {
-                let Some(first) = group.first() else {
-                    continue;
-                };
-                let Some((kind, slug)) = driver_for(first.vid, first.pid) else {
-                    continue;
-                };
-                let vid = first.vid;
-                let pid = first.pid;
-                let interfaces: Vec<i32> =
-                    group.iter().map(|candidate| candidate.interface).collect();
-                let serial = first.serial.clone();
-                let device = group
-                    .iter()
-                    .find_map(|candidate| api.open_path(&candidate.path).ok());
-                match device {
-                    Some(device) => {
-                        let transport = Box::new(HidapiTransport::new(device));
-                        let driver = build_driver(kind, slug, transport, release_mode);
-                        opened.push((slug.to_string(), serial, driver));
-                    }
-                    None => {
-                        tracing::warn!(
-                            vid,
-                            pid,
-                            ?interfaces,
-                            "matched known corsair device but failed to open any of its hid collections"
-                        );
-                    }
+                if let Some(device) = open_group(&api, &group, release_mode) {
+                    opened.push(device);
                 }
             }
         }
@@ -261,6 +215,66 @@ impl CorsairBackend {
                 CorsairBackend::with_device(slug, device)
             })
             .collect()
+    }
+}
+
+fn discover_candidates(api: &hidapi::HidApi) -> Vec<Candidate> {
+    let mut candidates = Vec::new();
+    for info in api.device_list() {
+        let vid = info.vendor_id();
+        let pid = info.product_id();
+        let Some((kind, _)) = driver_for(vid, pid) else {
+            continue;
+        };
+        if matches!(kind, DriverKind::CommanderCore { .. })
+            && info.interface_number() != COMMANDER_CORE_INTERFACE
+        {
+            continue;
+        }
+        candidates.push(Candidate {
+            vid,
+            pid,
+            interface: info.interface_number(),
+            serial: info.serial_number().map(str::to_string),
+            path: info.path().to_owned(),
+            usage_page: info.usage_page(),
+        });
+    }
+    candidates
+}
+
+/// Opens the first HID collection in `group` that succeeds, using whichever known
+/// driver matches the group's vendor/product id. Devices expose several HID
+/// collections for the same physical device; only one needs to open.
+fn open_group(
+    api: &hidapi::HidApi,
+    group: &[Candidate],
+    release_mode: ReleaseMode,
+) -> Option<(String, Option<String>, Box<dyn CorsairDevice>)> {
+    let first = group.first()?;
+    let (kind, slug) = driver_for(first.vid, first.pid)?;
+    let vid = first.vid;
+    let pid = first.pid;
+    let serial = first.serial.clone();
+    let device = group
+        .iter()
+        .find_map(|candidate| api.open_path(&candidate.path).ok());
+    match device {
+        Some(device) => {
+            let transport = Box::new(HidapiTransport::new(device));
+            let driver = build_driver(kind, slug, transport, release_mode);
+            Some((slug.to_string(), serial, driver))
+        }
+        None => {
+            let interfaces: Vec<i32> = group.iter().map(|candidate| candidate.interface).collect();
+            tracing::warn!(
+                vid,
+                pid,
+                ?interfaces,
+                "matched known corsair device but failed to open any of its hid collections"
+            );
+            None
+        }
     }
 }
 

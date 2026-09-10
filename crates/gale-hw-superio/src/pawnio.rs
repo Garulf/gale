@@ -7,14 +7,25 @@ use gale_pawnio::{Module, NamedMutex, PawnIoError};
 use crate::transport::PortIo;
 use crate::SuperIoStatus;
 
-pub const IOCTLS: &[(&str, usize, usize)] = &[
-    ("ioctl_select_slot", 1, 0),
-    ("ioctl_find_bars", 0, 0),
-    ("ioctl_pio_inb", 1, 1),
-    ("ioctl_pio_outb", 2, 0),
-    ("ioctl_superio_inb", 1, 1),
-    ("ioctl_superio_inw", 1, 1),
-    ("ioctl_superio_outb", 2, 0),
+const IOCTL_SELECT_SLOT: &std::ffi::CStr = c"ioctl_select_slot";
+const IOCTL_FIND_BARS: &std::ffi::CStr = c"ioctl_find_bars";
+const IOCTL_PIO_INB: &std::ffi::CStr = c"ioctl_pio_inb";
+const IOCTL_PIO_OUTB: &std::ffi::CStr = c"ioctl_pio_outb";
+const IOCTL_SUPERIO_INB: &std::ffi::CStr = c"ioctl_superio_inb";
+const IOCTL_SUPERIO_INW: &std::ffi::CStr = c"ioctl_superio_inw";
+const IOCTL_SUPERIO_OUTB: &std::ffi::CStr = c"ioctl_superio_outb";
+
+/// Every ioctl `PawnIoTransport` calls, with its input/output word counts. Both the
+/// call sites below and this table reference the same `IOCTL_*` name constants, so a
+/// renamed ioctl can't drift out of sync the way two independent string literals could.
+pub const IOCTLS: &[(&std::ffi::CStr, usize, usize)] = &[
+    (IOCTL_SELECT_SLOT, 1, 0),
+    (IOCTL_FIND_BARS, 0, 0),
+    (IOCTL_PIO_INB, 1, 1),
+    (IOCTL_PIO_OUTB, 2, 0),
+    (IOCTL_SUPERIO_INB, 1, 1),
+    (IOCTL_SUPERIO_INW, 1, 1),
+    (IOCTL_SUPERIO_OUTB, 2, 0),
 ];
 
 pub struct PawnIoTransport {
@@ -53,37 +64,36 @@ impl PawnIoTransport {
 impl PortIo for PawnIoTransport {
     fn select_slot(&mut self, slot: u8) -> Result<(), String> {
         self.module
-            .execute(c"ioctl_select_slot", &[slot as u64], 0)
+            .execute(IOCTL_SELECT_SLOT, &[slot as u64], 0)
             .map(|_| ())
     }
 
     fn find_bars(&mut self) -> Result<(), String> {
-        self.module.execute(c"ioctl_find_bars", &[], 0).map(|_| ())
+        self.module.execute(IOCTL_FIND_BARS, &[], 0).map(|_| ())
     }
 
     fn pio_inb(&mut self, port: u16) -> Result<u8, String> {
-        self.byte(c"ioctl_pio_inb", &[port as u64]).map(|v| v as u8)
+        self.byte(IOCTL_PIO_INB, &[port as u64]).map(|v| v as u8)
     }
 
     fn pio_outb(&mut self, port: u16, value: u8) -> Result<(), String> {
         self.module
-            .execute(c"ioctl_pio_outb", &[port as u64, value as u64], 0)
+            .execute(IOCTL_PIO_OUTB, &[port as u64, value as u64], 0)
             .map(|_| ())
     }
 
     fn superio_inb(&mut self, reg: u8) -> Result<u8, String> {
-        self.byte(c"ioctl_superio_inb", &[reg as u64])
-            .map(|v| v as u8)
+        self.byte(IOCTL_SUPERIO_INB, &[reg as u64]).map(|v| v as u8)
     }
 
     fn superio_inw(&mut self, reg: u8) -> Result<u16, String> {
-        self.byte(c"ioctl_superio_inw", &[reg as u64])
+        self.byte(IOCTL_SUPERIO_INW, &[reg as u64])
             .map(|v| v as u16)
     }
 
     fn superio_outb(&mut self, reg: u8, value: u8) -> Result<(), String> {
         self.module
-            .execute(c"ioctl_superio_outb", &[reg as u64, value as u64], 0)
+            .execute(IOCTL_SUPERIO_OUTB, &[reg as u64, value as u64], 0)
             .map(|_| ())
     }
 

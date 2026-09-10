@@ -4,7 +4,7 @@ use gale_hw::Backend;
 
 use gale_pawnio::modules::LPCACPIEC;
 use gale_pawnio::mutex::EC_MUTEX;
-use gale_pawnio::{Module, NamedMutex};
+use gale_pawnio::{wide, Module, NamedMutex};
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
     KEY_WOW64_64KEY,
@@ -16,10 +16,6 @@ use crate::protocol::EcPorts;
 use crate::EcStatus;
 
 const BIOS_KEY: &str = "HARDWARE\\DESCRIPTION\\System\\BIOS";
-
-fn wide(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain(std::iter::once(0)).collect()
-}
 
 pub fn registry_string(value_name: &str) -> Option<String> {
     let key_path = wide(BIOS_KEY);
