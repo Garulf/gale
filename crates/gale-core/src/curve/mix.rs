@@ -35,13 +35,13 @@ impl Curve for MixCurve {
         if values.is_empty() {
             return None;
         }
-        Some(match self.mode {
-            MixMode::Max => values.iter().copied().fold(f64::MIN, f64::max),
-            MixMode::Min => values.iter().copied().fold(f64::MAX, f64::min),
-            MixMode::Avg => values.iter().sum::<f64>() / values.len() as f64,
-            MixMode::Sum => values.iter().sum(),
-            MixMode::Subtract => unreachable!("handled above"),
-        })
+        match self.mode {
+            MixMode::Max => Some(values.iter().copied().fold(f64::MIN, f64::max)),
+            MixMode::Min => Some(values.iter().copied().fold(f64::MAX, f64::min)),
+            MixMode::Avg => Some(values.iter().sum::<f64>() / values.len() as f64),
+            MixMode::Sum => Some(values.iter().sum()),
+            MixMode::Subtract => None,
+        }
     }
 }
 

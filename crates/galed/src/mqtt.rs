@@ -11,6 +11,9 @@ use crate::engine_host::Snapshot;
 
 pub const FULL_REPUBLISH: Duration = Duration::from_secs(60);
 pub const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+/// How many snapshot ticks to let pass between discovery-fingerprint checks, so a
+/// config-change rescan doesn't hash the full config on every single tick.
+const FINGERPRINT_CHECK_INTERVAL_TICKS: u32 = 5;
 
 pub fn slug(id: &str) -> String {
     id.chars()
@@ -503,7 +506,7 @@ pub async fn run(ctx: ApiContext, cfg: MqttConfig) {
                     return;
                 }
                 ticks_since_check += 1;
-                if ticks_since_check >= 5 {
+                if ticks_since_check >= FINGERPRINT_CHECK_INTERVAL_TICKS {
                     ticks_since_check = 0;
                     let current = discovery_fingerprint(&ctx.host.config());
                     if current != fingerprint {

@@ -162,15 +162,14 @@ impl EngineHost {
                 .iter()
                 .filter_map(|id| sensor_kind_of(id, profile, known))
                 .collect();
-            if let (Some(first), Some(other)) = (
-                kinds.first(),
-                kinds.iter().find(|k| *k != kinds.first().unwrap()),
-            ) {
-                warnings.push(format!(
-                    "virtual sensor '{name}' mixes {} and {} inputs",
-                    kind_name(*first),
-                    kind_name(*other)
-                ));
+            if let Some(first) = kinds.first() {
+                if let Some(other) = kinds.iter().find(|kind| *kind != first) {
+                    warnings.push(format!(
+                        "virtual sensor '{name}' mixes {} and {} inputs",
+                        kind_name(*first),
+                        kind_name(*other)
+                    ));
+                }
             }
         }
         warnings
@@ -242,34 +241,10 @@ impl EngineHost {
                 assigned,
             )
         };
-        let mut failed: HashSet<Id> = HashSet::new();
-        for (id, duty) in &duties {
-            match self.backend.set_duty(id, *duty).await {
-                Ok(()) => {
-                    self.claimed.lock().unwrap().insert(id.clone());
-                    self.write_journal().await;
-                }
-                Err(error) => {
-                    tracing::warn!(%id, %error, "duty write failed, skipping control this tick");
-                    failed.insert(id.clone());
-                }
-            }
-        }
-        duties.retain(|id, _| !failed.contains(id));
-
-        let stale: Vec<Id> = {
-            let claimed = self.claimed.lock().unwrap();
-            claimed
-                .iter()
-                .filter(|id| !assigned.contains(*id) && !manual.contains_key(*id))
-                .cloned()
-                .collect()
-        };
-        for id in stale {
-            if self.backend.release(&id).await.is_ok() {
-                self.claimed.lock().unwrap().remove(&id);
-                self.write_journal().await;
-            }
+        let applied_dirty = self.apply_duties(&mut duties).await;
+        let released_dirty = self.release_stale(&assigned, &manual).await;
+        if applied_dirty || released_dirty {
+            self.write_journal().await;
         }
 
         let overrides: HashSet<Id> = manual.keys().cloned().collect();
@@ -281,6 +256,49 @@ impl EngineHost {
             overrides,
             active_profile,
         });
+    }
+
+    /// Writes each duty to its owning backend, dropping any control whose write fails
+    /// from `duties` so the published snapshot reflects what was actually applied.
+    /// Returns whether the claim set changed and the journal needs rewriting.
+    async fn apply_duties(&self, duties: &mut HashMap<Id, f64>) -> bool {
+        let mut failed: HashSet<Id> = HashSet::new();
+        let mut dirty = false;
+        for (id, duty) in duties.iter() {
+            match self.backend.set_duty(id, *duty).await {
+                Ok(()) => {
+                    self.claimed.lock().unwrap().insert(id.clone());
+                    dirty = true;
+                }
+                Err(error) => {
+                    tracing::warn!(%id, %error, "duty write failed, skipping control this tick");
+                    failed.insert(id.clone());
+                }
+            }
+        }
+        duties.retain(|id, _| !failed.contains(id));
+        dirty
+    }
+
+    /// Releases claimed controls that no longer have a curve assignment or manual
+    /// override. Returns whether the claim set changed and the journal needs rewriting.
+    async fn release_stale(&self, assigned: &HashSet<Id>, manual: &HashMap<Id, f64>) -> bool {
+        let stale: Vec<Id> = {
+            let claimed = self.claimed.lock().unwrap();
+            claimed
+                .iter()
+                .filter(|id| !assigned.contains(*id) && !manual.contains_key(*id))
+                .cloned()
+                .collect()
+        };
+        let mut dirty = false;
+        for id in stale {
+            if self.backend.release(&id).await.is_ok() {
+                self.claimed.lock().unwrap().remove(&id);
+                dirty = true;
+            }
+        }
+        dirty
     }
 
     pub async fn replace_config(&self, new: GaleConfig) -> Result<(), ConfigError> {
@@ -301,11 +319,15 @@ impl EngineHost {
                 .cloned()
                 .collect()
         };
+        let mut journal_dirty = false;
         for id in stale {
             if self.backend.release(&id).await.is_ok() {
                 self.claimed.lock().unwrap().remove(&id);
-                self.write_journal().await;
+                journal_dirty = true;
             }
+        }
+        if journal_dirty {
+            self.write_journal().await;
         }
         Ok(())
     }

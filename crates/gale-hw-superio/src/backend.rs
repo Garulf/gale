@@ -81,6 +81,25 @@ fn mutex_timeout(path: &str) -> HwError {
     io_error(path, "isa bus mutex timeout".to_string())
 }
 
+/// Locks the ISA bus and reselects the chip's config-space slot, mapping every
+/// failure to an `HwError` tagged with `id`. Shared by the write paths
+/// (`apply_hint`, `set_duty`, `release`), which all need this exact sequence
+/// before touching a chip's registers.
+fn lock_and_select<'io>(
+    io: &'io mut dyn PortIo,
+    current_slot: &mut Option<u8>,
+    timeout: Duration,
+    id: &str,
+    slot: u8,
+) -> Result<transport::Locked<'io>, HwError> {
+    let guard = transport::lock(io, timeout).map_err(|message| io_error(id, message))?;
+    let Some(mut guard) = guard else {
+        return Err(mutex_timeout(id));
+    };
+    ensure_slot(current_slot, &mut *guard, slot).map_err(|message| io_error(id, message))?;
+    Ok(guard)
+}
+
 impl SuperIoBackend {
     pub fn new(mut io: Box<dyn PortIo>) -> Result<Self, SuperIoStatus> {
         let mut chips = Vec::new();
@@ -153,18 +172,13 @@ impl SuperIoBackend {
             return Err(HwError::UnknownId(hint.slug.clone()));
         }
 
-        let guard = transport::lock(self.io.as_mut(), WRITE_LOCK_TIMEOUT)
-            .map_err(|message| io_error(&hint.slug, message))?;
-        let Some(mut guard) = guard else {
-            return Err(mutex_timeout(&hint.slug));
-        };
-
-        ensure_slot(
+        let mut guard = lock_and_select(
+            self.io.as_mut(),
             &mut self.current_slot,
-            &mut *guard,
+            WRITE_LOCK_TIMEOUT,
+            &hint.slug,
             self.chips[chip_index].detected.slot,
-        )
-        .map_err(|message| io_error(&hint.slug, message))?;
+        )?;
 
         self.chips[chip_index]
             .driver
@@ -315,18 +329,13 @@ impl Backend for SuperIoBackend {
             return Err(io_error(id, "non-finite duty".to_string()));
         }
 
-        let guard = transport::lock(self.io.as_mut(), WRITE_LOCK_TIMEOUT)
-            .map_err(|message| io_error(id, message))?;
-        let Some(mut guard) = guard else {
-            return Err(mutex_timeout(id));
-        };
-
-        ensure_slot(
+        let mut guard = lock_and_select(
+            self.io.as_mut(),
             &mut self.current_slot,
-            &mut *guard,
+            WRITE_LOCK_TIMEOUT,
+            id,
             self.chips[chip_index].detected.slot,
-        )
-        .map_err(|message| io_error(id, message))?;
+        )?;
 
         let raw = duty_to_raw(pct);
         self.chips[chip_index]
@@ -341,18 +350,13 @@ impl Backend for SuperIoBackend {
             .get(id)
             .ok_or_else(|| HwError::UnknownId(id.to_string()))?;
 
-        let guard = transport::lock(self.io.as_mut(), WRITE_LOCK_TIMEOUT)
-            .map_err(|message| io_error(id, message))?;
-        let Some(mut guard) = guard else {
-            return Err(mutex_timeout(id));
-        };
-
-        ensure_slot(
+        let mut guard = lock_and_select(
+            self.io.as_mut(),
             &mut self.current_slot,
-            &mut *guard,
+            WRITE_LOCK_TIMEOUT,
+            id,
             self.chips[chip_index].detected.slot,
-        )
-        .map_err(|message| io_error(id, message))?;
+        )?;
 
         self.chips[chip_index]
             .driver

@@ -58,6 +58,9 @@ pub fn parse_proc_stat(text: &str) -> Option<CpuTimes> {
     let line = text
         .lines()
         .find(|line| line.split_whitespace().next() == Some("cpu"))?;
+    // /proc/stat's cpu fields are kernel-formatted decimal counters; a malformed
+    // field would mean something is badly wrong with the running kernel, not a
+    // condition worth failing the whole read over, so it degrades to 0 instead.
     let fields: Vec<u64> = line
         .split_whitespace()
         .skip(1)

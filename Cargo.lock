@@ -770,6 +770,7 @@ name = "gale-hw-cpu"
 version = "0.10.0"
 dependencies = [
  "gale-hw",
+ "gale-pawnio",
  "tempfile",
  "tracing",
  "windows-sys 0.61.2",
@@ -824,6 +825,7 @@ dependencies = [
 name = "gale-tray"
 version = "0.10.0"
 dependencies = [
+ "gale-pawnio",
  "serde",
  "serde_json",
  "tray-icon",
