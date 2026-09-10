@@ -977,7 +977,6 @@ pub const BOARDS: &[Board] = &[
             "TempCPU",
             "TempMB",
             "TempVrm",
-            "TempVrm",
             "FanCPUOpt",
             "CurrCPU",
             "VoltageCPU",
@@ -1306,11 +1305,6 @@ pub const BOARDS: &[Board] = &[
             "FanCPUOpt",
             "FanWaterFlow",
         ],
-    },
-    Board {
-        product: "ROG STRIX X870-I GAMING WIFI",
-        family: Family::Amd800,
-        sensors: &["TempCPU", "TempCPUPackage", "TempMB", "TempVrm"],
     },
     Board {
         product: "ROG STRIX X870-I GAMING WIFI",
