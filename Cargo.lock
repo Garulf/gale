@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "gale-cli"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "clap",
  "gale-core",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "gale-core"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -729,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-amdcpu"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "gale-pawnio",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-asus-ec"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "gale-pawnio",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-corsair"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "hidapi",
@@ -767,7 +767,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-cpu"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "gale-pawnio",
@@ -778,7 +778,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-dimm"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "gale-pawnio",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-hwmon"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "tempfile",
@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-nvidia"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "nvml-wrapper",
@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "gale-hw-superio"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-hw",
  "gale-pawnio",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "gale-pawnio"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "libloading 0.9.0",
  "sha2",
@@ -823,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "gale-tray"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gale-pawnio",
  "serde",
@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "galed"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "axum",
  "futures",
