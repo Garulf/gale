@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/Garulf/gale/compare/gale-v0.11.1...gale-v0.11.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **ui:** keep group input/output strips fixed on the canvas ([2b02db5](https://github.com/Garulf/gale/commit/2b02db5514f423ea442cc406324edc768e55a0ee))
+
 ## [0.11.1](https://github.com/Garulf/gale/compare/gale-v0.11.0...gale-v0.11.1) (2026-09-10)
 
 
