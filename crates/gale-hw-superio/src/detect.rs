@@ -13,6 +13,16 @@ pub const SLOTS: [u8; 2] = [0, 1];
 pub const INDEX_PORTS: [u16; 2] = [0x2E, 0x4E];
 pub const HARDWARE_MONITOR_LDN: u8 = 0x0B;
 
+const CONFIG_ENTER_BYTE: u8 = 0x87;
+const CONFIG_EXIT_BYTE: u8 = 0xAA;
+const REG_CHIP_ID: u8 = 0x20;
+const REG_CHIP_REVISION: u8 = 0x21;
+const REG_LOGICAL_DEVICE: u8 = 0x07;
+const REG_ACTIVATE: u8 = 0x30;
+const REG_BASE_ADDRESS: u8 = 0x60;
+const REG_IO_SPACE_LOCK: u8 = 0x28;
+const IO_SPACE_LOCK_BIT: u8 = 0x10;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Chip {
     Nct6771F,
@@ -120,13 +130,21 @@ fn index_port(slot: u8) -> Result<u16, String> {
 
 pub fn enter_config(io: &mut dyn PortIo, slot: u8) -> Result<(), String> {
     let port = index_port(slot)?;
-    io.pio_outb(port, 0x87)?;
-    io.pio_outb(port, 0x87)
+    io.pio_outb(port, CONFIG_ENTER_BYTE)?;
+    io.pio_outb(port, CONFIG_ENTER_BYTE)
 }
 
 pub fn exit_config(io: &mut dyn PortIo, slot: u8) -> Result<(), String> {
     let port = index_port(slot)?;
-    io.pio_outb(port, 0xAA)
+    io.pio_outb(port, CONFIG_EXIT_BYTE)
+}
+
+/// Best-effort exit from config mode on an already-failed detection path: the
+/// original error is what matters, so a failure here is only logged, not propagated.
+fn exit_config_after_failure(io: &mut dyn PortIo, slot: u8) {
+    if let Err(error) = exit_config(io, slot) {
+        tracing::warn!(%error, slot, "failed to exit super i/o config mode");
+    }
 }
 
 pub fn detect_slot(io: &mut dyn PortIo, slot: u8) -> Result<Option<DetectedChip>, String> {
@@ -135,14 +153,14 @@ pub fn detect_slot(io: &mut dyn PortIo, slot: u8) -> Result<Option<DetectedChip>
 
     let result = detect_slot_in_config(io, slot);
     if result.is_err() {
-        let _ = exit_config(io, slot);
+        exit_config_after_failure(io, slot);
     }
     result
 }
 
 fn detect_slot_in_config(io: &mut dyn PortIo, slot: u8) -> Result<Option<DetectedChip>, String> {
-    let id = io.superio_inb(0x20)?;
-    let revision = io.superio_inb(0x21)?;
+    let id = io.superio_inb(REG_CHIP_ID)?;
+    let revision = io.superio_inb(REG_CHIP_REVISION)?;
 
     let chip = match Chip::from_id(id, revision) {
         ChipId::Supported(chip) => chip,
@@ -153,14 +171,14 @@ fn detect_slot_in_config(io: &mut dyn PortIo, slot: u8) -> Result<Option<Detecte
             return Ok(None);
         }
         ChipId::Unknown => {
-            let _ = exit_config(io, slot);
+            exit_config_after_failure(io, slot);
             tracing::info!(
                 "unknown super i/o chip id=0x{id:02x} revision=0x{revision:02x} slot={slot}"
             );
             return Ok(None);
         }
         ChipId::Unsupported(name) => {
-            let _ = exit_config(io, slot);
+            exit_config_after_failure(io, slot);
             tracing::info!("unsupported super i/o chip {name}");
             return Ok(None);
         }
@@ -176,23 +194,23 @@ fn finish_chip_detection(
     revision: u8,
 ) -> Result<Option<DetectedChip>, String> {
     io.find_bars()?;
-    io.superio_outb(0x07, HARDWARE_MONITOR_LDN)?;
+    io.superio_outb(REG_LOGICAL_DEVICE, HARDWARE_MONITOR_LDN)?;
 
-    let active = io.superio_inb(0x30)? & 1;
+    let active = io.superio_inb(REG_ACTIVATE)? & 1;
     if active == 0 {
-        let _ = exit_config(io, slot);
+        exit_config_after_failure(io, slot);
         tracing::warn!("hardware monitor logical device inactive");
         return Ok(None);
     }
 
-    let base = io.superio_inw(0x60)?;
+    let base = io.superio_inw(REG_BASE_ADDRESS)?;
     io.sleep(Duration::from_millis(1));
-    let verify = io.superio_inw(0x60)?;
+    let verify = io.superio_inw(REG_BASE_ADDRESS)?;
 
     if chip.has_io_space_lock() && base == verify {
-        let cr28 = io.superio_inb(0x28)?;
-        if cr28 & 0x10 != 0 {
-            io.superio_outb(0x28, cr28 & !0x10)?;
+        let cr28 = io.superio_inb(REG_IO_SPACE_LOCK)?;
+        if cr28 & IO_SPACE_LOCK_BIT != 0 {
+            io.superio_outb(REG_IO_SPACE_LOCK, cr28 & !IO_SPACE_LOCK_BIT)?;
         }
     }
 
@@ -234,9 +252,9 @@ pub fn reselect(io: &mut dyn PortIo, slot: u8) -> Result<(), String> {
 
 pub fn unlock_io_space(io: &mut dyn PortIo, slot: u8) -> Result<(), String> {
     enter_config(io, slot)?;
-    let cr28 = io.superio_inb(0x28)?;
-    if cr28 & 0x10 != 0 {
-        io.superio_outb(0x28, cr28 & !0x10)?;
+    let cr28 = io.superio_inb(REG_IO_SPACE_LOCK)?;
+    if cr28 & IO_SPACE_LOCK_BIT != 0 {
+        io.superio_outb(REG_IO_SPACE_LOCK, cr28 & !IO_SPACE_LOCK_BIT)?;
     }
     exit_config(io, slot)
 }

@@ -107,7 +107,10 @@ fn request(cli: &Cli, method: &str, path: &str) -> ureq::Request {
 fn describe(error: ureq::Error) -> String {
     match error {
         ureq::Error::Status(code, response) => {
-            format!("{code}: {}", response.into_string().unwrap_or_default())
+            let body = response
+                .into_string()
+                .unwrap_or_else(|_| "<unreadable body>".to_string());
+            format!("{code}: {body}")
         }
         other => other.to_string(),
     }

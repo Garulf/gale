@@ -256,10 +256,7 @@ async fn put_label(
     }
     let mut config = ctx.host.config();
     config.labels.insert(id, label);
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 async fn delete_label(State(ctx): State<ApiContext>, Path(id): Path<String>) -> Response {
@@ -267,10 +264,7 @@ async fn delete_label(State(ctx): State<ApiContext>, Path(id): Path<String>) -> 
     if config.labels.remove(&id).is_none() {
         return (StatusCode::NOT_FOUND, format!("no label set for '{id}'")).into_response();
     }
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 async fn put_dashboard_ui(
@@ -279,10 +273,7 @@ async fn put_dashboard_ui(
 ) -> Response {
     let mut config = ctx.host.config();
     config.ui.dashboard = dashboard;
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 async fn put_control_settings(
@@ -296,10 +287,7 @@ async fn put_control_settings(
     } else {
         config.controls.insert(id, settings);
     }
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 async fn delete_control_settings(
@@ -314,10 +302,7 @@ async fn delete_control_settings(
         )
             .into_response();
     }
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 #[derive(Serialize)]
@@ -344,10 +329,7 @@ async fn put_preset(
     }
     let mut config = ctx.host.config();
     config.presets.insert(name, preset);
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 async fn delete_preset(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
@@ -366,10 +348,7 @@ async fn delete_preset(State(ctx): State<ApiContext>, Path(name): Path<String>) 
         )
             .into_response();
     }
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 #[derive(Serialize)]
@@ -397,6 +376,13 @@ async fn apply_and_persist(ctx: &ApiContext, config: GaleConfig) -> Result<(), C
         tracing::warn!(%error, "config persisted to disk failed");
     }
     Ok(())
+}
+
+async fn apply_persist_no_content(ctx: &ApiContext, config: GaleConfig) -> Response {
+    match apply_and_persist(ctx, config).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => config_error_response(error),
+    }
 }
 
 fn merge_api_key(existing: Option<String>, incoming: Option<String>) -> Option<String> {
@@ -449,10 +435,7 @@ async fn create_profile(State(ctx): State<ApiContext>, Path(name): Path<String>)
     config
         .profiles
         .insert(name, gale_core::config::ProfileConfig::default());
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 async fn delete_profile(State(ctx): State<ApiContext>, Path(name): Path<String>) -> Response {
@@ -473,10 +456,7 @@ async fn delete_profile(State(ctx): State<ApiContext>, Path(name): Path<String>)
     }
     config.ui.hidden.remove(&name);
     config.ui.compact.remove(&name);
-    match apply_and_persist(&ctx, config).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => config_error_response(error),
-    }
+    apply_persist_no_content(&ctx, config).await
 }
 
 pub(crate) async fn activate_profile_named(ctx: &ApiContext, name: &str) -> Result<(), String> {
@@ -577,17 +557,12 @@ impl crate::calibration::Actuator for HostActuator {
 }
 
 async fn start_calibration(State(ctx): State<ApiContext>, Path(id): Path<String>) -> Response {
-    let known = ctx
-        .inventory
-        .read()
-        .unwrap()
-        .controls
-        .iter()
-        .any(|c| c.id == id);
+    let inventory = ctx.inventory.read().unwrap();
+    let known = inventory.controls.iter().any(|c| c.id == id);
     if !known {
         return (StatusCode::NOT_FOUND, format!("unknown control '{id}'")).into_response();
     }
-    let tach = match crate::calibration::tach_for(&id, &ctx.inventory.read().unwrap()) {
+    let tach = match crate::calibration::tach_for(&id, &inventory) {
         Some(tach) => tach,
         None => {
             return (
@@ -597,6 +572,7 @@ async fn start_calibration(State(ctx): State<ApiContext>, Path(id): Path<String>
                 .into_response()
         }
     };
+    drop(inventory);
     let cancel = match ctx.calibrator.begin(&id, &tach) {
         Ok(cancel) => cancel,
         Err(message) => return (StatusCode::CONFLICT, message).into_response(),
@@ -736,7 +712,13 @@ async fn send_snapshot(
     socket: &mut WebSocket,
     snapshot: &crate::engine_host::Snapshot,
 ) -> Result<(), axum::Error> {
-    let text = serde_json::to_string(snapshot).unwrap_or_default();
+    let text = match serde_json::to_string(snapshot) {
+        Ok(text) => text,
+        Err(error) => {
+            tracing::warn!(%error, "failed to serialize snapshot, skipping this update");
+            return Ok(());
+        }
+    };
     socket.send(Message::Text(text)).await
 }
 

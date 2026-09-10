@@ -226,6 +226,13 @@ impl DimmBackend {
         self.io.unlock();
         Ok(result)
     }
+
+    fn locked_try<T>(
+        &mut self,
+        f: impl FnOnce(&mut dyn Smbus) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.locked(f)?
+    }
 }
 
 impl Backend for DimmBackend {
@@ -235,8 +242,7 @@ impl Backend for DimmBackend {
 
     fn enumerate(&mut self) -> Result<Inventory, HwError> {
         let modules = self
-            .locked(|io| detect(io))
-            .and_then(|r| r)
+            .locked_try(|io| detect(io))
             .map_err(|message| HwError::Io {
                 path: PREFIX.to_string(),
                 message,
@@ -259,13 +265,14 @@ impl Backend for DimmBackend {
     fn read_all(&mut self) -> HashMap<Id, Option<f64>> {
         let modules = self.modules.clone();
         let mut values: HashMap<Id, Option<f64>> = modules.iter().map(|m| (m.id(), None)).collect();
-        if let Ok(read) = self.locked(|io| {
+        match self.locked(|io| {
             modules
                 .iter()
                 .map(|m| (m.id(), read_temperature(io, m)))
                 .collect::<Vec<_>>()
         }) {
-            values.extend(read);
+            Ok(read) => values.extend(read),
+            Err(message) => tracing::debug!(%message, "dimm smbus read failed"),
         }
         values
     }

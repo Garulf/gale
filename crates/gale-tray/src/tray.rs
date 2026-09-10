@@ -1,7 +1,6 @@
-use std::ffi::OsStr;
-use std::os::windows::ffi::OsStrExt;
 use std::time::Duration;
 
+use gale_pawnio::wide;
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 use windows_sys::Win32::Foundation::HWND;
@@ -46,10 +45,10 @@ pub fn run() -> Result<(), String> {
         &PredefinedMenuItem::separator(),
         &quit_item,
     ])
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| format!("building tray menu: {error}"))?;
 
     let icon = Icon::from_rgba(ICON_RGBA.to_vec(), ICON_WIDTH, ICON_HEIGHT)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("loading tray icon: {error}"))?;
 
     let items = MenuItems {
         status,
@@ -64,7 +63,7 @@ pub fn run() -> Result<(), String> {
         .with_icon(icon)
         .with_tooltip("Gale fan control")
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("building tray icon: {error}"))?;
 
     let hwnd = create_message_window()?;
     spawn_state_poller(hwnd);
@@ -77,8 +76,8 @@ pub fn run() -> Result<(), String> {
 }
 
 fn create_message_window() -> Result<HWND, String> {
-    let class_name = to_wide("STATIC");
-    let window_name = to_wide("gale-tray-message-window");
+    let class_name = wide("STATIC");
+    let window_name = wide("gale-tray-message-window");
 
     let hwnd = unsafe {
         CreateWindowExW(
@@ -178,8 +177,8 @@ fn apply_state(items: &MenuItems, state: TrayState) {
 }
 
 fn open_ui() {
-    let operation = to_wide("open");
-    let url = to_wide(UI_URL);
+    let operation = wide("open");
+    let url = wide(UI_URL);
     unsafe {
         ShellExecuteW(
             std::ptr::null_mut(),
@@ -190,11 +189,4 @@ fn open_ui() {
             SW_SHOWNORMAL,
         );
     }
-}
-
-fn to_wide(value: &str) -> Vec<u16> {
-    OsStr::new(value)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
 }
