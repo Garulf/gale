@@ -1,9 +1,10 @@
 use std::ffi::c_void;
 
+use gale_pawnio::wide;
 use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::System::Performance::{
-    PdhAddCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue, PdhOpenQueryW,
-    PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
+    PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue,
+    PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
 };
 use windows_sys::Win32::System::Power::{
     CallNtPowerInformation, ProcessorInformation, PROCESSOR_POWER_INFORMATION,
@@ -106,8 +107,11 @@ impl CpuFreq for ProcessorPowerInformation {
     }
 }
 
-fn to_wide_cstring(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(std::iter::once(0)).collect()
+fn pdh_check(status: u32, operation: &str) -> Result<(), String> {
+    if status != PDH_SUCCESS {
+        return Err(format!("{operation} failed: 0x{status:08x}"));
+    }
+    Ok(())
 }
 
 pub struct PerformanceCounterFrequency {
@@ -121,15 +125,13 @@ impl PerformanceCounterFrequency {
         let base_mhz = base_mhz()?;
         let mut query: PDH_HQUERY = std::ptr::null_mut();
         let status = unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) };
-        if status != PDH_SUCCESS {
-            return Err(format!("PdhOpenQueryW failed: 0x{status:08x}"));
-        }
-        let path = to_wide_cstring(PROCESSOR_PERFORMANCE_COUNTER_PATH);
+        pdh_check(status, "PdhOpenQueryW")?;
+        let path = wide(PROCESSOR_PERFORMANCE_COUNTER_PATH);
         let mut counter: PDH_HCOUNTER = std::ptr::null_mut();
-        let status = unsafe { PdhAddCounterW(query, path.as_ptr(), 0, &mut counter) };
-        if status != PDH_SUCCESS {
+        let status = unsafe { PdhAddEnglishCounterW(query, path.as_ptr(), 0, &mut counter) };
+        if let Err(message) = pdh_check(status, "PdhAddEnglishCounterW") {
             unsafe { PdhCloseQuery(query) };
-            return Err(format!("PdhAddCounterW failed: 0x{status:08x}"));
+            return Err(message);
         }
         Ok(Self {
             query,
@@ -152,21 +154,19 @@ impl Drop for PerformanceCounterFrequency {
 unsafe impl Send for PerformanceCounterFrequency {}
 
 impl CpuFreq for PerformanceCounterFrequency {
+    fn needs_warmup(&self) -> bool {
+        true
+    }
+
     fn read_mhz(&mut self) -> Result<Vec<f64>, String> {
         let status = unsafe { PdhCollectQueryData(self.query) };
-        if status != PDH_SUCCESS {
-            return Err(format!("PdhCollectQueryData failed: 0x{status:08x}"));
-        }
+        pdh_check(status, "PdhCollectQueryData")?;
         let mut value: PDH_FMT_COUNTERVALUE = unsafe { std::mem::zeroed() };
         let mut counter_type: u32 = 0;
         let status = unsafe {
             PdhGetFormattedCounterValue(self.counter, PDH_FMT_DOUBLE, &mut counter_type, &mut value)
         };
-        if status != PDH_SUCCESS {
-            return Err(format!(
-                "PdhGetFormattedCounterValue failed: 0x{status:08x}"
-            ));
-        }
+        pdh_check(status, "PdhGetFormattedCounterValue")?;
         let percent = unsafe { value.Anonymous.doubleValue };
         let mhz = effective_mhz_from_percent(percent, self.base_mhz).ok_or_else(|| {
             format!(

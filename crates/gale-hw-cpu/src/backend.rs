@@ -19,6 +19,15 @@ pub trait ProcStat: Send {
 
 pub trait CpuFreq: Send {
     fn read_mhz(&mut self) -> Result<Vec<f64>, String>;
+
+    /// Whether an enumeration-time read failure should still register the clock
+    /// sensor, because this source needs a warm-up read before it can report data
+    /// (e.g. a Windows PDH rate counter, which needs a second collect to compute a
+    /// delta). Sources whose failures are deterministic (a sysfs file that will
+    /// never exist) must leave this `false` so enumeration excludes the sensor.
+    fn needs_warmup(&self) -> bool {
+        false
+    }
 }
 
 pub trait Rapl: Send {
@@ -156,25 +165,22 @@ impl Backend for CpuBackend {
             }
         }
         if let Some(source) = self.sources.clock.as_mut() {
-            match source.read_mhz() {
-                Ok(cores) if mean_mhz(&cores).is_some() => sensors.push(SensorInfo {
+            let live = match source.read_mhz() {
+                Ok(cores) => mean_mhz(&cores).is_some(),
+                Err(message) => {
+                    let assume_warmup = source.needs_warmup();
+                    tracing::debug!(%message, assume_warmup, "cpu clock read failed during enumeration");
+                    assume_warmup
+                }
+            };
+            if live {
+                sensors.push(SensorInfo {
                     id: id("clock"),
                     label: "CPU Clock".to_string(),
                     kind: SensorKind::Clock,
-                }),
-                Ok(_) => tracing::debug!("cpu clock reported no live cores"),
-                Err(message) => {
-                    tracing::debug!(
-                        %message,
-                        "cpu clock read failed during enumeration; registering the sensor \
-                         anyway since some sources need a warm-up read before they settle"
-                    );
-                    sensors.push(SensorInfo {
-                        id: id("clock"),
-                        label: "CPU Clock".to_string(),
-                        kind: SensorKind::Clock,
-                    });
-                }
+                });
+            } else {
+                tracing::debug!("cpu clock unavailable during enumeration");
             }
         }
         if let Some(source) = self.sources.power.as_mut() {
@@ -242,9 +248,14 @@ mod tests {
     #[derive(Default)]
     struct FakeFreq {
         samples: VecDeque<Result<Vec<f64>, String>>,
+        needs_warmup: bool,
     }
 
     impl CpuFreq for FakeFreq {
+        fn needs_warmup(&self) -> bool {
+            self.needs_warmup
+        }
+
         fn read_mhz(&mut self) -> Result<Vec<f64>, String> {
             self.samples
                 .pop_front()
@@ -387,6 +398,7 @@ mod tests {
             })),
             clock: Some(Box::new(FakeFreq {
                 samples: [Ok(vec![3000.0]), Ok(vec![3000.0, 4000.0])].into(),
+                needs_warmup: false,
             })),
             power: Some(Box::new(FakeRapl {
                 samples: [Ok(0), Ok(1_000_000), Ok(3_000_000)].into(),
@@ -417,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn a_transient_read_error_during_enumeration_does_not_drop_the_clock_sensor() {
+    fn a_transient_read_error_from_a_source_that_needs_warmup_does_not_drop_the_clock_sensor() {
         let mut backend = CpuBackend::new(CpuSources {
             usage: None,
             clock: Some(Box::new(FakeFreq {
@@ -426,6 +438,7 @@ mod tests {
                     Ok(vec![3200.0]),
                 ]
                 .into(),
+                needs_warmup: true,
             })),
             power: None,
         });
@@ -442,11 +455,27 @@ mod tests {
     }
 
     #[test]
+    fn a_deterministic_read_error_during_enumeration_drops_the_clock_sensor() {
+        let mut backend = CpuBackend::new(CpuSources {
+            usage: None,
+            clock: Some(Box::new(FakeFreq {
+                samples: [Err("no cpufreq or cpuinfo frequencies".to_string())].into(),
+                needs_warmup: false,
+            })),
+            power: None,
+        });
+        let inventory = backend.enumerate().unwrap();
+        assert!(inventory.sensors.is_empty());
+        assert!(!backend.read_all().contains_key("cpu/clock"));
+    }
+
+    #[test]
     fn a_source_that_cannot_be_read_is_left_out_of_the_inventory() {
         let mut backend = CpuBackend::new(CpuSources {
             usage: Some(Box::new(FakeStat::default())),
             clock: Some(Box::new(FakeFreq {
                 samples: [Ok(vec![0.0])].into(),
+                needs_warmup: false,
             })),
             power: None,
         });
