@@ -102,8 +102,8 @@
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
     border: 1px solid var(--line);
     border-radius: var(--r);
     background: var(--surface2);
@@ -113,24 +113,24 @@
 
   .compact .current {
     width: auto;
-    height: 36px;
-    padding: 0 12px;
-    gap: 8px;
-    font-size: 12px;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    gap: 0.5rem;
+    font-size: 0.75rem;
     background: var(--surface);
   }
 
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 50%;
     background: var(--accent);
     flex-shrink: 0;
   }
 
   .compact .dot {
-    width: 6px;
-    height: 6px;
+    width: 0.375rem;
+    height: 0.375rem;
   }
 
   .text {
@@ -142,7 +142,7 @@
 
   .name {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 0.8125rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -150,26 +150,26 @@
 
   .compact .name {
     font-weight: 500;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .chev {
     margin-left: auto;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 0.6875rem;
   }
 
   .menu {
     position: absolute;
     left: 0;
     right: 0;
-    top: calc(100% + 6px);
-    min-width: 160px;
+    top: calc(100% + 0.375rem);
+    min-width: 10rem;
     background: var(--surface);
     border: 1px solid var(--line2);
     border-radius: var(--r);
     box-shadow: var(--shadow);
-    padding: 4px;
+    padding: 0.25rem;
     z-index: 20;
     display: flex;
     flex-direction: column;
@@ -191,7 +191,7 @@
   }
 
   .entry .remove {
-    padding: 0 8px;
+    padding: 0 0.5rem;
     color: var(--muted);
   }
 
@@ -202,14 +202,14 @@
   .menu button {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
     border: none;
     background: none;
     color: var(--ink);
     border-radius: var(--r);
     text-align: left;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .menu button span:first-child {
@@ -221,7 +221,7 @@
   }
 
   .active {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--accent);
   }
 
@@ -229,13 +229,13 @@
     border-top: 1px solid var(--line);
     border-radius: 0;
     margin-top: 2px;
-    padding-top: 10px;
+    padding-top: 0.625rem;
     color: var(--muted);
   }
 
   .empty {
-    padding: 8px 10px;
-    font-size: 12px;
+    padding: 0.5rem 0.625rem;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 </style>

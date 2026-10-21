@@ -78,17 +78,22 @@
   const PANEL_WIDTH_KEY = 'gale.graph.panelWidth';
   const PANEL_MIN = 260;
   const PANEL_MAX = 1080;
-  let panelWidth = $state(readPanelWidth());
+  let storedPanelWidth = readStoredPanelWidth();
+  let panelWidth = $state(storedPanelWidth ?? defaultPanelWidth());
   let resizing = $state(false);
 
-  function readPanelWidth() {
+  function readStoredPanelWidth() {
     try {
       const stored = Number(localStorage.getItem(PANEL_WIDTH_KEY));
       if (Number.isFinite(stored) && stored >= PANEL_MIN && stored <= PANEL_MAX) return stored;
     } catch (err) {
-      return 330;
+      return null;
     }
-    return 330;
+    return null;
+  }
+
+  function defaultPanelWidth() {
+    return Math.min(PANEL_MAX, Math.max(330, Math.round(window.innerWidth * 0.17)));
   }
 
   function clampPanelWidth(width) {
@@ -106,6 +111,7 @@
     };
     const stop = () => {
       resizing = false;
+      storedPanelWidth = panelWidth;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
       try {
@@ -119,7 +125,7 @@
   }
 
   function onViewportResize() {
-    panelWidth = clampPanelWidth(panelWidth);
+    panelWidth = clampPanelWidth(storedPanelWidth ?? defaultPanelWidth());
   }
   let sheetOpen = $state(false);
   const mobileQuery = window.matchMedia('(max-width: 720px)');
@@ -1116,9 +1122,9 @@
     .gale-chains {
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 1.125rem;
       overflow: auto;
-      padding: 16px 16px 110px;
+      padding: 1rem 1rem 6.875rem;
       background: var(--canvas);
       background-image: radial-gradient(var(--grid) 1px, transparent 1px);
       background-size: 20px 20px;
@@ -1131,40 +1137,40 @@
     .chains-head {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 0.5rem;
     }
 
     .chains-head h1 {
-      font-size: 20px;
+      font-size: 1.25rem;
     }
 
     .chains-actions {
       margin-left: auto;
       display: flex;
-      gap: 6px;
+      gap: 0.375rem;
     }
 
     .chains-actions .btn {
-      height: 36px;
-      padding: 0 12px;
+      height: 2.25rem;
+      padding: 0 0.75rem;
     }
 
     .chains-foot {
       display: flex;
-      gap: 6px;
+      gap: 0.375rem;
     }
 
     .chains-foot .btn {
       flex: 1;
-      height: 44px;
-      font-size: 13px;
+      height: 2.75rem;
+      font-size: 0.8125rem;
     }
 
     .gale-view-toggle {
       display: block;
       position: absolute;
-      top: 58px;
-      left: 10px;
+      top: 3.625rem;
+      left: 0.625rem;
       z-index: 6;
       background: var(--surface);
     }
@@ -1184,7 +1190,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      top: 72px;
+      top: 4.5rem;
       background: var(--surface);
       border: 1px solid var(--line);
       border-bottom: none;
@@ -1196,12 +1202,12 @@
     .grip {
       display: flex;
       justify-content: center;
-      padding: 8px 0 0;
+      padding: 0.5rem 0 0;
     }
 
     .grip span {
-      width: 36px;
-      height: 4px;
+      width: 2.25rem;
+      height: 0.25rem;
       border-radius: 2px;
       background: var(--line2);
     }
@@ -1209,23 +1215,23 @@
     .sheet-body {
       flex: 1;
       overflow: auto;
-      padding: 14px 16px 24px;
+      padding: 0.875rem 1rem 1.5rem;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 1rem;
     }
 
     .sheet-foot {
-      padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+      padding: 0.625rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
       border-top: 1px solid var(--line);
       background: var(--surface);
       display: flex;
-      gap: 8px;
+      gap: 0.5rem;
     }
 
     .sheet-foot .btn {
-      height: 48px;
-      font-size: 14px;
+      height: 3rem;
+      font-size: 0.875rem;
     }
 
     .sheet-foot .btn:first-child {

@@ -33,8 +33,10 @@
   --node-shadow: none;
   --num-weight: 500;
   --title-weight: 600;
-  --label-size: 11px;
+  --label-size: 0.6875rem;
   --label-tracking: 0.08em;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --quick: 140ms;
   color-scheme: dark;
 }
 
@@ -75,11 +77,15 @@ body {
   height: 100%;
 }
 
+html {
+  font-size: clamp(100%, 0.5rem + 0.4vw, 125%);
+}
+
 body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: 0.875rem;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -119,6 +125,19 @@ button:disabled {
   cursor: default;
 }
 
+button,
+input,
+select,
+textarea,
+.card {
+  transition:
+    color var(--quick) var(--ease),
+    background-color var(--quick) var(--ease),
+    border-color var(--quick) var(--ease),
+    box-shadow var(--quick) var(--ease),
+    opacity var(--quick) var(--ease);
+}
+
 .eyebrow {
   font-size: var(--label-size);
   text-transform: uppercase;
@@ -132,7 +151,7 @@ button:disabled {
 
 .section-title {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: var(--label-tracking);
@@ -142,32 +161,33 @@ button:disabled {
 .section-head {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .section-head .hint {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--faint);
 }
 
 .page {
   flex: 1;
   overflow: auto;
-  padding: 28px 32px 40px;
+  padding: 1.75rem 2rem 2.5rem;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 1.75rem;
+  animation: page-in 180ms var(--ease);
 }
 
 .page-title {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.25rem;
 }
 
 .page-title h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 1.625rem;
   font-weight: var(--title-weight);
 }
 
@@ -182,8 +202,8 @@ button:disabled {
   background: none;
   color: var(--muted);
   border-radius: var(--r);
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 0.3125rem 0.625rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -211,12 +231,12 @@ button:disabled {
 .field {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   background: var(--surface2);
   border: 1px solid var(--line);
   border-radius: var(--r);
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
   color: var(--muted);
   min-width: 0;
 }
@@ -228,7 +248,7 @@ button:disabled {
   background: none;
   border: none;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 0.75rem;
   outline: none;
   text-align: right;
 }
@@ -243,7 +263,7 @@ button:disabled {
 
 .error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: 0.75rem;
   margin: 0;
 }
 
@@ -252,14 +272,14 @@ button:disabled {
 }
 
 .pill {
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
   border: 1px solid var(--accent);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 2px 0.5rem;
   white-space: nowrap;
 }
 
@@ -273,6 +293,19 @@ button:disabled {
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+}
+
 @keyframes dash {
   to {
     stroke-dashoffset: -24;
@@ -281,24 +314,34 @@ button:disabled {
 
 @media (max-width: 720px) {
   .page {
-    padding: 16px 16px 110px;
-    gap: 22px;
+    padding: 1rem 1rem 6.875rem;
+    gap: 1.375rem;
   }
 
   .page-title h1 {
-    font-size: 22px;
+    font-size: 1.375rem;
   }
 }
 
 .notice {
-  margin: 0 0 8px;
-  padding: 8px 12px;
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--line2);
   border-radius: var(--r);
   background: var(--surface2);
-  font-size: 12.5px;
+  font-size: 0.7812rem;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

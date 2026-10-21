@@ -2,9 +2,10 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--gale-panel-width, 330px);
+  grid-template-columns: minmax(0, 1fr) var(--gale-panel-width, 20.625rem);
   background: var(--bg);
   color: var(--ink);
+  animation: fade-in 180ms var(--ease);
 }
 
 .gale-canvas {
@@ -34,11 +35,11 @@
 
 .gale-toolbar {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  right: 14px;
+  top: 0.875rem;
+  left: 0.875rem;
+  right: 0.875rem;
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
   z-index: 5;
   align-items: flex-start;
   flex-wrap: wrap;
@@ -48,7 +49,7 @@
 
 .gale-toolbar > div {
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
   align-items: center;
   flex-wrap: wrap;
   pointer-events: auto;
@@ -63,8 +64,8 @@
   color: var(--accent-ink);
   border: none;
   border-radius: var(--r);
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
   font-weight: 700;
   box-shadow: var(--glow);
   white-space: nowrap;
@@ -72,14 +73,14 @@
 
 .gale-toolbar .add-node-options {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 0.375rem);
   left: 0;
-  width: 220px;
+  width: 13.75rem;
   background: var(--surface);
   border: 1px solid var(--line2);
   border-radius: var(--r);
   box-shadow: var(--shadow);
-  padding: 6px;
+  padding: 0.375rem;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -87,14 +88,14 @@
 }
 
 .gale-toolbar .add-node-options {
-  width: 240px;
-  max-height: min(70vh, 560px);
+  width: 15rem;
+  max-height: min(70vh, 35rem);
   overflow-y: auto;
 }
 
 .gale-toolbar .add-node-options .palette-group {
-  padding: 8px 10px 2px;
-  font-size: 10px;
+  padding: 0.5rem 0.625rem 2px;
+  font-size: 0.625rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -106,13 +107,13 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 8px 10px;
+  padding: 0.5rem 0.625rem;
   border: none;
   background: none;
   color: var(--ink);
   border-radius: var(--r);
   text-align: left;
-  font-size: 12.5px;
+  font-size: 0.7812rem;
 }
 
 .gale-toolbar .add-node-options button:hover {
@@ -124,7 +125,7 @@
 }
 
 .gale-toolbar .add-node-options small {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--muted);
 }
 
@@ -142,8 +143,8 @@
   border: none;
   border-right: 1px solid var(--line);
   color: var(--muted);
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -160,10 +161,10 @@
 }
 
 .gale-toolbar .unsaved {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--warn);
   font-family: var(--mono);
-  margin-right: 6px;
+  margin-right: 0.375rem;
 }
 
 .gale-toolbar .save {
@@ -171,8 +172,8 @@
   border: 1px solid var(--line);
   color: var(--muted);
   border-radius: var(--r);
-  padding: 8px 14px;
-  font-size: 12px;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -192,15 +193,15 @@
   border: 1px solid var(--line);
   color: var(--muted);
   border-radius: var(--r);
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
 .gale-zoom {
   position: absolute;
-  bottom: 14px;
-  right: 14px;
+  bottom: 0.875rem;
+  right: 0.875rem;
   display: flex;
   z-index: 5;
   background: var(--surface);
@@ -214,14 +215,14 @@
   border: none;
   border-right: 1px solid var(--line);
   color: var(--muted);
-  height: 28px;
-  min-width: 30px;
-  padding: 0 10px;
-  font-size: 14px;
+  height: 1.75rem;
+  min-width: 1.875rem;
+  padding: 0 0.625rem;
+  font-size: 0.875rem;
 }
 
 .gale-zoom button.pct {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-family: var(--mono);
 }
 
@@ -235,30 +236,30 @@
 
 .gale-legend {
   position: absolute;
-  bottom: 14px;
-  left: 14px;
+  bottom: 0.875rem;
+  left: 0.875rem;
   display: flex;
-  gap: 14px;
+  gap: 0.875rem;
   z-index: 5;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r);
-  padding: 6px 10px;
+  padding: 0.375rem 0.625rem;
   align-items: center;
 }
 
 .gale-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .gale-legend .swatch {
-  width: 8px;
-  height: 8px;
+  width: 0.5rem;
+  height: 0.5rem;
   border-radius: 50%;
 }
 
@@ -276,11 +277,11 @@
 
 .gale-hidden-strip {
   position: absolute;
-  bottom: 52px;
-  left: 14px;
+  bottom: 3.25rem;
+  left: 0.875rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 0.375rem;
   z-index: 5;
 }
 
@@ -288,19 +289,19 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 0.25rem 0.625rem;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .gale-hidden-chip button {
   background: none;
   border: none;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 0.6875rem;
   padding: 0;
 }
 
@@ -610,10 +611,10 @@
 .gale-panel {
   background: var(--surface);
   border-left: 1px solid var(--line);
-  padding: 18px 18px 28px;
+  padding: 1.125rem 1.125rem 1.75rem;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 1rem;
   overflow-y: auto;
   min-height: 0;
 }
@@ -642,13 +643,13 @@
   }
 
   .gale-toolbar {
-    top: 10px;
-    left: 10px;
-    right: 10px;
+    top: 0.625rem;
+    left: 0.625rem;
+    right: 0.625rem;
   }
 
   .gale-zoom {
-    bottom: 84px;
+    bottom: 5.25rem;
   }
 }
 
@@ -671,8 +672,8 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
-  width: 8px;
+  left: -0.25rem;
+  width: 0.5rem;
   cursor: col-resize;
   z-index: 5;
 }
@@ -733,9 +734,9 @@
 .gale-toolbar .breadcrumb {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-left: 10px;
-  font-size: 12px;
+  gap: 0.375rem;
+  margin-left: 0.625rem;
+  font-size: 0.75rem;
 }
 
 .gale-toolbar .breadcrumb button {
