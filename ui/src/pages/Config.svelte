@@ -116,7 +116,7 @@
   }
 </script>
 
-<main class="page config">
+<main class="page">
   <div class="page-title">
     <span class="eyebrow">Daemon</span>
     <h1>Configuration</h1>
@@ -134,85 +134,106 @@
       <p class="muted">Loading configuration.</p>
     {/if}
   {:else}
-    <section class="two-up">
-      <div class="card block">
-        <div class="section-head"><h2 class="section-title">Daemon settings</h2><span class="hint">restart required</span></div>
-        <div class="settings">
-          <span class="k">Tick interval</span><span class="mono">{config.tick_interval_ms} ms</span>
-          <span class="k">API bind</span><span class="mono">{config.api.bind}</span>
-          <span class="k">API key</span><span class="faint">managed via config file</span>
-          <span class="k">Home Assistant</span><span class="mono">{config.mqtt && config.mqtt.enabled ? `MQTT on ${config.mqtt.host}:${config.mqtt.port}` : 'off'}</span>
-          <span class="k">Corsair on release</span><span>{corsairReleaseLabel(config.hardware?.corsair?.on_release)}</span>
-          <span class="k">Active profile</span><span class="strong">{activeName}</span>
-        </div>
-      </div>
-      <div class="card block">
-        <div class="section-head"><h2 class="section-title">Profiles</h2><span class="hint">switching applies immediately</span></div>
-        <div class="profiles">
-          {#each profiles as entry (entry.name)}
-            <div class="profile" class:active={entry.active}>
-              <span class="dot"></span>
-              <span class="name">{entry.name}</span>
-              <span class="mono meta">{entry.curves} curves · {entry.sensors} virtual</span>
-              {#if entry.active}
-                <span class="active-tag">ACTIVE</span>
-              {:else}
-                <button type="button" class="btn" disabled={busy !== ''} onclick={() => activate(entry.name)}>Activate</button>
-              {/if}
+    <div class="layout">
+      <div class="primary">
+        <section class="two-up">
+          <div class="card block">
+            <div class="section-head"><h2 class="section-title">Daemon settings</h2><span class="hint">restart required</span></div>
+            <div class="settings">
+              <span class="k">Tick interval</span><span class="mono">{config.tick_interval_ms} ms</span>
+              <span class="k">API bind</span><span class="mono">{config.api.bind}</span>
+              <span class="k">API key</span><span class="faint">managed via config file</span>
+              <span class="k">Home Assistant</span><span class="mono">{config.mqtt && config.mqtt.enabled ? `MQTT on ${config.mqtt.host}:${config.mqtt.port}` : 'off'}</span>
+              <span class="k">Corsair on release</span><span>{corsairReleaseLabel(config.hardware?.corsair?.on_release)}</span>
+              <span class="k">Active profile</span><span class="strong">{activeName}</span>
             </div>
-          {/each}
-        </div>
-      </div>
-    </section>
+          </div>
+          <div class="card block">
+            <div class="section-head"><h2 class="section-title">Profiles</h2><span class="hint">switching applies immediately</span></div>
+            <div class="profiles">
+              {#each profiles as entry (entry.name)}
+                <div class="profile" class:active={entry.active}>
+                  <span class="dot"></span>
+                  <span class="name">{entry.name}</span>
+                  <span class="mono meta">{entry.curves} curves · {entry.sensors} virtual</span>
+                  {#if entry.active}
+                    <span class="active-tag">ACTIVE</span>
+                  {:else}
+                    <button type="button" class="btn" disabled={busy !== ''} onclick={() => activate(entry.name)}>Activate</button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </div>
+        </section>
 
-    <section class="card block">
-      <div class="section-head"><h2 class="section-title">Curves in {activeName}</h2><span class="hint">click a row to open it in the graph</span></div>
-      <div class="table-wrap">
-        <table class="curves">
-          <thead>
-            <tr><th>name</th><th>type</th><th>input</th><th>drives</th><th>detail</th></tr>
-          </thead>
-          <tbody>
-            {#each curves as curve (curve.id)}
-              <tr onclick={() => openInGraph({ nodeId: curve.nodeId })}>
-                <td class="strong">{curve.id}</td>
-                <td class="muted">{curve.type}</td>
-                <td class="temp-ink">{curve.input}</td>
-                <td class="duty-ink">{curve.drives}</td>
-                <td class="mono detail">{curve.detail}</td>
-              </tr>
-            {/each}
-            {#if curves.length === 0}
-              <tr><td colspan="5" class="muted">No curves in this profile yet.</td></tr>
-            {/if}
-          </tbody>
-        </table>
+        <section class="card block">
+          <div class="section-head"><h2 class="section-title">Curves in {activeName}</h2><span class="hint">click a row to open it in the graph</span></div>
+          <div class="table-wrap">
+            <table class="curves">
+              <thead>
+                <tr><th>name</th><th>type</th><th>input</th><th>drives</th><th>detail</th></tr>
+              </thead>
+              <tbody>
+                {#each curves as curve (curve.id)}
+                  <tr onclick={() => openInGraph({ nodeId: curve.nodeId })}>
+                    <td class="strong">{curve.id}</td>
+                    <td class="muted">{curve.type}</td>
+                    <td class="temp-ink">{curve.input}</td>
+                    <td class="duty-ink">{curve.drives}</td>
+                    <td class="mono detail">{curve.detail}</td>
+                  </tr>
+                {/each}
+                {#if curves.length === 0}
+                  <tr><td colspan="5" class="muted">No curves in this profile yet.</td></tr>
+                {/if}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
-    </section>
 
-    <section class="card block">
-      <div class="section-head"><h2 class="section-title">config.toml</h2><span class="hint mono">as the daemon holds it</span></div>
-      <pre class="mono">{toml}</pre>
-    </section>
+      <section class="card block toml">
+        <div class="section-head"><h2 class="section-title">config.toml</h2><span class="hint mono">as the daemon holds it</span></div>
+        <pre class="mono">{toml}</pre>
+      </section>
+    </div>
   {/if}
 </main>
 
 <style>
-  .config {
-    max-width: 1100px;
+  .layout,
+  .primary {
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+    min-width: 0;
+  }
+
+  @media (min-width: 1600px) {
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+      align-items: start;
+    }
+
+    .toml {
+      position: sticky;
+      top: 0;
+    }
   }
 
   .two-up {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 0.75rem;
   }
 
   .block {
-    padding: 18px;
+    padding: 1.125rem;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0.875rem;
   }
 
   .section-head {
@@ -222,8 +243,8 @@
   .settings {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 10px 24px;
-    font-size: 13px;
+    gap: 0.625rem 1.5rem;
+    font-size: 0.8125rem;
     align-items: center;
   }
 
@@ -243,14 +264,14 @@
   .profiles {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0.375rem;
   }
 
   .profile {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
     border: 1px solid var(--line);
     border-radius: var(--r);
     background: var(--surface2);
@@ -261,8 +282,8 @@
   }
 
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 50%;
     background: var(--faint);
   }
@@ -277,12 +298,12 @@
   }
 
   .meta {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted);
   }
 
   .active-tag {
-    font-size: 10px;
+    font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     color: var(--accent);
@@ -295,13 +316,13 @@
   .curves {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .curves th {
     text-align: left;
-    padding: 6px 10px;
-    font-size: 10px;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.625rem;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -310,7 +331,7 @@
   }
 
   .curves td {
-    padding: 10px;
+    padding: 0.625rem;
     border-bottom: 1px solid var(--line);
     vertical-align: top;
   }
@@ -332,7 +353,7 @@
   }
 
   .detail {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted);
     white-space: pre;
   }
@@ -342,8 +363,8 @@
     background: var(--canvas);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    padding: 14px;
-    font-size: 12px;
+    padding: 0.875rem;
+    font-size: 0.75rem;
     line-height: 1.6;
     overflow-x: auto;
   }

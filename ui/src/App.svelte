@@ -110,57 +110,57 @@
   }
 
   .sidebar {
-    width: 220px;
+    width: 13.75rem;
     flex-shrink: 0;
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    padding: 20px 14px;
-    gap: 6px;
+    padding: 1.25rem 0.875rem;
+    gap: 0.375rem;
     background: var(--surface);
   }
 
   .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 4px 8px 22px;
+    gap: 0.625rem;
+    padding: 0.25rem 0.5rem 1.375rem;
   }
 
   .logo {
-    width: 26px;
-    height: 26px;
+    width: 1.625rem;
+    height: 1.625rem;
     filter: hue-rotate(-170deg) saturate(1.3) brightness(1.15);
   }
 
   .wordmark {
     font-weight: 800;
-    font-size: 17px;
+    font-size: 1.0625rem;
     letter-spacing: -0.02em;
   }
 
   .version {
     margin-left: auto;
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--faint);
   }
 
   .nav-gap {
-    height: 14px;
+    height: 0.875rem;
   }
 
   .nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
     border: none;
     border-radius: var(--r);
     background: none;
     color: var(--muted);
     text-align: left;
     font-weight: 500;
-    font-size: 13.5px;
+    font-size: 0.8438rem;
   }
 
   .nav-item:hover {
@@ -173,8 +173,8 @@
   }
 
   .nav-dot {
-    width: 6px;
-    height: 6px;
+    width: 0.375rem;
+    height: 0.375rem;
     border-radius: 50%;
     background: transparent;
   }
@@ -187,22 +187,22 @@
     margin-top: auto;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .health {
-    padding: 12px;
+    padding: 0.75rem;
     border: 1px solid var(--line);
     border-radius: var(--r);
     display: grid;
-    gap: 6px;
-    font-size: 12px;
+    gap: 0.375rem;
+    font-size: 0.75rem;
   }
 
   .health > div {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
+    gap: 0.5rem;
     color: var(--muted);
   }
 
@@ -216,7 +216,7 @@
   .status {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 0.375rem;
     color: var(--warn);
   }
 
@@ -225,8 +225,8 @@
   }
 
   .dot {
-    width: 6px;
-    height: 6px;
+    width: 0.375rem;
+    height: 0.375rem;
     border-radius: 50%;
     background: var(--warn);
   }
@@ -237,7 +237,7 @@
   }
 
   .theme {
-    padding: 8px;
+    padding: 0.5rem;
   }
 
   .main {
@@ -251,15 +251,15 @@
   .topbar {
     display: none;
     align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
+    gap: 0.625rem;
+    padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--line);
     background: var(--bg);
   }
 
   .topbar .logo {
-    width: 22px;
-    height: 22px;
+    width: 1.375rem;
+    height: 1.375rem;
   }
 
   .spacer {
@@ -269,10 +269,10 @@
   .key-form {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
     border-bottom: 1px solid var(--line);
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
   }
 
@@ -281,7 +281,7 @@
     color: var(--ink);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    padding: 5px 8px;
+    padding: 0.3125rem 0.5rem;
   }
 
   .tabbar {
@@ -299,12 +299,12 @@
 
     .tabbar {
       position: fixed;
-      left: 16px;
-      right: 16px;
-      bottom: calc(12px + env(safe-area-inset-bottom));
+      left: 1rem;
+      right: 1rem;
+      bottom: calc(0.75rem + env(safe-area-inset-bottom));
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      height: 52px;
+      height: 3.25rem;
       border: 1px solid var(--line);
       border-radius: var(--r);
       background: var(--surface);
@@ -316,11 +316,11 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 3px;
+      gap: 0.1875rem;
       border: none;
       background: none;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 0.6875rem;
       font-weight: 500;
       border-bottom: 2px solid transparent;
     }

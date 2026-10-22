@@ -398,8 +398,8 @@
 
   .hide-toggle {
     margin-left: auto;
-    font-size: 11px;
-    padding: 2px 8px;
+    font-size: 0.6875rem;
+    padding: 2px 0.5rem;
   }
 
   .card.dimmed {
@@ -409,14 +409,14 @@
   .overview {
     display: flex;
     align-items: flex-end;
-    gap: 24px;
+    gap: 1.5rem;
     flex-wrap: wrap;
   }
 
   .stats {
     margin-left: auto;
     display: flex;
-    gap: 28px;
+    gap: 1.75rem;
     flex-wrap: wrap;
   }
 
@@ -427,12 +427,12 @@
   }
 
   .num {
-    font-size: 20px;
+    font-size: 1.25rem;
     font-weight: var(--num-weight);
   }
 
   .num small {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 
@@ -451,22 +451,22 @@
   section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0.75rem;
   }
 
   .temps,
   .grid.metrics {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+    gap: 0.75rem;
   }
 
   .temp-card {
-    padding: 16px 16px 12px;
+    padding: 1rem 1rem 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    min-height: 120px;
+    gap: 0.625rem;
+    min-height: 7.5rem;
   }
 
   .card:hover {
@@ -476,7 +476,7 @@
   .spin-icon {
     display: inline-flex;
     color: var(--muted);
-    margin-right: 8px;
+    margin-right: 0.5rem;
     flex: none;
   }
 
@@ -509,16 +509,16 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 8px;
+    gap: 0.5rem;
   }
 
   .label {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .device {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--faint);
     white-space: nowrap;
     overflow: hidden;
@@ -528,11 +528,11 @@
   .temp-value {
     display: flex;
     align-items: baseline;
-    gap: 4px;
+    gap: 0.25rem;
   }
 
   .value {
-    font-size: 30px;
+    font-size: 1.875rem;
     font-weight: var(--num-weight);
     letter-spacing: -0.02em;
   }
@@ -542,19 +542,19 @@
   }
 
   .unit {
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--muted);
   }
 
   .trend {
     margin-left: auto;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 
   .spark {
     width: 100%;
-    height: 32px;
+    height: 2rem;
     display: block;
   }
 
@@ -571,29 +571,29 @@
   }
 
   .no-spark {
-    height: 32px;
+    height: 2rem;
     display: flex;
     align-items: center;
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
   }
 
   .fans {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(18.75rem, 1fr));
+    gap: 0.75rem;
   }
 
   .control {
-    padding: 16px;
+    padding: 1rem;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0.75rem;
   }
 
   .control-head {
     align-items: center;
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .names {
@@ -604,25 +604,25 @@
   }
 
   .names .label {
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .readings {
     margin-left: auto;
     display: flex;
-    gap: 14px;
+    gap: 0.875rem;
     align-items: baseline;
   }
 
   .duty-read {
-    font-size: 24px;
+    font-size: 1.5rem;
     font-weight: var(--num-weight);
     color: var(--duty);
     letter-spacing: -0.02em;
   }
 
   .duty-read small {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 
@@ -630,16 +630,16 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    font-size: 16px;
+    font-size: 1rem;
   }
 
   .rpm-read .missing {
     color: var(--warn);
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .rpm-read .eyebrow {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--faint);
   }
 
@@ -649,12 +649,12 @@
     border-radius: var(--r);
     border: 1px solid var(--line);
     overflow: hidden;
-    height: 84px;
+    height: 5.25rem;
   }
 
   .chart svg {
     width: 100%;
-    height: 84px;
+    height: 5.25rem;
     display: block;
   }
 
@@ -683,26 +683,26 @@
 
   .chart-tag {
     position: absolute;
-    top: 6px;
-    font-size: 10px;
+    top: 0.375rem;
+    font-size: 0.625rem;
     color: var(--muted);
   }
 
   .chart-tag.left {
-    left: 8px;
+    left: 0.5rem;
     color: var(--temp);
   }
 
   .chart-tag.right {
-    right: 8px;
+    right: 0.5rem;
   }
 
   .chart.empty {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    font-size: 11px;
+    gap: 0.5rem;
+    font-size: 0.6875rem;
     color: var(--muted);
   }
 
@@ -717,20 +717,20 @@
   .control-body {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .control-body input[type='range'] {
     flex: 1;
     margin: 0;
-    height: 4px;
+    height: 0.25rem;
     min-width: 0;
   }
 
   .draft {
     width: 3.2em;
     text-align: right;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 
@@ -746,7 +746,7 @@
     }
 
     .stat {
-      padding: 12px;
+      padding: 0.75rem;
       border-right: 1px solid var(--line);
       border-bottom: 1px solid var(--line);
     }
@@ -760,22 +760,22 @@
     }
 
     .num {
-      font-size: 18px;
+      font-size: 1.125rem;
     }
 
     .temps,
     .grid.metrics {
       grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
+      gap: 0.625rem;
     }
 
     .temp-card {
-      padding: 12px;
+      padding: 0.75rem;
       min-height: 0;
     }
 
     .value {
-      font-size: 26px;
+      font-size: 1.625rem;
     }
 
     .fans {

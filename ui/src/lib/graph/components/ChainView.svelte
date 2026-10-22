@@ -136,25 +136,25 @@
   .chain-view {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 1.125rem;
   }
 
   .filters {
     display: flex;
-    gap: 6px;
+    gap: 0.375rem;
     overflow-x: auto;
     padding-bottom: 2px;
     flex-shrink: 0;
   }
 
   .filters button {
-    height: 32px;
-    padding: 0 12px;
+    height: 2rem;
+    padding: 0 0.75rem;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: none;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -172,12 +172,12 @@
 
   .step {
     display: flex;
-    gap: 12px;
+    gap: 0.75rem;
     align-items: stretch;
   }
 
   .rail {
-    width: 14px;
+    width: 0.875rem;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -203,8 +203,8 @@
   }
 
   .port {
-    width: 11px;
-    height: 11px;
+    width: 0.6875rem;
+    height: 0.6875rem;
     border-radius: 50%;
     border: 2px solid var(--canvas);
     flex-shrink: 0;
@@ -253,8 +253,8 @@
   }
 
   .kind {
-    width: 8px;
-    height: 8px;
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 2px;
     flex-shrink: 0;
   }
@@ -286,35 +286,35 @@
 
   .title {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 0.8125rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .sub {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--muted);
   }
 
   .val {
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 500;
   }
 
   .unit {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--muted);
     margin-left: 2px;
   }
 
   .chev {
     color: var(--faint);
-    font-size: 16px;
+    font-size: 1rem;
   }
 
   .chart {
-    margin: 0 12px 10px;
+    margin: 0 0.75rem 0.625rem;
     background: var(--canvas);
     border: 1px solid var(--line);
     border-radius: var(--r);
@@ -323,7 +323,7 @@
 
   .chart svg {
     width: 100%;
-    height: 56px;
+    height: 3.5rem;
     display: block;
   }
 
@@ -347,8 +347,8 @@
   }
 
   .unassigned-tag {
-    font-size: 10px;
+    font-size: 0.625rem;
     color: var(--faint);
-    padding-left: 26px;
+    padding-left: 1.625rem;
   }
 </style>

@@ -952,7 +952,7 @@
   .slider-field {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .slider-field input[type='range'] {
@@ -960,19 +960,19 @@
   }
 
   .slider-field .field input {
-    width: 64px;
+    width: 4rem;
   }
 
   .compact-toggle {
-    margin-top: 4px;
+    margin-top: 0.25rem;
   }
 
   .eye {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 1.375rem;
+    height: 1.375rem;
     padding: 0;
     border: none;
     border-radius: 4px;
@@ -993,7 +993,7 @@
 
   .actions {
     display: flex;
-    gap: 6px;
+    gap: 0.375rem;
   }
 
   .actions .delete {
@@ -1006,7 +1006,7 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
-    padding: 2px 6px;
+    padding: 2px 0.375rem;
     color: inherit;
     font: inherit;
   }
@@ -1020,15 +1020,15 @@
   .limits {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    padding: 0 0 8px 12px;
+    gap: 0.375rem;
+    padding: 0 0 0.5rem 0.75rem;
   }
 
   .limit {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 10.5px;
+    font-size: 0.6562rem;
     color: var(--muted);
   }
 
@@ -1040,9 +1040,9 @@
   .calibrate {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 0 10px 12px;
-    font-size: 11px;
+    gap: 0.5rem;
+    padding: 0 0 0.625rem 0.75rem;
+    font-size: 0.6875rem;
   }
 
   .calibrate .note {
@@ -1051,7 +1051,7 @@
 
   .preset-row {
     display: flex;
-    gap: 6px;
+    gap: 0.375rem;
     align-items: center;
   }
 
@@ -1063,20 +1063,20 @@
   .empty {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5rem;
     color: var(--muted);
-    font-size: 13px;
-    padding-top: 40px;
+    font-size: 0.8125rem;
+    padding-top: 2.5rem;
     text-align: center;
   }
 
   .glyph {
-    font-size: 28px;
+    font-size: 1.75rem;
     color: var(--faint);
   }
 
   .sub {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -1091,12 +1091,12 @@
   .identity {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .kind {
-    width: 10px;
-    height: 10px;
+    width: 0.625rem;
+    height: 0.625rem;
     border-radius: 2px;
     flex-shrink: 0;
   }
@@ -1127,7 +1127,7 @@
     border: none;
     border-bottom: 1px solid transparent;
     color: var(--ink);
-    font-size: 18px;
+    font-size: 1.125rem;
     font-weight: var(--title-weight);
     padding: 2px 0;
     outline: none;
@@ -1142,15 +1142,15 @@
     border: 1px solid var(--line);
     color: var(--ink);
     border-radius: var(--r);
-    padding: 5px 8px;
-    font-size: 12px;
+    padding: 0.3125rem 0.5rem;
+    font-size: 0.75rem;
   }
 
   .close {
-    width: 32px;
-    height: 32px;
+    width: 2rem;
+    height: 2rem;
     padding: 0;
-    font-size: 16px;
+    font-size: 1rem;
   }
 
   .device-title {
@@ -1162,20 +1162,20 @@
   }
 
   .device-title .title {
-    font-size: 18px;
+    font-size: 1.125rem;
     font-weight: var(--title-weight);
   }
 
   .two {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 0.5rem;
   }
 
   .stat-card {
     border: 1px solid var(--line);
     border-radius: var(--r);
-    padding: 10px 12px;
+    padding: 0.625rem 0.75rem;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -1183,11 +1183,11 @@
   }
 
   .mid {
-    font-size: 16px;
+    font-size: 1rem;
   }
 
   .big {
-    font-size: 22px;
+    font-size: 1.375rem;
   }
 
   .temp {
@@ -1201,24 +1201,24 @@
   .group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0.375rem;
   }
 
   .list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0.25rem;
   }
 
   .list-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
     background: var(--surface2);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    font-size: 12.5px;
+    font-size: 0.7812rem;
   }
 
   .list-row > span:nth-last-child(2),
@@ -1227,8 +1227,8 @@
   }
 
   .swatch {
-    width: 7px;
-    height: 7px;
+    width: 0.4375rem;
+    height: 0.4375rem;
     border-radius: 50%;
     flex: 0 0 auto;
   }
@@ -1248,18 +1248,18 @@
     border: 1px solid var(--line);
     border-radius: var(--r);
     color: var(--ink);
-    font-size: 12.5px;
-    padding: 4px 6px;
+    font-size: 0.7812rem;
+    padding: 0.25rem 0.375rem;
   }
 
   .tip {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
     margin: 0;
   }
 
   .note {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--muted);
     line-height: 1.5;
     margin: 0;
@@ -1268,17 +1268,17 @@
   .box {
     border: 1px solid var(--line);
     border-radius: var(--r);
-    padding: 12px;
+    padding: 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .toggle {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 13px;
+    gap: 0.625rem;
+    font-size: 0.8125rem;
     cursor: pointer;
   }
 
@@ -1287,13 +1287,13 @@
   }
 
   .toggle-hint {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
   }
 
   .url-row {
     display: flex;
-    gap: 6px;
+    gap: 0.375rem;
   }
 
   .url {
@@ -1302,9 +1302,9 @@
     background: var(--surface2);
     border: 1px solid var(--line);
     border-radius: var(--r);
-    padding: 6px 8px;
+    padding: 0.375rem 0.5rem;
     color: var(--ink);
-    font-size: 11px;
+    font-size: 0.6875rem;
   }
 
   .segmented {
@@ -1316,12 +1316,12 @@
   }
 
   .segmented button {
-    padding: 8px;
+    padding: 0.5rem;
     border: none;
     border-left: 1px solid var(--line);
     background: none;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .segmented button:first-child {
@@ -1336,7 +1336,7 @@
 
   .delete {
     margin-top: auto;
-    padding: 8px;
+    padding: 0.5rem;
   }
 
   .members {
@@ -1345,27 +1345,27 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0.25rem;
   }
 
   .members li {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    gap: 0.5rem;
   }
 
   @media (max-width: 720px) {
     .field {
-      min-height: 44px;
+      min-height: 2.75rem;
     }
 
     .toggle {
-      min-height: 32px;
+      min-height: 2rem;
     }
 
     .delete {
-      padding: 12px;
+      padding: 0.75rem;
     }
   }
 </style>

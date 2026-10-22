@@ -200,7 +200,7 @@
   .editor {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5rem;
   }
 
   .head {
@@ -210,7 +210,7 @@
   }
 
   .tip {
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--faint);
   }
 
@@ -237,7 +237,7 @@
 
   .axis-label {
     fill: var(--muted);
-    font-size: 10px;
+    font-size: 0.625rem;
     font-family: var(--mono);
   }
 
@@ -275,21 +275,21 @@
   .points {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0.25rem;
   }
 
   .point-row {
     display: grid;
     grid-template-columns: 1fr 1fr auto;
-    gap: 6px;
+    gap: 0.375rem;
     align-items: center;
   }
 
   .remove {
-    width: 28px;
-    height: 28px;
+    width: 1.75rem;
+    height: 1.75rem;
     padding: 0;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .add {
@@ -297,8 +297,8 @@
     background: none;
     color: var(--muted);
     border-radius: var(--r);
-    padding: 6px;
-    font-size: 12px;
+    padding: 0.375rem;
+    font-size: 0.75rem;
   }
 
   .add:hover {
@@ -307,20 +307,20 @@
 
   @media (max-width: 720px) {
     .point-row .field {
-      height: 44px;
+      height: 2.75rem;
     }
 
     .point-row .field input {
-      font-size: 15px;
+      font-size: 0.9375rem;
     }
 
     .remove {
-      width: 44px;
-      height: 44px;
+      width: 2.75rem;
+      height: 2.75rem;
     }
 
     .add {
-      height: 44px;
+      height: 2.75rem;
     }
   }
 </style>

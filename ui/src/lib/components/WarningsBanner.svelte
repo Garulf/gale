@@ -19,30 +19,30 @@
   .warning-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 20px;
+    gap: 0.75rem;
+    padding: 0.625rem 1.25rem;
     background: var(--warnbg);
     border-bottom: 1px solid var(--line);
     color: var(--warn);
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .mark {
-    width: 18px;
-    height: 18px;
+    width: 1.125rem;
+    height: 1.125rem;
     border-radius: 50%;
     border: 1.5px solid var(--warn);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 700;
     flex-shrink: 0;
   }
 
   .text {
     flex: 1;
-    font-size: 12px;
+    font-size: 0.75rem;
     line-height: 1.4;
     min-width: 0;
     overflow-wrap: anywhere;
@@ -58,8 +58,8 @@
     background: none;
     color: var(--warn);
     border-radius: var(--r);
-    padding: 4px 10px;
-    font-size: 12px;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
     white-space: nowrap;
   }
 
@@ -67,14 +67,14 @@
     border: none;
     background: none;
     color: var(--warn);
-    font-size: 16px;
+    font-size: 1rem;
     line-height: 1;
-    padding: 2px 4px;
+    padding: 2px 0.25rem;
   }
 
   @media (max-width: 720px) {
     .warning-row {
-      padding: 10px 16px;
+      padding: 0.625rem 1rem;
     }
 
     .open {
