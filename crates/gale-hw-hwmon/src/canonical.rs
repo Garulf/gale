@@ -51,7 +51,7 @@ fn asus_ec_id(label: &str, kind: SensorKind) -> Option<Id> {
         (SensorKind::Temp, "CPU Package") => "cpu_package",
         (SensorKind::Temp, "Motherboard") => "motherboard",
         (SensorKind::Temp, "T_Sensor") => "t_sensor",
-        (SensorKind::Temp, "T_sensor_2" | "T_Sensor_2") => "t_sensor_2",
+        (SensorKind::Temp, "T_sensor_2" | "T_Sensor 2") => "t_sensor_2",
         (SensorKind::Temp, "VRM") => "vrm",
         (SensorKind::Temp, "Water_In") => "water_in",
         (SensorKind::Temp, "Water_Out") => "water_out",
@@ -59,7 +59,6 @@ fn asus_ec_id(label: &str, kind: SensorKind) -> Option<Id> {
         (SensorKind::Rpm, "CPU_Opt") => "cpu_optional_fan",
         (SensorKind::Rpm, "VRM HS") => "vrm_heat_sink_fan",
         (SensorKind::Rpm, "Chipset") => "chipset_fan",
-        (SensorKind::Rpm, "Water_Flow") => "water_pump",
         _ => return None,
     };
     Some(format!("ec/asus/{slug}"))
@@ -166,6 +165,19 @@ mod tests {
         assert_eq!(amd_cpu_id("Tdie").as_deref(), Some("cpu/amd/tdie"));
         assert_eq!(amd_cpu_id("Tccd2").as_deref(), Some("cpu/amd/ccd2"));
         assert_eq!(amd_cpu_id("Tsomething"), None);
+    }
+
+    #[test]
+    fn asus_ec_maps_both_kernel_spellings_and_leaves_water_flow_alone() {
+        assert_eq!(
+            asus_ec_id("T_Sensor 2", SensorKind::Temp).as_deref(),
+            Some("ec/asus/t_sensor_2")
+        );
+        assert_eq!(
+            asus_ec_id("T_sensor_2", SensorKind::Temp).as_deref(),
+            Some("ec/asus/t_sensor_2")
+        );
+        assert_eq!(asus_ec_id("Water_Flow", SensorKind::Rpm), None);
     }
 
     #[test]

@@ -229,8 +229,8 @@ impl Backend for HwmonBackend {
         for control in found.controls {
             let id = resolve_id(control.raw_id, control.canonical_id, &counts);
             let saved_enable = previous
-                .get(&id)
-                .filter(|old| old.pwm_path == control.pwm_path)
+                .values()
+                .find(|old| old.pwm_path == control.pwm_path)
                 .and_then(|old| old.saved_enable.clone());
             self.controls.insert(
                 id.clone(),
@@ -379,6 +379,7 @@ mod tests {
         chip
     }
 
+    #[cfg(unix)]
     fn i2c_client(root: &Path, bus: u32, address: u16, adapter: &str) -> std::path::PathBuf {
         let adapter_dir = root.join("devices").join(format!("i2c-{bus}"));
         let client = adapter_dir.join(format!("{bus}-{address:04x}"));
@@ -392,6 +393,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn known_chips_report_the_ids_windows_uses_for_the_same_hardware() {
         let tree = tempfile::tempdir().unwrap();
         let hwmon = tree.path().join("hwmon");
@@ -610,6 +612,26 @@ mod tests {
         backend.set_duty("hwmon/amdgpu/pwm1", 100.0).unwrap();
         assert_eq!(read_file(&chip1, "pwm1"), "255");
         backend.release("hwmon/amdgpu/pwm1").unwrap();
+    }
+
+    #[test]
+    fn a_control_whose_id_changes_on_reenumerate_still_restores_on_release() {
+        let tree = tempfile::tempdir().unwrap();
+        let nct = chip(tree.path(), "hwmon0", "nct6798");
+        write(&nct, "pwm1", "128\n");
+        write(&nct, "pwm1_enable", "5\n");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        backend.set_duty("superio/nct6798d/pwm1", 60.0).unwrap();
+        let second = chip(tree.path(), "hwmon1", "nct6798");
+        write(&second, "pwm1", "0\n");
+        let inventory = backend.enumerate().unwrap();
+        assert!(inventory
+            .controls
+            .iter()
+            .any(|c| c.id == "hwmon/nct6798/pwm1"));
+        backend.release("hwmon/nct6798/pwm1").unwrap();
+        assert_eq!(read_file(&nct, "pwm1_enable"), "5");
     }
 
     #[test]
