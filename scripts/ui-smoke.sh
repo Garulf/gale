@@ -91,7 +91,7 @@ echo "using chromium at $CHROME_PATH" >&2
 HWMON_ROOT="$WORKDIR/hwmon"
 CHIP_DIR="$HWMON_ROOT/hwmon0"
 mkdir -p "$CHIP_DIR"
-echo "nct6798" >"$CHIP_DIR/name"
+echo "it8792" >"$CHIP_DIR/name"
 echo "45000" >"$CHIP_DIR/temp1_input"
 echo "CPUTIN" >"$CHIP_DIR/temp1_label"
 echo "50000" >"$CHIP_DIR/temp2_input"
@@ -130,21 +130,21 @@ bind = "$BIND"
 
 [profiles.default.sensors.combined]
 type = "max"
-inputs = ["hwmon/nct6798/temp1", "hwmon/nct6798/temp2"]
+inputs = ["hwmon/it8792/temp1", "hwmon/it8792/temp2"]
 
 [profiles.default.curves.cpu]
 type = "point"
-sensor = "hwmon/nct6798/temp1"
+sensor = "hwmon/it8792/temp1"
 points = [[30.0, 20.0], [70.0, 100.0]]
 
 [profiles.default.curves.late]
 type = "point"
-sensor = "hwmon/nct6798/temp5"
+sensor = "hwmon/it8792/temp5"
 points = [[30.0, 20.0], [70.0, 100.0]]
 
 [profiles.default.assignments]
-"hwmon/nct6798/pwm1" = "cpu"
-"hwmon/nct6798/pwm5" = "late"
+"hwmon/it8792/pwm1" = "cpu"
+"hwmon/it8792/pwm5" = "late"
 EOF
 
 RUNTIME_DIR="$WORKDIR/run"
