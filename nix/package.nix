@@ -21,6 +21,7 @@ rustPlatform.buildRustPackage {
       ../crates
       ../assets
       ../ui/dist
+      ../packaging/config.example.toml
       ../packaging/udev
     ];
   };
