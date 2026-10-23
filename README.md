@@ -132,16 +132,35 @@ bind = "127.0.0.1:5250"
 
 [profiles.default.curves.cpu]
 type = "point"
-sensor = "hwmon/nct6798/temp1"
+sensor = "superio/nct6798d/temp2"
 points = [[30.0, 20.0], [70.0, 100.0]]
 
 [profiles.default.assignments]
-"hwmon/nct6798/pwm1" = "cpu"
+"superio/nct6798d/pwm1" = "cpu"
 ```
 
 Start the daemon (or `systemctl start galed` once installed) and open
 `http://127.0.0.1:5250` for the dashboard and graph editor, or drive it with
 the `gale` CLI.
+
+### Hardware ids
+
+Sensors and controls are named after the hardware rather than the driver that reads it,
+so a profile written on Windows runs unchanged on Linux and the other way round. On Linux
+the hwmon backend reports the ids the Windows backends use for the chips it recognises:
+
+| Hardware | Id | Linux driver |
+|---|---|---|
+| Nuvoton Super I/O | `superio/<chip>/tempN`, `fanN`, `pwmN` | nct6775 |
+| AMD CPU temperatures | `cpu/amd/tctl`, `cpu/amd/tdie`, `cpu/amd/ccdN` | k10temp |
+| AMD package power | `cpu/amd/power` | RAPL powercap or amd_energy |
+| DIMM temperatures | `dimm/N/temp`, `dimm/N-busP/temp` | spd5118, jc42 |
+| ASUS EC sensors | `ec/asus/<name>` | asus_ec_sensors |
+
+Super I/O temperatures keep the Windows channel numbers, matched by label, so `temp2` is
+CPUTIN on an NCT6798D under both systems. When Gale opens a Corsair Commander Pro or an
+HXi/RMi PSU over USB HID, the kernel's `corsaircpro` or `corsairpsu` hwmon chip is left out
+so the same fans are not listed twice. Every other chip keeps a `hwmon/<chip>/<file>` id.
 
 ### Graph editor
 
