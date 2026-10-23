@@ -1,5 +1,7 @@
+mod canonical;
+
 use gale_hw::{Backend, ControlInfo, HwError, Id, Inventory, SensorInfo, SensorKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,8 +16,54 @@ struct ControlEntry {
     saved_enable: Option<String>,
 }
 
+struct Chip {
+    name: String,
+    driver: String,
+    dir: PathBuf,
+}
+
+struct FoundSensor {
+    raw_id: Id,
+    canonical_id: Option<Id>,
+    label: String,
+    entry: SensorEntry,
+}
+
+struct FoundControl {
+    raw_id: Id,
+    canonical_id: Option<Id>,
+    label: String,
+    pwm_path: PathBuf,
+    enable_path: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct Found {
+    sensors: Vec<FoundSensor>,
+    controls: Vec<FoundControl>,
+}
+
+impl Found {
+    fn canonical_counts(&self) -> HashMap<Id, usize> {
+        let mut counts = HashMap::new();
+        let sensor_ids = self.sensors.iter().map(|s| &s.canonical_id);
+        let control_ids = self.controls.iter().map(|c| &c.canonical_id);
+        for id in sensor_ids.chain(control_ids).flatten() {
+            *counts.entry(id.clone()).or_insert(0) += 1;
+        }
+        counts
+    }
+}
+
+fn resolve_id(raw_id: Id, canonical_id: Option<Id>, counts: &HashMap<Id, usize>) -> Id {
+    canonical_id
+        .filter(|id| counts.get(id) == Some(&1))
+        .unwrap_or(raw_id)
+}
+
 pub struct HwmonBackend {
     root: PathBuf,
+    skipped_drivers: HashSet<String>,
     sensors: HashMap<Id, SensorEntry>,
     controls: HashMap<Id, ControlEntry>,
 }
@@ -31,12 +79,20 @@ impl HwmonBackend {
     pub fn with_root(root: PathBuf) -> Self {
         Self {
             root,
+            skipped_drivers: HashSet::new(),
             sensors: HashMap::new(),
             controls: HashMap::new(),
         }
     }
 
-    fn chips(&self) -> Vec<(String, PathBuf)> {
+    /// Leaves out chips whose kernel driver serves a device another backend
+    /// already drives, so one fan never shows up under two controls.
+    pub fn skipping_drivers(mut self, drivers: impl IntoIterator<Item = String>) -> Self {
+        self.skipped_drivers.extend(drivers);
+        self
+    }
+
+    fn chips(&self) -> Vec<Chip> {
         let Ok(entries) = fs::read_dir(&self.root) else {
             return Vec::new();
         };
@@ -52,80 +108,68 @@ impl HwmonBackend {
             let Ok(name) = fs::read_to_string(dir.join("name")) else {
                 continue;
             };
-            let base = name.trim().to_string();
-            let seen = counts.entry(base.clone()).or_insert(0);
-            let chip_name = if *seen == 0 {
-                base.clone()
+            let driver = name.trim().to_string();
+            if self.skipped_drivers.contains(&driver) {
+                continue;
+            }
+            let seen = counts.entry(driver.clone()).or_insert(0);
+            let name = if *seen == 0 {
+                driver.clone()
             } else {
-                format!("{base}-{seen}")
+                format!("{driver}-{seen}")
             };
             *seen += 1;
-            chips.push((chip_name, dir));
+            chips.push(Chip { name, driver, dir });
         }
         chips
     }
 
-    fn scan_chip(
-        &mut self,
-        chip: &str,
-        dir: &Path,
-        inventory: &mut Inventory,
-        previous: &HashMap<Id, ControlEntry>,
-    ) {
-        let Ok(entries) = fs::read_dir(dir) else {
+    fn scan_chip(chip: &Chip, found: &mut Found) {
+        let Ok(entries) = fs::read_dir(&chip.dir) else {
             return;
         };
         for entry in entries.flatten() {
             let file = entry.file_name().to_string_lossy().into_owned();
             if let Some(stem) = numbered_stem(&file, "temp", "_input") {
-                self.add_sensor(chip, dir, &stem, &file, SensorKind::Temp, inventory);
+                found
+                    .sensors
+                    .push(Self::sensor(chip, &stem, &file, SensorKind::Temp));
             } else if let Some(stem) = numbered_stem(&file, "fan", "_input") {
-                self.add_sensor(chip, dir, &stem, &file, SensorKind::Rpm, inventory);
+                found
+                    .sensors
+                    .push(Self::sensor(chip, &stem, &file, SensorKind::Rpm));
             } else if is_pwm_file(&file) {
-                let id = format!("hwmon/{chip}/{file}");
-                let enable = dir.join(format!("{file}_enable"));
-                let pwm_path = entry.path();
-                let saved_enable = previous
-                    .get(&id)
-                    .filter(|old| old.pwm_path == pwm_path)
-                    .and_then(|old| old.saved_enable.clone());
-                self.controls.insert(
-                    id.clone(),
-                    ControlEntry {
-                        pwm_path,
-                        enable_path: enable.exists().then_some(enable),
-                        saved_enable,
-                    },
-                );
-                inventory.controls.push(ControlInfo {
-                    id,
-                    label: format!("{chip} {file}"),
+                let enable = chip.dir.join(format!("{file}_enable"));
+                found.controls.push(FoundControl {
+                    raw_id: format!("hwmon/{}/{file}", chip.name),
+                    canonical_id: canonical::control_id(&chip.driver, &file),
+                    label: format!("{} {file}", chip.name),
+                    pwm_path: entry.path(),
+                    enable_path: enable.exists().then_some(enable),
                 });
             }
         }
     }
 
-    fn add_sensor(
-        &mut self,
-        chip: &str,
-        dir: &Path,
-        stem: &str,
-        file: &str,
-        kind: SensorKind,
-        inventory: &mut Inventory,
-    ) {
-        let id = format!("hwmon/{chip}/{stem}");
-        let label = fs::read_to_string(dir.join(format!("{stem}_label")))
+    fn sensor(chip: &Chip, stem: &str, file: &str, kind: SensorKind) -> FoundSensor {
+        let label = fs::read_to_string(chip.dir.join(format!("{stem}_label")))
             .map(|l| l.trim().to_string())
-            .unwrap_or_else(|_| format!("{chip} {stem}"));
-        self.sensors.insert(
-            id.clone(),
-            SensorEntry {
-                path: dir.join(file),
+            .ok();
+        FoundSensor {
+            raw_id: format!("hwmon/{}/{stem}", chip.name),
+            canonical_id: canonical::sensor_id(
+                &chip.driver,
+                &chip.dir,
+                stem,
+                label.as_deref(),
+                kind,
+            ),
+            label: label.unwrap_or_else(|| format!("{} {stem}", chip.name)),
+            entry: SensorEntry {
+                path: chip.dir.join(file),
                 kind,
             },
-        );
-        inventory.sensors.push(SensorInfo { id, label, kind });
+        }
     }
 }
 
@@ -167,9 +211,39 @@ impl Backend for HwmonBackend {
     fn enumerate(&mut self) -> Result<Inventory, HwError> {
         self.sensors.clear();
         let previous = std::mem::take(&mut self.controls);
+        let mut found = Found::default();
+        for chip in self.chips() {
+            Self::scan_chip(&chip, &mut found);
+        }
+        let counts = found.canonical_counts();
         let mut inventory = Inventory::default();
-        for (chip, dir) in self.chips() {
-            self.scan_chip(&chip, &dir, &mut inventory, &previous);
+        for sensor in found.sensors {
+            let id = resolve_id(sensor.raw_id, sensor.canonical_id, &counts);
+            inventory.sensors.push(SensorInfo {
+                id: id.clone(),
+                label: sensor.label,
+                kind: sensor.entry.kind,
+            });
+            self.sensors.insert(id, sensor.entry);
+        }
+        for control in found.controls {
+            let id = resolve_id(control.raw_id, control.canonical_id, &counts);
+            let saved_enable = previous
+                .get(&id)
+                .filter(|old| old.pwm_path == control.pwm_path)
+                .and_then(|old| old.saved_enable.clone());
+            self.controls.insert(
+                id.clone(),
+                ControlEntry {
+                    pwm_path: control.pwm_path,
+                    enable_path: control.enable_path,
+                    saved_enable,
+                },
+            );
+            inventory.controls.push(ControlInfo {
+                id,
+                label: control.label,
+            });
         }
         inventory.sensors.sort_by(|a, b| a.id.cmp(&b.id));
         inventory.controls.sort_by(|a, b| a.id.cmp(&b.id));
@@ -252,7 +326,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let chip0 = root.path().join("hwmon0");
         fs::create_dir(&chip0).unwrap();
-        write(&chip0, "name", "nct6798\n");
+        write(&chip0, "name", "it8792\n");
         write(&chip0, "temp1_input", "45000\n");
         write(&chip0, "temp1_label", "CPUTIN\n");
         write(&chip0, "fan1_input", "1200\n");
@@ -276,26 +350,153 @@ mod tests {
             sensor_ids,
             vec![
                 "hwmon/amdgpu/temp1",
-                "hwmon/nct6798/fan1",
-                "hwmon/nct6798/temp1"
+                "hwmon/it8792/fan1",
+                "hwmon/it8792/temp1"
             ]
         );
         let cpu_temp = inventory
             .sensors
             .iter()
-            .find(|s| s.id == "hwmon/nct6798/temp1")
+            .find(|s| s.id == "hwmon/it8792/temp1")
             .unwrap();
         assert_eq!(cpu_temp.label, "CPUTIN");
         assert_eq!(cpu_temp.kind, SensorKind::Temp);
         let fan = inventory
             .sensors
             .iter()
-            .find(|s| s.id == "hwmon/nct6798/fan1")
+            .find(|s| s.id == "hwmon/it8792/fan1")
             .unwrap();
-        assert_eq!(fan.label, "nct6798 fan1");
+        assert_eq!(fan.label, "it8792 fan1");
         assert_eq!(fan.kind, SensorKind::Rpm);
         let control_ids: Vec<_> = inventory.controls.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(control_ids, vec!["hwmon/nct6798/pwm1"]);
+        assert_eq!(control_ids, vec!["hwmon/it8792/pwm1"]);
+    }
+
+    fn chip(root: &Path, dir: &str, name: &str) -> std::path::PathBuf {
+        let chip = root.join(dir);
+        fs::create_dir(&chip).unwrap();
+        write(&chip, "name", &format!("{name}\n"));
+        chip
+    }
+
+    fn i2c_client(root: &Path, bus: u32, address: u16, adapter: &str) -> std::path::PathBuf {
+        let adapter_dir = root.join("devices").join(format!("i2c-{bus}"));
+        let client = adapter_dir.join(format!("{bus}-{address:04x}"));
+        fs::create_dir_all(&client).unwrap();
+        write(&adapter_dir, "name", &format!("{adapter}\n"));
+        client
+    }
+
+    fn sensor_ids(inventory: &Inventory) -> Vec<&str> {
+        inventory.sensors.iter().map(|s| s.id.as_str()).collect()
+    }
+
+    #[test]
+    fn known_chips_report_the_ids_windows_uses_for_the_same_hardware() {
+        let tree = tempfile::tempdir().unwrap();
+        let hwmon = tree.path().join("hwmon");
+        fs::create_dir(&hwmon).unwrap();
+        let nct = chip(&hwmon, "hwmon0", "nct6798");
+        write(&nct, "temp1_input", "30000\n");
+        write(&nct, "temp1_label", "SYSTIN\n");
+        write(&nct, "temp7_input", "50000\n");
+        write(&nct, "temp7_label", "PECI Agent 0\n");
+        write(&nct, "fan2_input", "900\n");
+        write(&nct, "pwm2", "100\n");
+        let k10 = chip(&hwmon, "hwmon1", "k10temp");
+        write(&k10, "temp1_input", "55000\n");
+        write(&k10, "temp1_label", "Tctl\n");
+        write(&k10, "temp3_input", "52000\n");
+        write(&k10, "temp3_label", "Tccd1\n");
+        let ec = chip(&hwmon, "hwmon2", "asusec");
+        write(&ec, "temp1_input", "31000\n");
+        write(&ec, "temp1_label", "Water_In\n");
+        write(&ec, "fan1_input", "1500\n");
+        write(&ec, "fan1_label", "CPU_Opt\n");
+        let dimm3 = chip(&hwmon, "hwmon3", "spd5118");
+        write(&dimm3, "temp1_input", "40000\n");
+        let client = i2c_client(tree.path(), 3, 0x52, "SMBus PIIX4 adapter port 0 at 0b00");
+        std::os::unix::fs::symlink(client, dimm3.join("device")).unwrap();
+        let other_bus = chip(&hwmon, "hwmon4", "jc42");
+        write(&other_bus, "temp1_input", "41000\n");
+        let client = i2c_client(tree.path(), 4, 0x18, "SMBus PIIX4 adapter port 2 at 0b20");
+        std::os::unix::fs::symlink(client, other_bus.join("device")).unwrap();
+
+        let mut backend = HwmonBackend::with_root(hwmon);
+        let inventory = backend.enumerate().unwrap();
+
+        assert_eq!(
+            sensor_ids(&inventory),
+            vec![
+                "cpu/amd/ccd1",
+                "cpu/amd/tctl",
+                "dimm/1-bus2/temp",
+                "dimm/3/temp",
+                "ec/asus/cpu_optional_fan",
+                "ec/asus/water_in",
+                "superio/nct6798d/fan2",
+                "superio/nct6798d/temp1",
+                "superio/nct6798d/temp3",
+            ]
+        );
+        let controls: Vec<_> = inventory.controls.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(controls, vec!["superio/nct6798d/pwm2"]);
+        let values = backend.read_all();
+        assert_eq!(values["superio/nct6798d/temp1"], Some(50.0));
+        assert_eq!(values["cpu/amd/tctl"], Some(55.0));
+        backend.set_duty("superio/nct6798d/pwm2", 100.0).unwrap();
+        assert_eq!(read_file(&nct, "pwm2"), "255");
+    }
+
+    #[test]
+    fn two_chips_that_would_share_an_id_keep_their_hwmon_ids() {
+        let tree = tempfile::tempdir().unwrap();
+        for dir in ["hwmon0", "hwmon1"] {
+            let k10 = chip(tree.path(), dir, "k10temp");
+            write(&k10, "temp1_input", "55000\n");
+            write(&k10, "temp1_label", "Tctl\n");
+        }
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        let inventory = backend.enumerate().unwrap();
+        assert_eq!(
+            sensor_ids(&inventory),
+            vec!["hwmon/k10temp-1/temp1", "hwmon/k10temp/temp1"]
+        );
+    }
+
+    #[test]
+    fn labels_without_a_windows_counterpart_keep_their_hwmon_id() {
+        let tree = tempfile::tempdir().unwrap();
+        let nct = chip(tree.path(), "hwmon0", "nct6798");
+        write(&nct, "temp9_input", "20000\n");
+        write(&nct, "temp9_label", "Virtual_TEMP\n");
+        let k10 = chip(tree.path(), "hwmon1", "k10temp");
+        write(&k10, "temp2_input", "20000\n");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        let inventory = backend.enumerate().unwrap();
+        assert_eq!(
+            sensor_ids(&inventory),
+            vec!["hwmon/k10temp/temp2", "hwmon/nct6798/temp9"]
+        );
+    }
+
+    #[test]
+    fn skipped_drivers_are_left_out() {
+        let tree = mock_tree();
+        let cpro = chip(tree.path(), "hwmon2", "corsaircpro");
+        write(&cpro, "fan1_input", "800\n");
+        write(&cpro, "pwm1", "100\n");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf())
+            .skipping_drivers(["corsaircpro".to_string()]);
+        let inventory = backend.enumerate().unwrap();
+        assert!(!inventory
+            .sensors
+            .iter()
+            .any(|s| s.id.contains("corsaircpro")));
+        assert!(!inventory
+            .controls
+            .iter()
+            .any(|c| c.id.contains("corsaircpro")));
     }
 
     #[test]
@@ -303,18 +504,18 @@ mod tests {
         let tree = mock_tree();
         let chip2 = tree.path().join("hwmon2");
         fs::create_dir(&chip2).unwrap();
-        write(&chip2, "name", "nct6798\n");
+        write(&chip2, "name", "it8792\n");
         write(&chip2, "temp1_input", "30000\n");
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         let inventory = backend.enumerate().unwrap();
         assert!(inventory
             .sensors
             .iter()
-            .any(|s| s.id == "hwmon/nct6798/temp1"));
+            .any(|s| s.id == "hwmon/it8792/temp1"));
         assert!(inventory
             .sensors
             .iter()
-            .any(|s| s.id == "hwmon/nct6798-1/temp1"));
+            .any(|s| s.id == "hwmon/it8792-1/temp1"));
     }
 
     #[test]
@@ -342,10 +543,10 @@ mod tests {
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         backend.enumerate().unwrap();
         let values = backend.read_all();
-        assert_eq!(values["hwmon/nct6798/temp1"], Some(45.0));
+        assert_eq!(values["hwmon/it8792/temp1"], Some(45.0));
         assert_eq!(values["hwmon/amdgpu/temp1"], Some(60.0));
-        assert_eq!(values["hwmon/nct6798/fan1"], Some(1200.0));
-        let duty = values["hwmon/nct6798/pwm1"].unwrap();
+        assert_eq!(values["hwmon/it8792/fan1"], Some(1200.0));
+        let duty = values["hwmon/it8792/pwm1"].unwrap();
         assert!((duty - 50.196).abs() < 0.01);
         assert_eq!(values.len(), 4);
     }
@@ -359,8 +560,8 @@ mod tests {
         write(&tree.path().join("hwmon0"), "temp1_input", "garbage\n");
         let values = backend.read_all();
         assert_eq!(values["hwmon/amdgpu/temp1"], None);
-        assert_eq!(values["hwmon/nct6798/temp1"], None);
-        assert_eq!(values["hwmon/nct6798/fan1"], Some(1200.0));
+        assert_eq!(values["hwmon/it8792/temp1"], None);
+        assert_eq!(values["hwmon/it8792/fan1"], Some(1200.0));
     }
 
     fn read_file(dir: &Path, file: &str) -> String {
@@ -376,14 +577,14 @@ mod tests {
         let chip0 = tree.path().join("hwmon0");
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         backend.enumerate().unwrap();
-        backend.set_duty("hwmon/nct6798/pwm1", 60.0).unwrap();
+        backend.set_duty("hwmon/it8792/pwm1", 60.0).unwrap();
         assert_eq!(read_file(&chip0, "pwm1"), "153");
         assert_eq!(read_file(&chip0, "pwm1_enable"), "1");
-        backend.set_duty("hwmon/nct6798/pwm1", 0.0).unwrap();
+        backend.set_duty("hwmon/it8792/pwm1", 0.0).unwrap();
         assert_eq!(read_file(&chip0, "pwm1"), "0");
-        backend.release("hwmon/nct6798/pwm1").unwrap();
+        backend.release("hwmon/it8792/pwm1").unwrap();
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
-        backend.release("hwmon/nct6798/pwm1").unwrap();
+        backend.release("hwmon/it8792/pwm1").unwrap();
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
     }
 
@@ -393,9 +594,9 @@ mod tests {
         let chip0 = tree.path().join("hwmon0");
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         backend.enumerate().unwrap();
-        backend.set_duty("hwmon/nct6798/pwm1", 150.0).unwrap();
+        backend.set_duty("hwmon/it8792/pwm1", 150.0).unwrap();
         assert_eq!(read_file(&chip0, "pwm1"), "255");
-        backend.set_duty("hwmon/nct6798/pwm1", -5.0).unwrap();
+        backend.set_duty("hwmon/it8792/pwm1", -5.0).unwrap();
         assert_eq!(read_file(&chip0, "pwm1"), "0");
     }
 
@@ -417,10 +618,10 @@ mod tests {
         let chip0 = tree.path().join("hwmon0");
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         backend.enumerate().unwrap();
-        backend.set_duty("hwmon/nct6798/pwm1", 60.0).unwrap();
+        backend.set_duty("hwmon/it8792/pwm1", 60.0).unwrap();
         assert_eq!(read_file(&chip0, "pwm1_enable"), "1");
         backend.enumerate().unwrap();
-        backend.release("hwmon/nct6798/pwm1").unwrap();
+        backend.release("hwmon/it8792/pwm1").unwrap();
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
     }
 
@@ -430,7 +631,7 @@ mod tests {
         let chip0 = tree.path().join("hwmon0");
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         backend.enumerate().unwrap();
-        let result = backend.set_duty("hwmon/nct6798/pwm1", f64::NAN);
+        let result = backend.set_duty("hwmon/it8792/pwm1", f64::NAN);
         assert!(matches!(result, Err(HwError::Io { .. })));
         assert_eq!(read_file(&chip0, "pwm1"), "128");
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
@@ -442,9 +643,9 @@ mod tests {
         let chip0 = tree.path().join("hwmon0");
         let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
         backend.enumerate().unwrap();
-        assert_eq!(backend.restore_hint("hwmon/nct6798/pwm1"), None);
-        backend.set_duty("hwmon/nct6798/pwm1", 60.0).unwrap();
-        let (path, value) = backend.restore_hint("hwmon/nct6798/pwm1").unwrap();
+        assert_eq!(backend.restore_hint("hwmon/it8792/pwm1"), None);
+        backend.set_duty("hwmon/it8792/pwm1", 60.0).unwrap();
+        let (path, value) = backend.restore_hint("hwmon/it8792/pwm1").unwrap();
         assert_eq!(path, chip0.join("pwm1_enable").display().to_string());
         assert_eq!(value, "5");
     }
