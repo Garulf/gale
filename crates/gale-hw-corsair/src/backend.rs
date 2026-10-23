@@ -97,6 +97,14 @@ fn driver_for(vid: u16, pid: u16) -> Option<(DriverKind, &'static str)> {
     }
 }
 
+fn kernel_driver(kind: DriverKind) -> Option<&'static str> {
+    match kind {
+        DriverKind::CommanderPro => Some("corsaircpro"),
+        DriverKind::CorsairPsu => Some("corsairpsu"),
+        DriverKind::CommanderCore { .. } | DriverKind::HydroPlatinum { .. } => None,
+    }
+}
+
 fn build_driver(
     kind: DriverKind,
     slug: &'static str,
@@ -185,6 +193,7 @@ pub struct CorsairBackend {
     slug: String,
     device: Box<dyn CorsairDevice>,
     controls: HashMap<Id, String>,
+    kernel_driver: Option<&'static str>,
 }
 
 impl CorsairBackend {
@@ -193,11 +202,17 @@ impl CorsairBackend {
             slug,
             device,
             controls: HashMap::new(),
+            kernel_driver: None,
         }
     }
 
+    /// The Linux hwmon driver that also serves this device, if mainline has one.
+    pub fn kernel_driver(&self) -> Option<&'static str> {
+        self.kernel_driver
+    }
+
     pub fn open_all(release_mode: ReleaseMode) -> Vec<CorsairBackend> {
-        let mut opened: Vec<(String, Option<String>, Box<dyn CorsairDevice>)> = Vec::new();
+        let mut opened: Vec<OpenedDevice> = Vec::new();
         if let Ok(api) = hidapi::HidApi::new() {
             let candidates = discover_candidates(&api);
             for group in group_candidates(candidates) {
@@ -209,10 +224,13 @@ impl CorsairBackend {
         let mut taken: HashSet<String> = HashSet::new();
         opened
             .into_iter()
-            .map(|(family, serial, device)| {
-                let slug = assign_slug(&family, serial.as_deref(), &taken);
+            .map(|opened| {
+                let slug = assign_slug(&opened.family, opened.serial.as_deref(), &taken);
                 taken.insert(slug.clone());
-                CorsairBackend::with_device(slug, device)
+                CorsairBackend {
+                    kernel_driver: kernel_driver(opened.kind),
+                    ..CorsairBackend::with_device(slug, opened.device)
+                }
             })
             .collect()
     }
@@ -246,11 +264,18 @@ fn discover_candidates(api: &hidapi::HidApi) -> Vec<Candidate> {
 /// Opens the first HID collection in `group` that succeeds, using whichever known
 /// driver matches the group's vendor/product id. Devices expose several HID
 /// collections for the same physical device; only one needs to open.
+struct OpenedDevice {
+    family: String,
+    serial: Option<String>,
+    kind: DriverKind,
+    device: Box<dyn CorsairDevice>,
+}
+
 fn open_group(
     api: &hidapi::HidApi,
     group: &[Candidate],
     release_mode: ReleaseMode,
-) -> Option<(String, Option<String>, Box<dyn CorsairDevice>)> {
+) -> Option<OpenedDevice> {
     let first = group.first()?;
     let (kind, slug) = driver_for(first.vid, first.pid)?;
     let vid = first.vid;
@@ -262,8 +287,13 @@ fn open_group(
     match device {
         Some(device) => {
             let transport = Box::new(HidapiTransport::new(device));
-            let driver = build_driver(kind, slug, transport, release_mode);
-            Some((slug.to_string(), serial, driver))
+            let device = build_driver(kind, slug, transport, release_mode);
+            Some(OpenedDevice {
+                family: slug.to_string(),
+                serial,
+                kind,
+                device,
+            })
         }
         None => {
             let interfaces: Vec<i32> = group.iter().map(|candidate| candidate.interface).collect();
@@ -506,6 +536,23 @@ mod tests {
         );
         let control_ids: Vec<_> = inventory.controls.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(control_ids, vec!["corsair/h100i/pwm1"]);
+    }
+
+    #[test]
+    fn devices_with_a_mainline_kernel_driver_name_its_hwmon_chip() {
+        assert_eq!(kernel_driver(DriverKind::CommanderPro), Some("corsaircpro"));
+        assert_eq!(kernel_driver(DriverKind::CorsairPsu), Some("corsairpsu"));
+        assert_eq!(
+            kernel_driver(DriverKind::CommanderCore { has_pump: true }),
+            None
+        );
+        assert_eq!(
+            kernel_driver(DriverKind::HydroPlatinum { fan_count: 2 }),
+            None
+        );
+        let backend =
+            CorsairBackend::with_device("h100i".into(), Box::new(FakeDevice::new("h100i")));
+        assert_eq!(backend.kernel_driver(), None);
     }
 
     #[test]
