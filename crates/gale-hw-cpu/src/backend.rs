@@ -6,6 +6,8 @@ use gale_hw::{Backend, HwError, Id, Inventory, SensorInfo, SensorKind};
 
 pub const PREFIX: &str = "cpu";
 pub const MICROJOULES_PER_JOULE: f64 = 1_000_000.0;
+pub const POWER: &str = "power";
+pub const AMD_POWER: &str = "amd/power";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuTimes {
@@ -33,6 +35,12 @@ pub trait CpuFreq: Send {
 pub trait Rapl: Send {
     fn read_uj(&mut self) -> Result<u64, String>;
     fn energy_modulus_uj(&self) -> Option<u64>;
+
+    /// The sensor name under `cpu/`; AMD package power is `amd/power` so it
+    /// matches the id the Windows AMD backend reports.
+    fn sensor_name(&self) -> &'static str {
+        POWER
+    }
 }
 
 #[derive(Default)]
@@ -93,6 +101,13 @@ impl CpuBackend {
     pub fn with_clock(mut self, clock: Box<dyn FnMut() -> Instant + Send>) -> Self {
         self.clock = clock;
         self
+    }
+
+    fn power_name(&self) -> &'static str {
+        self.sources
+            .power
+            .as_ref()
+            .map_or(POWER, |source| source.sensor_name())
     }
 
     fn has(&self, name: &str) -> bool {
@@ -186,7 +201,7 @@ impl Backend for CpuBackend {
         if let Some(source) = self.sources.power.as_mut() {
             match source.read_uj() {
                 Ok(_) => sensors.push(SensorInfo {
-                    id: id("power"),
+                    id: id(source.sensor_name()),
                     label: "CPU Package Power".to_string(),
                     kind: SensorKind::Power,
                 }),
@@ -210,9 +225,10 @@ impl Backend for CpuBackend {
             let clock = self.read_clock();
             values.insert(id("clock"), clock);
         }
-        if self.has("power") {
+        let power_name = self.power_name();
+        if self.has(power_name) {
             let power = self.read_power();
-            values.insert(id("power"), power);
+            values.insert(id(power_name), power);
         }
         values
     }
