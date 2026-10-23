@@ -164,3 +164,7 @@ dist
 !ui/dist
 
 .worktrees/
+
+# nix build output
+result
+result-*

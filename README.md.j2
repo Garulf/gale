@@ -29,6 +29,34 @@ This installs `galed` and `gale` to `/usr/local/bin`, the systemd unit, and the
 udev rules that grant hidraw access to supported Corsair devices. Uninstall
 with `sudo packaging/install.sh --uninstall`.
 
+### NixOS
+
+The repo is a flake. Add it as an input and enable the module:
+
+```nix
+{
+  inputs.gale.url = "github:Garulf/gale";
+
+  outputs = { nixpkgs, gale, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        gale.nixosModules.default
+        { services.gale.enable = true; }
+      ];
+    };
+  };
+}
+```
+
+This runs `galed` as a systemd service, puts `gale` on the path and installs the
+Corsair udev rules. The config lives at `/var/lib/gale/config.toml` (set
+`services.gale.configFile` to move it) because the daemon rewrites it when you
+save from the UI. NVIDIA support loads NVML from `/run/opengl-driver/lib`, where
+the NixOS NVIDIA driver puts it.
+
+Outside NixOS, `nix build github:Garulf/gale` builds `galed` and `gale` into
+`result/bin`.
+
 ### Windows
 
 Download `gale-windows-x86_64.zip` from the
