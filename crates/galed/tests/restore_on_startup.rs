@@ -51,8 +51,8 @@ fn leftover_journal_is_restored_before_normal_startup_claims_the_control() {
     claims_journal::write(
         &journal_path,
         &[JournalEntry {
-            id: "hwmon/nct6798/pwm1".to_string(),
-            backend_kind: "hwmon".to_string(),
+            id: "superio/nct6798d/pwm1".to_string(),
+            backend_kind: "superio".to_string(),
             hint: Some((enable_path.display().to_string(), "5".to_string())),
         }],
     )
@@ -73,11 +73,11 @@ bind = "127.0.0.1:{port}"
 
 [profiles.default.curves.cpu]
 type = "point"
-sensor = "hwmon/nct6798/temp1"
+sensor = "superio/nct6798d/temp2"
 points = [[30.0, 20.0], [70.0, 100.0]]
 
 [profiles.default.assignments]
-"hwmon/nct6798/pwm1" = "cpu"
+"superio/nct6798d/pwm1" = "cpu"
 "#
         ),
     );
@@ -101,7 +101,7 @@ points = [[30.0, 20.0], [70.0, 100.0]]
         if let Ok(metadata) = fs::metadata(&journal_path) {
             if metadata.ino() != seed_ino {
                 let entries = claims_journal::load(&journal_path);
-                if let Some(entry) = entries.iter().find(|e| e.id == "hwmon/nct6798/pwm1") {
+                if let Some(entry) = entries.iter().find(|e| e.id == "superio/nct6798d/pwm1") {
                     if let Some(hint) = &entry.hint {
                         written_by_daemon = Some(hint.clone());
                         break;

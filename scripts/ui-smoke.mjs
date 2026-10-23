@@ -12,17 +12,17 @@ const BASE_URL = process.env.GALE_UI_SMOKE_BASE_URL || "http://127.0.0.1:5250";
 const CHROME_PATH = process.env.GALE_UI_SMOKE_CHROME;
 const SENSOR_LABEL = "CPUTIN";
 const SENSOR_VALUE_TEXT = "45.0";
-const CONTROL_LABEL = "nct6798 pwm1";
-const SENSOR_NODE = "sensor:hwmon/nct6798";
-const TEMP1 = "hwmon/nct6798/temp1";
-const TEMP2 = "hwmon/nct6798/temp2";
-const CONTROL_NODE = "control:hwmon/nct6798";
-const TEMP3 = "hwmon/nct6798/temp3";
-const TEMP5 = "hwmon/nct6798/temp5";
-const PWM3 = "hwmon/nct6798/pwm3";
-const PWM5 = "hwmon/nct6798/pwm5";
+const CONTROL_LABEL = "it8792 pwm1";
+const SENSOR_NODE = "sensor:hwmon/it8792";
+const TEMP1 = "hwmon/it8792/temp1";
+const TEMP2 = "hwmon/it8792/temp2";
+const CONTROL_NODE = "control:hwmon/it8792";
+const TEMP3 = "hwmon/it8792/temp3";
+const TEMP5 = "hwmon/it8792/temp5";
+const PWM3 = "hwmon/it8792/pwm3";
+const PWM5 = "hwmon/it8792/pwm5";
 const CONTROL_EDGE_ID =
-  "curve:cpu:out->control:hwmon/nct6798:hwmon/nct6798/pwm1";
+  "curve:cpu:out->control:hwmon/it8792:hwmon/it8792/pwm1";
 const LATE_SENSOR_EDGE_ID = `${SENSOR_NODE}:${TEMP5}->curve:late:sensor`;
 const LATE_CONTROL_EDGE_ID = `curve:late:out->${CONTROL_NODE}:${PWM5}`;
 const NEW_SENSOR_NAME = "gpu_hot";
@@ -485,8 +485,8 @@ async function main() {
       async () => {
         await page.waitForFunction(
           () =>
-            document.querySelector('[data-node-id="sensor:hwmon/nct6798"]') &&
-            document.querySelector('[data-node-id="control:hwmon/nct6798"]') &&
+            document.querySelector('[data-node-id="sensor:hwmon/it8792"]') &&
+            document.querySelector('[data-node-id="control:hwmon/it8792"]') &&
             document.querySelector('[data-node-id="virtual:combined"]') &&
             document.querySelector('[data-node-id="curve:cpu"]'),
           { timeout: 5000 },
@@ -718,7 +718,7 @@ async function main() {
             .dispatchEvent(new MouseEvent("click", { bubbles: true }));
         }, CONTROL_NODE);
         const selector =
-          '[data-testid="control-min_duty"][data-handle="hwmon/nct6798/pwm1"]';
+          '[data-testid="control-min_duty"][data-handle="hwmon/it8792/pwm1"]';
         await page.waitForSelector(selector, { timeout: 5000 });
         await page.evaluate((sel) => {
           const input = document.querySelector(sel);
@@ -730,8 +730,8 @@ async function main() {
             const config = await (await fetch("/api/config")).json();
             return (
               config.controls &&
-              config.controls["hwmon/nct6798/pwm1"] &&
-              config.controls["hwmon/nct6798/pwm1"].min_duty === 20
+              config.controls["hwmon/it8792/pwm1"] &&
+              config.controls["hwmon/it8792/pwm1"].min_duty === 20
             );
           },
           { timeout: 5000 },
@@ -744,7 +744,7 @@ async function main() {
         await page.waitForFunction(
           async () => {
             const config = await (await fetch("/api/config")).json();
-            return !config.controls || !config.controls["hwmon/nct6798/pwm1"];
+            return !config.controls || !config.controls["hwmon/it8792/pwm1"];
           },
           { timeout: 5000 },
         );
@@ -942,7 +942,7 @@ async function main() {
         const config = await fetchConfig();
         deepStrictEqual(config.profiles.default.curves.cpu, {
           type: "linear",
-          sensor: "hwmon/nct6798/temp1",
+          sensor: "hwmon/it8792/temp1",
           min_temp: 40,
           max_temp: 80,
           min_duty: 20,

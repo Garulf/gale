@@ -6,6 +6,7 @@ license = "GPL-3.0-or-later"
 
 [dependencies]
 gale-hw = { path = "../gale-hw" }
+gale-hw-superio = { path = "../gale-hw-superio" }
 
 [dev-dependencies]
 tempfile = "3"

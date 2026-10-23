@@ -64,13 +64,21 @@ pub async fn run(options: DaemonOptions) -> Result<(), DaemonError> {
     let mut handles: Vec<BackendHandle> = Vec::new();
     #[cfg_attr(not(windows), allow(unused_mut))]
     let mut platform_warnings: Vec<String> = Vec::new();
-    #[cfg(target_os = "linux")]
-    handles.push(BackendHandle::spawn(Box::new(HwmonBackend::new())));
-    #[cfg(any(target_os = "linux", windows))]
-    handles.push(BackendHandle::spawn(Box::new(gale_hw_cpu::probe())));
     let corsair_release_mode: ReleaseMode =
         crate::claims_journal::release_mode_from_config(&config.hardware.corsair.on_release);
-    for backend in CorsairBackend::open_all(corsair_release_mode) {
+    let corsair_backends = CorsairBackend::open_all(corsair_release_mode);
+    #[cfg(target_os = "linux")]
+    {
+        let corsair_kernel_drivers = corsair_backends
+            .iter()
+            .filter_map(CorsairBackend::kernel_driver)
+            .map(str::to_string);
+        let hwmon = HwmonBackend::new().skipping_drivers(corsair_kernel_drivers);
+        handles.push(BackendHandle::spawn(Box::new(hwmon)));
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    handles.push(BackendHandle::spawn(Box::new(gale_hw_cpu::probe())));
+    for backend in corsair_backends {
         handles.push(BackendHandle::spawn(Box::new(backend)));
     }
     handles.push(BackendHandle::spawn(Box::new(NvidiaBackend::new())));

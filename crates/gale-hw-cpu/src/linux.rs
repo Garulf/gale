@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::backend::{CpuFreq, CpuSources, CpuTimes, ProcStat, Rapl};
+use crate::backend::{CpuFreq, CpuSources, CpuTimes, ProcStat, Rapl, AMD_POWER, POWER};
 
 pub const ROOT_ENV: &str = "GALE_CPU_ROOT";
 
 const GUEST_FREE_FIELDS: usize = 8;
+const AMD_VENDOR_ID: &str = "AuthenticAMD";
 const RAPL_PACKAGE_NAME_PREFIX: &str = "package";
 const RAPL_ZONES: [&str; 2] = [
     "sys/class/powercap/intel-rapl:0",
@@ -149,10 +150,12 @@ impl CpuFreq for CpuFreqSysfs {
 pub struct RaplSysfs {
     energy: PathBuf,
     modulus: Option<u64>,
+    sensor_name: &'static str,
 }
 
 impl RaplSysfs {
     pub fn discover(root: &Path) -> Option<Self> {
+        let sensor_name = if is_amd(root) { AMD_POWER } else { POWER };
         for zone in RAPL_ZONES {
             let dir = root.join(zone);
             let energy = dir.join("energy_uj");
@@ -164,13 +167,23 @@ impl RaplSysfs {
                     .ok()
                     .and_then(|max| max.checked_add(1)),
                 energy,
+                sensor_name,
             });
         }
         amd_energy_input(root).map(|energy| Self {
             energy,
             modulus: None,
+            sensor_name: AMD_POWER,
         })
     }
+}
+
+fn is_amd(root: &Path) -> bool {
+    fs::read_to_string(root.join("proc/cpuinfo")).is_ok_and(|text| {
+        text.lines()
+            .filter_map(|line| line.split_once(':'))
+            .any(|(key, value)| key.trim() == "vendor_id" && value.trim() == AMD_VENDOR_ID)
+    })
 }
 
 fn is_package_zone(dir: &Path) -> bool {
@@ -201,6 +214,10 @@ impl Rapl for RaplSysfs {
 
     fn energy_modulus_uj(&self) -> Option<u64> {
         self.modulus
+    }
+
+    fn sensor_name(&self) -> &'static str {
+        self.sensor_name
     }
 }
 
@@ -370,6 +387,26 @@ mod tests {
         let mut rapl = RaplSysfs::discover(amd.path()).unwrap();
         assert_eq!(rapl.read_uj().unwrap(), 77);
         assert_eq!(rapl.energy_modulus_uj(), None);
+    }
+
+    #[test]
+    fn amd_package_power_uses_the_id_the_windows_amd_backend_reports() {
+        let dir = fixture();
+        write(
+            dir.path().join("proc/cpuinfo"),
+            "processor\t: 0\nvendor_id\t: AuthenticAMD\ncpu MHz\t\t: 3500.000\n",
+        );
+        let mut backend =
+            crate::CpuBackend::new(sources_under(dir.path())).with_clock(one_second_per_call());
+        let inventory = backend.enumerate().unwrap();
+        let ids: Vec<_> = inventory.sensors.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["cpu/usage", "cpu/clock", "cpu/amd/power"]);
+        backend.read_all();
+        write(
+            dir.path().join("sys/class/powercap/intel-rapl:0/energy_uj"),
+            "2000000\n",
+        );
+        assert_eq!(backend.read_all()["cpu/amd/power"], Some(0.5));
     }
 
     #[test]

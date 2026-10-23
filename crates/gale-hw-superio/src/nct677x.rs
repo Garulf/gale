@@ -264,6 +264,16 @@ fn temps_for(chip: Chip) -> &'static [TempSource] {
     }
 }
 
+pub fn temperature_channels_of(chip: Chip) -> Vec<(usize, &'static str)> {
+    temps_for(chip)
+        .iter()
+        .enumerate()
+        .take(exposed_temps_for(chip))
+        .filter(|(_, entry)| entry.register != 0 || entry.alternate_register.is_some())
+        .map(|(index, entry)| (index + 1, entry.label))
+        .collect()
+}
+
 fn exposed_temps_for(chip: Chip) -> usize {
     match chip {
         Chip::Nct6771F | Chip::Nct6776F => 4,
@@ -329,13 +339,7 @@ impl Nct677x {
     }
 
     pub fn temperature_channels(&self) -> Vec<(usize, &'static str)> {
-        self.temps
-            .iter()
-            .enumerate()
-            .take(self.exposed_temps)
-            .filter(|(_, entry)| entry.register != 0 || entry.alternate_register.is_some())
-            .map(|(index, entry)| (index + 1, entry.label))
-            .collect()
+        temperature_channels_of(self.chip)
     }
 
     pub fn read_byte(&self, io: &mut dyn PortIo, address: u16) -> Result<u8, String> {
@@ -892,6 +896,17 @@ mod tests {
         };
         let chip = Nct677x::new(&mut io, &detected).unwrap();
         assert_eq!(chip.temperature_channels().len(), 4);
+    }
+
+    #[test]
+    fn chip_level_temperature_channels_match_a_live_instance() {
+        let mut io = FakePortIo::with_chip(0, FakeChip::nct6798d(0x0290));
+        let chip = nct6798d(&mut io);
+        let channels = temperature_channels_of(Chip::Nct6798D);
+        assert_eq!(channels, chip.temperature_channels());
+        assert_eq!(channels[0], (1, "PECI_0"));
+        assert_eq!(channels[2], (3, "SYSTIN"));
+        assert_eq!(temperature_channels_of(Chip::Nct6776F).len(), 4);
     }
 
     #[test]

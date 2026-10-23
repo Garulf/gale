@@ -9,7 +9,7 @@ on_release = "keep_last"
 
 [profiles.default.sensors.cpu_hot]
 type = "max"
-inputs = ["hwmon/nct6798/temp1", "nvidia/0/temp"]
+inputs = ["superio/nct6798d/temp2", "nvidia/0/temp"]
 
 [profiles.default.sensors.room]
 type = "webhook"
@@ -18,7 +18,7 @@ timeout_s = 120.0
 
 [profiles.default.curves.cpu]
 type = "point"
-sensor = "hwmon/nct6798/temp1"
+sensor = "superio/nct6798d/temp2"
 points = [[30.0, 20.0], [70.0, 100.0]]
 
 [profiles.default.curves.case]
@@ -35,7 +35,7 @@ points = [[35.0, 25.0], [75.0, 100.0]]
 
 # Display names for hardware channels, keyed by sensor or control id.
 # [labels]
-# "hwmon/nct6798/temp1" = "CPU die"
+# "superio/nct6798d/temp2" = "CPU die"
 # "corsair/commander-pro-0805/fan1" = "Front intake"
 
 # Home Assistant over MQTT discovery. The password is kept out of GET /api/config.
