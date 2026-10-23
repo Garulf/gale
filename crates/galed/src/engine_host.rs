@@ -953,13 +953,15 @@ max_duty = 100.0
         pool.enumerate().await;
 
         let host = EngineHost::new(GaleConfig::from_toml(CONFIG).unwrap(), pool).unwrap();
-        host.set_manual("hwmon/nct6798/pwm1", 60.0).await.unwrap();
+        host.set_manual("superio/nct6798d/pwm1", 60.0)
+            .await
+            .unwrap();
 
         let journal_path = runtime_dir.path().join("claims.json");
         let entries = claims_journal::load(&journal_path);
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].id, "hwmon/nct6798/pwm1");
-        assert_eq!(entries[0].backend_kind, "hwmon");
+        assert_eq!(entries[0].id, "superio/nct6798d/pwm1");
+        assert_eq!(entries[0].backend_kind, "superio");
         let (hint_path, hint_value) = entries[0].hint.clone().unwrap();
         assert_eq!(hint_path, chip0.join("pwm1_enable").display().to_string());
         assert_eq!(hint_value, "5");
