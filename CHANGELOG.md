@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.12.0](https://github.com/Garulf/gale/compare/gale-v0.11.2...gale-v0.12.0) (2026-10-23)
+
+
+### Features
+
+* add a Nix flake with a package and NixOS module ([#51](https://github.com/Garulf/gale/issues/51)) ([4f89bdb](https://github.com/Garulf/gale/commit/4f89bdba4675550893e7b47884f7feacd0f5bc1a))
+* **cpu:** name AMD package power cpu/amd/power on Linux ([1eaab4a](https://github.com/Garulf/gale/commit/1eaab4a53d19f4b0d07a78796af7c16e08a7779f))
+* **hwmon:** report Windows ids for known chips so profiles work on both OSes ([ca06ff2](https://github.com/Garulf/gale/commit/ca06ff2b4ef19e339ad43cea4fc6fdf66d16acf5))
+* **ui:** scale the layout with the window on large screens ([#49](https://github.com/Garulf/gale/issues/49)) ([e76259a](https://github.com/Garulf/gale/commit/e76259a1f03ef5b73d919f8b1a744def020b1924))
+
+
+### Bug Fixes
+
+* **hwmon:** match the kernel's ASUS EC labels and keep claims across id changes ([255becb](https://github.com/Garulf/gale/commit/255becbd1c12800c6550c66884ba29bcd427ec51))
+* **linux:** keep the kernel Corsair hwmon chips out when the HID backend owns the device ([3c24d68](https://github.com/Garulf/gale/commit/3c24d68657dac6127187904c67a43589f8585495))
+
 ## [0.11.2](https://github.com/Garulf/gale/compare/gale-v0.11.1...gale-v0.11.2) (2026-09-10)
 
 
