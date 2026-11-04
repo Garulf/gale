@@ -3,12 +3,19 @@ use std::time::Duration;
 const MAX_REPORT_LENGTH: usize = 96;
 
 const MAX_DRAIN_ITERATIONS: usize = 32;
+const MAX_QUIET_DRAIN_ITERATIONS: usize = 8;
 
 pub trait HidTransport: Send {
     fn write(&mut self, data: &[u8]) -> Result<(), String>;
     fn read_timeout(&mut self, timeout_ms: i32) -> Result<Option<Vec<u8>>, String>;
 
-    fn drain(&mut self) {}
+    fn drain(&mut self) -> usize {
+        0
+    }
+
+    fn drain_until_quiet(&mut self, _quiet: Duration) -> usize {
+        self.drain()
+    }
 
     fn sleep(&mut self, duration: Duration) {
         std::thread::sleep(duration);
@@ -49,14 +56,27 @@ impl HidTransport for HidapiTransport {
         }
     }
 
-    fn drain(&mut self) {
+    fn drain(&mut self) -> usize {
+        self.discard_reports(0, MAX_DRAIN_ITERATIONS)
+    }
+
+    fn drain_until_quiet(&mut self, quiet: Duration) -> usize {
+        let timeout_ms = quiet.as_millis().try_into().unwrap_or(i32::MAX);
+        self.discard_reports(timeout_ms, MAX_QUIET_DRAIN_ITERATIONS)
+    }
+}
+
+impl HidapiTransport {
+    fn discard_reports(&mut self, timeout_ms: i32, max_reports: usize) -> usize {
         let mut buf = [0u8; MAX_REPORT_LENGTH];
-        for _ in 0..MAX_DRAIN_ITERATIONS {
-            match self.device.read_timeout(&mut buf, 0) {
+        let mut discarded = 0;
+        for _ in 0..max_reports {
+            match self.device.read_timeout(&mut buf, timeout_ms) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => continue,
+                Ok(_) => discarded += 1,
             }
         }
+        discarded
     }
 }
 
@@ -67,6 +87,8 @@ pub struct FakeTransport {
     pub writes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub drains: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub sleeps: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub quiet_drains: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub stale_reports: std::collections::HashMap<usize, usize>,
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -78,7 +100,18 @@ impl FakeTransport {
             writes: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             drains: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             sleeps: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            quiet_drains: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            stale_reports: std::collections::HashMap::new(),
         }
+    }
+
+    pub fn with_stale_reports(mut self, before_exchange: usize, count: usize) -> Self {
+        self.stale_reports.insert(before_exchange, count);
+        self
+    }
+
+    pub fn quiet_drain_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+        self.quiet_drains.clone()
     }
 
     pub fn write_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
@@ -133,9 +166,16 @@ impl HidTransport for FakeTransport {
         Ok(response)
     }
 
-    fn drain(&mut self) {
+    fn drain(&mut self) -> usize {
         self.drains
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stale_reports.remove(&self.cursor).unwrap_or(0)
+    }
+
+    fn drain_until_quiet(&mut self, _quiet: Duration) -> usize {
+        self.quiet_drains
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        0
     }
 
     fn sleep(&mut self, _duration: Duration) {
@@ -166,6 +206,14 @@ mod tests {
     fn fake_transport_panics_on_write_mismatch() {
         let mut transport = FakeTransport::new(vec![(vec![0x01], Some(vec![0xaa]))]);
         transport.write(&[0x02]).unwrap();
+    }
+
+    #[test]
+    fn fake_transport_drain_reports_stale_reports_scripted_before_an_exchange_once() {
+        let mut transport =
+            FakeTransport::new(vec![(vec![0x01], Some(vec![0xaa]))]).with_stale_reports(0, 2);
+        assert_eq!(transport.drain(), 2);
+        assert_eq!(transport.drain(), 0);
     }
 
     #[test]
