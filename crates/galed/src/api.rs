@@ -35,6 +35,7 @@ struct DutyBody {
 pub fn router(ctx: ApiContext) -> Router {
     let api = Router::new()
         .route("/status", get(status))
+        .route("/version", get(version))
         .route("/inventory", get(inventory))
         .route("/labels/*id", put(put_label).delete(delete_label))
         .route("/config", get(get_config).put(put_config))
@@ -144,6 +145,18 @@ async fn api_not_found() -> Response {
 
 async fn status(State(ctx): State<ApiContext>) -> Response {
     Json(ctx.host.subscribe().borrow().clone()).into_response()
+}
+
+#[derive(Serialize)]
+struct VersionResponse {
+    version: &'static str,
+}
+
+async fn version() -> Response {
+    Json(VersionResponse {
+        version: env!("CARGO_PKG_VERSION"),
+    })
+    .into_response()
 }
 
 #[derive(Serialize)]
@@ -825,6 +838,18 @@ points = [[30.0, 20.0], [70.0, 100.0]]
     async fn body_json(response: axum::response::Response) -> serde_json::Value {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn version_reports_the_daemon_build_version() {
+        let (router, _host) = make_router(None);
+        let response = router
+            .oneshot(Request::get("/api/version").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]

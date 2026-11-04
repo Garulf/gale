@@ -37,6 +37,10 @@ export function getStatus() {
   return requestJson('/api/status');
 }
 
+export function getVersion() {
+  return requestJson('/api/version');
+}
+
 export function getInventory() {
   return requestJson('/api/inventory');
 }
