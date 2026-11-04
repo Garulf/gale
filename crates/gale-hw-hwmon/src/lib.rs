@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const MANUAL_ENABLE: &str = "1";
+
 struct SensorEntry {
     path: PathBuf,
     kind: SensorKind,
@@ -278,13 +280,17 @@ impl Backend for HwmonBackend {
                 message: "non-finite duty".into(),
             });
         }
-        if control.saved_enable.is_none() {
-            if let Some(enable_path) = &control.enable_path {
-                let current =
-                    fs::read_to_string(enable_path).map_err(|e| io_error(enable_path, &e))?;
-                fs::write(enable_path, "1").map_err(|e| io_error(enable_path, &e))?;
-                control.saved_enable = Some(current.trim().to_string());
+        // Drivers such as amdgpu hand the fan back to their own policy on
+        // resume, so the mode is checked on every write, not only on claim.
+        if let Some(enable_path) = &control.enable_path {
+            let current = fs::read_to_string(enable_path).map_err(|e| io_error(enable_path, &e))?;
+            let current = current.trim();
+            if current != MANUAL_ENABLE {
+                fs::write(enable_path, MANUAL_ENABLE).map_err(|e| io_error(enable_path, &e))?;
             }
+            control
+                .saved_enable
+                .get_or_insert_with(|| current.to_string());
         }
         let raw = (pct.clamp(0.0, 100.0) / 100.0 * 255.0).round() as u32;
         fs::write(&control.pwm_path, raw.to_string()).map_err(|e| io_error(&control.pwm_path, &e))
@@ -586,6 +592,21 @@ mod tests {
         assert_eq!(read_file(&chip0, "pwm1"), "0");
         backend.release("hwmon/it8792/pwm1").unwrap();
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
+        backend.release("hwmon/it8792/pwm1").unwrap();
+        assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
+    }
+
+    #[test]
+    fn set_duty_takes_the_control_back_when_the_driver_resets_its_mode() {
+        let tree = mock_tree();
+        let chip0 = tree.path().join("hwmon0");
+        let mut backend = HwmonBackend::with_root(tree.path().to_path_buf());
+        backend.enumerate().unwrap();
+        backend.set_duty("hwmon/it8792/pwm1", 60.0).unwrap();
+        write(&chip0, "pwm1_enable", "2\n");
+        backend.set_duty("hwmon/it8792/pwm1", 40.0).unwrap();
+        assert_eq!(read_file(&chip0, "pwm1_enable"), "1");
+        assert_eq!(read_file(&chip0, "pwm1"), "102");
         backend.release("hwmon/it8792/pwm1").unwrap();
         assert_eq!(read_file(&chip0, "pwm1_enable"), "5");
     }
