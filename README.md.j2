@@ -361,10 +361,19 @@ same way:
 Super I/O access is coordinated through the ISA bus mutex, so `galed`
 coexists with FanControl and HWiNFO polling the same motherboard chip.
 Corsair USB devices cannot be shared that way: HID replies carry no request
-id, so running FanControl's Corsair plugin, iCUE, or liquidctl against a
-device Gale is also probing can make Gale read their traffic as its own.
-Stop the other program's access to a Corsair device before pointing Gale at
-it, or leave that device out of Gale's config.
+id, so running FanControl's Corsair plugin, iCUE, OpenRGB, or liquidctl
+against a device Gale is also probing can make Gale read their traffic as its
+own. Stop the other program's access to a Corsair device before pointing Gale
+at it, or leave that device out of Gale's config.
+
+On a Commander Pro, a reply meant for another program shifts every later
+reading in the poll by one channel. Gale checks each poll for that and reads
+it again, up to three times. If every attempt comes back shifted, it reports
+the device's sensors as unreadable for that tick, which sends curves using
+them to their fail-safe duty. A `stayed out of phase` warning in the log
+means some other program is talking to the device. On Windows, check that iCUE's
+`CorsairService` is actually stopped: a service set to Disabled keeps running
+until it is stopped by hand.
 {% endblock %}
 
 {% block license %}

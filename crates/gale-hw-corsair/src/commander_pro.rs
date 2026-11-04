@@ -26,12 +26,52 @@ const RELEASE_DUTY_PCT: u8 = 100;
 const MAX_DISCOVERY_ATTEMPTS: usize = 3;
 const DISCOVERY_RETRY_DELAY: Duration = Duration::from_millis(50);
 
+const MAX_READ_ATTEMPTS: usize = 3;
+const RESYNC_QUIET: Duration = Duration::from_millis(50);
+
+const FIRMWARE_REPLY_LENGTH: usize = 4;
+
 pub struct CommanderPro {
     transport: Box<dyn HidTransport>,
     slug: String,
     release_mode: ReleaseMode,
     temp_connected: [bool; TEMP_PROBE_COUNT],
     fan_present: [bool; FAN_COUNT],
+}
+
+#[derive(Clone, Copy)]
+enum Reading {
+    Temp(usize),
+    FanRpm(usize),
+}
+
+impl Reading {
+    fn channel(self) -> String {
+        match self {
+            Reading::Temp(i) => format!("temp{}", i + 1),
+            Reading::FanRpm(i) => format!("fan{}", i + 1),
+        }
+    }
+
+    fn command(self) -> (u8, u8) {
+        match self {
+            Reading::Temp(i) => (CMD_GET_TEMP, i as u8),
+            Reading::FanRpm(i) => (CMD_GET_FAN_RPM, i as u8),
+        }
+    }
+
+    fn decode(self, response: &[u8]) -> Option<f64> {
+        let raw = u16::from_be_bytes([*response.get(1)?, *response.get(2)?]) as f64;
+        Some(match self {
+            Reading::Temp(_) => raw / 100.0,
+            Reading::FanRpm(_) => raw,
+        })
+    }
+}
+
+struct Reply {
+    response: Option<Vec<u8>>,
+    discarded_before: usize,
 }
 
 impl CommanderPro {
@@ -50,13 +90,21 @@ impl CommanderPro {
     }
 
     fn exchange(&mut self, command: u8, data: &[u8]) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.exchange_counting_stale(command, data)?.response)
+    }
+
+    fn exchange_counting_stale(&mut self, command: u8, data: &[u8]) -> Result<Reply, String> {
         let mut frame = vec![0u8; REPORT_LENGTH];
         frame[0] = command;
         let payload_len = data.len().min(REPORT_LENGTH - 1);
         frame[1..1 + payload_len].copy_from_slice(&data[..payload_len]);
-        self.transport.drain();
+        let discarded_before = self.transport.drain();
         self.transport.write(&frame)?;
-        self.transport.read_timeout(READ_TIMEOUT_MS)
+        let response = self.transport.read_timeout(READ_TIMEOUT_MS)?;
+        Ok(Reply {
+            response,
+            discarded_before,
+        })
     }
 
     fn read_agreeing_discovery<T, F>(
@@ -104,22 +152,52 @@ impl CommanderPro {
         Ok(())
     }
 
-    fn read_temp(&mut self, index: usize) -> Option<f64> {
-        match self.exchange(CMD_GET_TEMP, &[index as u8]) {
-            Ok(Some(response)) if response.len() >= 3 => {
-                Some(u16::from_be_bytes([response[1], response[2]]) as f64 / 100.0)
-            }
-            _ => None,
-        }
+    fn readings(&self) -> Vec<Reading> {
+        let temps = (0..TEMP_PROBE_COUNT)
+            .filter(|&i| self.temp_connected[i])
+            .map(Reading::Temp);
+        let fans = (0..FAN_COUNT)
+            .filter(|&i| self.fan_present[i])
+            .map(Reading::FanRpm);
+        temps.chain(fans).collect()
     }
 
-    fn read_fan_rpm(&mut self, index: usize) -> Option<f64> {
-        match self.exchange(CMD_GET_FAN_RPM, &[index as u8]) {
-            Ok(Some(response)) if response.len() >= 3 => {
-                Some(u16::from_be_bytes([response[1], response[2]]) as f64)
+    // Replies carry no command echo, so a report from another program on the
+    // device shifts every later reply in the cycle by one. A shifted cycle shows
+    // up as a report drained between exchanges, or as two closing firmware reads
+    // that disagree because the first one got the last channel's reply.
+    fn read_in_phase(&mut self, readings: &[Reading]) -> Option<HashMap<String, Option<f64>>> {
+        let mut values = HashMap::new();
+        for (position, reading) in readings.iter().enumerate() {
+            let (command, index) = reading.command();
+            let reply = self.exchange_counting_stale(command, &[index]).ok();
+            if position > 0 && reply.as_ref().is_some_and(|r| r.discarded_before > 0) {
+                return None;
             }
-            _ => None,
+            let value = reply
+                .and_then(|r| r.response)
+                .and_then(|response| reading.decode(&response));
+            values.insert(reading.channel(), value);
         }
+        self.fence_holds().then_some(values)
+    }
+
+    fn fence_holds(&mut self) -> bool {
+        let mut firmware = Vec::with_capacity(2);
+        for _ in 0..2 {
+            match self.exchange_counting_stale(CMD_GET_FIRMWARE, &[]) {
+                Ok(Reply {
+                    discarded_before: 1..,
+                    ..
+                }) => return false,
+                Ok(Reply {
+                    response: Some(response),
+                    ..
+                }) => firmware.push(response.get(..FIRMWARE_REPLY_LENGTH).map(<[u8]>::to_vec)),
+                Ok(Reply { response: None, .. }) | Err(_) => return true,
+            }
+        }
+        firmware[0] == firmware[1]
     }
 
     fn write_duty(&mut self, index: usize, pct: u8) -> Result<(), String> {
@@ -199,23 +277,25 @@ impl CorsairDevice for CommanderPro {
     }
 
     fn read(&mut self) -> HashMap<String, Option<f64>> {
-        let mut values = HashMap::new();
-
-        for i in 0..TEMP_PROBE_COUNT {
-            if self.temp_connected[i] {
-                let value = self.read_temp(i);
-                values.insert(format!("temp{}", i + 1), value);
-            }
+        let readings = self.readings();
+        if readings.is_empty() {
+            return HashMap::new();
         }
 
-        for i in 0..FAN_COUNT {
-            if self.fan_present[i] {
-                let value = self.read_fan_rpm(i);
-                values.insert(format!("fan{}", i + 1), value);
+        for attempt in 0..MAX_READ_ATTEMPTS {
+            if attempt > 0 {
+                self.transport.drain_until_quiet(RESYNC_QUIET);
             }
+            if let Some(values) = self.read_in_phase(&readings) {
+                return values;
+            }
+            tracing::debug!("readings from {} came back out of phase", self.slug);
         }
-
-        values
+        tracing::warn!(
+            "readings from {} stayed out of phase after {MAX_READ_ATTEMPTS} attempts; another program may be using this device",
+            self.slug
+        );
+        readings.iter().map(|r| (r.channel(), None)).collect()
     }
 
     fn set_duty(&mut self, channel: &str, pct: f64) -> Result<(), String> {
@@ -244,6 +324,7 @@ impl CorsairDevice for CommanderPro {
 mod tests {
     use super::*;
     use crate::transport::FakeTransport;
+    use std::sync::atomic::Ordering;
 
     fn frame(command: u8, data: &[u8]) -> Vec<u8> {
         let mut buf = vec![0u8; REPORT_LENGTH];
@@ -258,12 +339,71 @@ mod tests {
         buf
     }
 
+    const FIRMWARE_REPLY: [u8; 4] = [0x00, 0x00, 0x09, 0xd4];
+
+    fn firmware_exchange() -> (Vec<u8>, Option<Vec<u8>>) {
+        (
+            frame(CMD_GET_FIRMWARE, &[]),
+            Some(padded_response(&FIRMWARE_REPLY)),
+        )
+    }
+
+    fn temp_exchange(index: u8, centidegrees: u16) -> (Vec<u8>, Option<Vec<u8>>) {
+        let [hi, lo] = centidegrees.to_be_bytes();
+        (
+            frame(CMD_GET_TEMP, &[index]),
+            Some(padded_response(&[0x00, hi, lo])),
+        )
+    }
+
+    fn rpm_exchange(index: u8, rpm: u16) -> (Vec<u8>, Option<Vec<u8>>) {
+        let [hi, lo] = rpm.to_be_bytes();
+        (
+            frame(CMD_GET_FAN_RPM, &[index]),
+            Some(padded_response(&[0x00, hi, lo])),
+        )
+    }
+
+    fn fence_answered_by(reply: Vec<u8>) -> (Vec<u8>, Option<Vec<u8>>) {
+        (frame(CMD_GET_FIRMWARE, &[]), Some(reply))
+    }
+
+    fn two_temps_one_fan_probe() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        probe_exchanges(
+            &[0x00, 0x01, 0x01, 0x00, 0x00],
+            &[0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00],
+        )
+    }
+
+    fn in_phase_cycle() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        vec![
+            temp_exchange(0, 3129),
+            temp_exchange(1, 2495),
+            rpm_exchange(0, 2510),
+            firmware_exchange(),
+            firmware_exchange(),
+        ]
+    }
+
+    fn shifted_cycle() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        vec![
+            temp_exchange(0, 4938),
+            temp_exchange(1, 3129),
+            rpm_exchange(0, 2495),
+            fence_answered_by(padded_response(&[0x00, 0x09, 0xce])),
+            firmware_exchange(),
+        ]
+    }
+
+    fn assert_in_phase_values(values: &HashMap<String, Option<f64>>) {
+        assert_eq!(values["temp1"], Some(31.29));
+        assert_eq!(values["temp2"], Some(24.95));
+        assert_eq!(values["fan1"], Some(2510.0));
+    }
+
     fn probe_exchanges(temp_config: &[u8], fan_modes: &[u8]) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
         vec![
-            (
-                frame(CMD_GET_FIRMWARE, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
-            ),
+            firmware_exchange(),
             (
                 frame(CMD_GET_BOOTLOADER, &[]),
                 Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
@@ -296,10 +436,7 @@ mod tests {
         assert_ne!(first_reply, second_reply);
 
         let exchanges = vec![
-            (
-                frame(CMD_GET_FIRMWARE, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
-            ),
+            firmware_exchange(),
             (
                 frame(CMD_GET_BOOTLOADER, &[]),
                 Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
@@ -341,10 +478,7 @@ mod tests {
     fn channels_retries_fan_mode_discovery_until_two_reads_agree() {
         let matching = [0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00];
         let exchanges = vec![
-            (
-                frame(CMD_GET_FIRMWARE, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
-            ),
+            firmware_exchange(),
             (
                 frame(CMD_GET_BOOTLOADER, &[]),
                 Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
@@ -399,10 +533,7 @@ mod tests {
     #[test]
     fn channels_keeps_last_reading_and_gives_up_when_fan_mode_discovery_never_agrees() {
         let exchanges = vec![
-            (
-                frame(CMD_GET_FIRMWARE, &[]),
-                Some(padded_response(&[0x00, 0x00, 0x09, 0xd4])),
-            ),
+            firmware_exchange(),
             (
                 frame(CMD_GET_BOOTLOADER, &[]),
                 Some(padded_response(&[0x00, 0x00, 0x05, 0x00])),
@@ -501,6 +632,7 @@ mod tests {
             frame(CMD_GET_TEMP, &[1]),
             Some(padded_response(&[0x00, 0x0a, 0x83])),
         ));
+        exchanges.extend([firmware_exchange(), firmware_exchange()]);
         let mut device = CommanderPro::new(
             Box::new(FakeTransport::new(exchanges)),
             "commander-pro",
@@ -520,6 +652,7 @@ mod tests {
             frame(CMD_GET_FAN_RPM, &[1]),
             Some(padded_response(&[0x00, 0x03, 0xac])),
         ));
+        exchanges.extend([firmware_exchange(), firmware_exchange()]);
         let mut device = CommanderPro::new(
             Box::new(FakeTransport::new(exchanges)),
             "commander-pro",
@@ -536,16 +669,182 @@ mod tests {
     fn unreadable_channel_reports_none_not_zero() {
         let mut exchanges = probe_exchanges(&[0x00, 0x00, 0x01, 0x00, 0x00], &[0, 0, 0, 0, 0, 0]);
         exchanges.push((frame(CMD_GET_TEMP, &[1]), None));
-        let mut device = CommanderPro::new(
-            Box::new(FakeTransport::new(exchanges)),
-            "commander-pro",
-            ReleaseMode::PinFull,
-        );
+        exchanges.extend([firmware_exchange(), firmware_exchange()]);
+        let transport = FakeTransport::new(exchanges);
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
         device.channels().unwrap();
 
         let values = device.read();
 
         assert_eq!(values["temp2"], None);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn read_rereads_a_cycle_shifted_by_a_foreign_report() {
+        let mut exchanges = two_temps_one_fan_probe();
+        exchanges.extend(shifted_cycle());
+        exchanges.extend(in_phase_cycle());
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_in_phase_values(&values);
+        assert_eq!(writes.load(Ordering::Relaxed), expected_exchanges);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn read_rereads_a_cycle_when_a_late_reply_is_drained_between_exchanges() {
+        let mut exchanges = two_temps_one_fan_probe();
+        let second_read = exchanges.len() + 1;
+        exchanges.extend(vec![temp_exchange(0, 4938), temp_exchange(1, 2495)]);
+        exchanges.extend(in_phase_cycle());
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges).with_stale_reports(second_read, 1);
+        let writes = transport.write_counter();
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_in_phase_values(&values);
+        assert_eq!(writes.load(Ordering::Relaxed), expected_exchanges);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn read_rereads_a_cycle_when_a_late_reply_is_drained_before_the_fence() {
+        let mut exchanges = two_temps_one_fan_probe();
+        let fence = exchanges.len() + 3;
+        exchanges.extend(vec![
+            temp_exchange(0, 3129),
+            temp_exchange(1, 2495),
+            rpm_exchange(0, 4938),
+            firmware_exchange(),
+        ]);
+        exchanges.extend(in_phase_cycle());
+        let transport = FakeTransport::new(exchanges).with_stale_reports(fence, 1);
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_in_phase_values(&values);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn read_accepts_a_cycle_whose_stale_reports_were_all_drained_before_it_started() {
+        let mut exchanges = two_temps_one_fan_probe();
+        let first_read = exchanges.len();
+        exchanges.extend(in_phase_cycle());
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges).with_stale_reports(first_read, 3);
+        let writes = transport.write_counter();
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_in_phase_values(&values);
+        assert_eq!(writes.load(Ordering::Relaxed), expected_exchanges);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn read_reports_every_channel_unreadable_when_no_cycle_stays_in_phase() {
+        let mut exchanges = two_temps_one_fan_probe();
+        for _ in 0..MAX_READ_ATTEMPTS {
+            exchanges.extend(shifted_cycle());
+        }
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_eq!(values.len(), 3);
+        assert!(values.values().all(Option::is_none), "{values:?}");
+        assert_eq!(writes.load(Ordering::Relaxed), expected_exchanges);
+    }
+
+    #[test]
+    fn read_accepts_a_cycle_when_the_device_stops_answering_at_the_fence() {
+        let mut exchanges = two_temps_one_fan_probe();
+        exchanges.extend(vec![
+            temp_exchange(0, 3129),
+            temp_exchange(1, 2495),
+            rpm_exchange(0, 2510),
+            (frame(CMD_GET_FIRMWARE, &[]), None),
+        ]);
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_in_phase_values(&values);
+        assert_eq!(writes.load(Ordering::Relaxed), expected_exchanges);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn read_rereads_a_cycle_when_a_foreign_firmware_reply_answers_the_first_fence_read() {
+        let mut exchanges = two_temps_one_fan_probe();
+        exchanges.extend(vec![
+            temp_exchange(0, 4938),
+            temp_exchange(1, 3129),
+            rpm_exchange(0, 2495),
+            firmware_exchange(),
+            fence_answered_by(padded_response(&[0x00, 0x09, 0xce])),
+        ]);
+        exchanges.extend(in_phase_cycle());
+        let transport = FakeTransport::new(exchanges);
+        let quiet_drains = transport.quiet_drain_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        let values = device.read();
+
+        assert_in_phase_values(&values);
+        assert_eq!(quiet_drains.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn read_with_nothing_connected_sends_no_fence() {
+        let exchanges = probe_exchanges(&[0, 0, 0, 0], &[0, 0, 0, 0, 0, 0]);
+        let expected_exchanges = exchanges.len();
+        let transport = FakeTransport::new(exchanges);
+        let writes = transport.write_counter();
+        let mut device =
+            CommanderPro::new(Box::new(transport), "commander-pro", ReleaseMode::PinFull);
+        device.channels().unwrap();
+
+        assert!(device.read().is_empty());
+        assert_eq!(writes.load(Ordering::Relaxed), expected_exchanges);
     }
 
     #[test]
