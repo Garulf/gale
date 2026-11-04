@@ -6,6 +6,7 @@
   import { daemonConfig, refreshConfig } from './lib/config.js';
   import { theme, toggleTheme } from './lib/theme.js';
   import { unauthorized, saveApiKey } from './lib/auth.js';
+  import { getVersion } from './lib/api.js';
   import './lib/sensorHistory.js';
   import ProfileSwitcher from './lib/components/ProfileSwitcher.svelte';
   import WarningsBanner from './lib/components/WarningsBanner.svelte';
@@ -37,14 +38,26 @@
   let tick = $derived($daemonConfig ? `${$daemonConfig.tick_interval_ms} ms` : '—');
   let bind = $derived($daemonConfig ? $daemonConfig.api.bind : '—');
 
+  let daemonVersion = $state('');
+
+  async function refreshVersion() {
+    try {
+      daemonVersion = (await getVersion()).version;
+    } catch (error) {
+      daemonVersion = '';
+    }
+  }
+
   refreshWarnings();
   refreshConfig();
+  refreshVersion();
 
   let wasConnected = false;
   $effect(() => {
     if ($connected && !wasConnected) {
       refreshWarnings();
       refreshConfig();
+      refreshVersion();
     }
     wasConnected = $connected;
   });
@@ -55,7 +68,9 @@
     <div class="brand">
       <img src={logo} alt="" class="logo" />
       <span class="wordmark">gale</span>
-      <span class="version mono">v{__APP_VERSION__}</span>
+      {#if daemonVersion}
+        <span class="version mono">v{daemonVersion}</span>
+      {/if}
     </div>
     <ProfileSwitcher />
     <div class="nav-gap"></div>

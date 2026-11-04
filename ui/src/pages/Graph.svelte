@@ -633,8 +633,6 @@
   setContext('galeEnterGroup', enterGroup);
   setContext('galeEndpointLabel', (nodeId, handle) => endpointDisplayLabel(nodes, nodeId, handle));
 
-  let scopeMemberIds = $derived(scope ? (groups.find((group) => group.id === scope) || { members: [] }).members : []);
-
   let selectedViewIds = $derived(viewNodes.filter((node) => node.selected === true).map((node) => node.id));
   let canGroup = $derived(
     scope === null && selectedViewIds.length >= 2 && selectedViewIds.every((id) => !isGroupNodeId(id) && !isPortsNodeId(id))
@@ -967,9 +965,8 @@
         onExitScope={exitScope}
         {canGroup}
         onGroup={groupSelection}
-        fitNodeIds={scopeMemberIds}
       />
-      <ZoomControls fitNodeIds={scopeMemberIds} />
+      <ZoomControls />
     </SvelteFlow>
 
     <div class="gale-legend">

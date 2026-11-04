@@ -369,6 +369,19 @@ async function main() {
       await page.waitForSelector(".dot.live", { timeout: 5000 });
     });
 
+    await record("the sidebar shows the daemon's version", async () => {
+      const response = await fetch(`${BASE_URL}/api/version`);
+      assert(response.ok, `GET /api/version returned ${response.status}`);
+      const { version } = await response.json();
+      await page.waitForFunction(
+        (expected) =>
+          document.querySelector(".brand .version")?.textContent.trim() ===
+          expected,
+        { timeout: 5000 },
+        `v${version}`,
+      );
+    });
+
     await record("dashboard renders sensor value 45.0", async () => {
       await waitForSensorRow(page, SENSOR_LABEL, SENSOR_VALUE_TEXT, 5000);
     });
