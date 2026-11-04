@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.0](https://github.com/Garulf/gale/compare/gale-v0.12.0...gale-v0.13.0) (2026-11-04)
+
+
+### Features
+
+* show the daemon's version in the UI instead of building it in ([8122dff](https://github.com/Garulf/gale/commit/8122dff6e4c4e1569b37f5ae857522c4ef2b031c))
+
+
+### Bug Fixes
+
+* **corsair:** reread Commander Pro polls that come back out of phase ([75dfeb9](https://github.com/Garulf/gale/commit/75dfeb9357af7d61b066fe0288c830e98c536d3a))
+* **corsair:** reread Commander Pro polls that come back out of phase ([f59203a](https://github.com/Garulf/gale/commit/f59203a2ddb6b01e015df4d623815e9ebb01c45d)), closes [#45](https://github.com/Garulf/gale/issues/45)
+* get CI green again and stop baking the version into the UI bundle ([fbc1a97](https://github.com/Garulf/gale/commit/fbc1a97d529bbffe53f9b41ab422bee4e3d3274b))
+* **hwmon:** take a fan back when its driver resets it to automatic ([fc9414e](https://github.com/Garulf/gale/commit/fc9414e96081b2d5102767528570dd9026f504f0))
+* **hwmon:** take a fan back when its driver resets it to automatic ([8a35b6c](https://github.com/Garulf/gale/commit/8a35b6c823c76f99cb8b50eb98f163eb1b4d224b))
+* **ui:** fit group strips into view along with the members ([f8221b2](https://github.com/Garulf/gale/commit/f8221b205b5ba9ac9e65f994bfbfe1e1b6d6faaa))
+
 ## [0.12.0](https://github.com/Garulf/gale/compare/gale-v0.11.2...gale-v0.12.0) (2026-10-23)
 
 
