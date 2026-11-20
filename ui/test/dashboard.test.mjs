@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors, sensorKindFor } from '../src/lib/dashboard.js';
+import { dashboardState, unassignedControls, timedSparklinePath, shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors, sensorKindFor } from '../src/lib/dashboard.js';
 
 test('shortDevice compacts known vendor prefixes', () => {
   assert.equal(shortDevice('hwmon/nct6798'), 'nct6798');
@@ -10,7 +10,8 @@ test('shortDevice compacts known vendor prefixes', () => {
 });
 
 test('overview picks the hottest reading, averages duty, and words the headline', () => {
-  assert.equal(overview([52.3, null, 61], [46, 35], 0).headline, 'System is cool and quiet');
+  assert.equal(overview([52.3, null, 55], [46, 35], 0).headline, 'Temperatures are normal');
+  assert.equal(overview([52.3, null, 61], [46, 35], 0).headline, 'System is running warm');
   assert.equal(overview([85], [40], 0).headline, 'System is running hot');
   assert.equal(overview([50], [80, 90], 0).headline, 'Fans are working hard');
   assert.equal(overview([50], [10], 1).headline, 'One warning needs attention');
@@ -100,4 +101,43 @@ test('sensorKindFor resolves hardware and virtual sensor kinds', () => {
   assert.equal(sensorKindFor('missing', inventory), undefined);
   assert.equal(sensorKindFor('', inventory), undefined);
   assert.equal(sensorKindFor('nvidia/0/power', null), undefined);
+});
+
+test('dashboardState separates loading, unavailable, loaded and stale', () => {
+  const base = { inventory: {}, inventoryError: '', hasSnapshot: true, connected: true };
+  assert.equal(dashboardState(base), 'loaded');
+  assert.equal(dashboardState({ ...base, connected: false }), 'stale');
+  assert.equal(dashboardState({ ...base, hasSnapshot: false }), 'loading');
+  assert.equal(dashboardState({ ...base, inventory: null }), 'loading');
+  assert.equal(dashboardState({ ...base, inventory: null, inventoryError: '503' }), 'unavailable');
+});
+
+test('headline makes no health claim while loading or unavailable', () => {
+  assert.equal(overview([40], [20], 0, 'loading').headline, 'Reading the system');
+  assert.equal(overview([40], [20], 0, 'unavailable').headline, 'Inventory unavailable');
+  assert.equal(overview([40], [20], 3, 'loading').warnings, 3);
+  assert.equal(overview([40], [20], 0, 'loading').maxTemp, null);
+  assert.equal(overview([40], [20], 0, 'unavailable').avgDuty, null);
+});
+
+test('headline flags stale data and does not call low duty quiet', () => {
+  assert.equal(overview([40], [20], 0, 'stale').headline, 'Last known: temperatures are normal');
+  assert.equal(overview([40], [20], 0, 'stale').maxTemp, 40);
+  assert.equal(overview([], [20], 0).headline, 'No temperature readings');
+  assert.doesNotMatch(overview([40], [10], 0).headline, /quiet/);
+});
+
+test('unassignedControls lists controls without a curve', () => {
+  const controls = [{ id: 'a' }, { id: 'b' }];
+  assert.deepEqual(unassignedControls(controls, { a: 'curve' }).map((c) => c.id), ['b']);
+  assert.equal(unassignedControls(controls, undefined).length, 2);
+  assert.deepEqual(unassignedControls(null, {}), []);
+});
+
+test('timedSparklinePath places samples by age inside the labeled window', () => {
+  const samples = [{ t: 590000, v: 1 }, { t: 600000, v: 2 }];
+  assert.equal(timedSparklinePath(samples, 600000, 600000, 120, 36), 'M 118.0 34.0 L 120.0 2.0');
+  assert.equal(timedSparklinePath([{ t: 0, v: 1 }], 10, 600000, 120, 36), '');
+  const old = [{ t: 0, v: 1 }, { t: 100, v: 1 }];
+  assert.equal(timedSparklinePath(old, 1200000, 600000, 120, 36), 'M 0.0 18.0 L 0.0 18.0');
 });

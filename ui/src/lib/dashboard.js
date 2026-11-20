@@ -30,19 +30,66 @@ export function temperatureUnit(virtualType) {
   return virtualType === 'delta' ? '°C/min' : '°C';
 }
 
-export function headline({ maxTemp, avgDuty, warnings }) {
-  if (warnings > 0) return warnings === 1 ? 'One warning needs attention' : `${warnings} warnings need attention`;
-  if (maxTemp !== null && maxTemp >= 80) return 'System is running hot';
-  if (avgDuty !== null && avgDuty >= 70) return 'Fans are working hard';
-  return 'System is cool and quiet';
+const WARM_AT = 60;
+const HOT_AT = 80;
+const BUSY_DUTY = 70;
+
+export function dashboardState({ inventory, inventoryError, hasSnapshot, connected }) {
+  if (!inventory) return inventoryError ? 'unavailable' : 'loading';
+  if (!hasSnapshot) return 'loading';
+  return connected ? 'loaded' : 'stale';
 }
 
-export function overview(temps, duties, warningCount) {
+const STATE_HEADLINES = {
+  loading: 'Reading the system',
+  unavailable: 'Inventory unavailable',
+};
+
+export function headline({ maxTemp, avgDuty, warnings, state = 'loaded' }) {
+  if (STATE_HEADLINES[state]) return STATE_HEADLINES[state];
+  const prefix = state === 'stale' ? 'Last known: ' : '';
+  if (warnings > 0) return warnings === 1 ? 'One warning needs attention' : `${warnings} warnings need attention`;
+  let verdict;
+  if (maxTemp === null) verdict = 'No temperature readings';
+  else if (maxTemp >= HOT_AT) verdict = 'System is running hot';
+  else if (avgDuty !== null && avgDuty >= BUSY_DUTY) verdict = 'Fans are working hard';
+  else if (maxTemp >= WARM_AT) verdict = 'System is running warm';
+  else verdict = 'Temperatures are normal';
+  return prefix ? `${prefix}${verdict.charAt(0).toLowerCase()}${verdict.slice(1)}` : verdict;
+}
+
+export function overview(temps, duties, warningCount, state = 'loaded') {
   const tempValues = temps.filter((value) => value !== null && value !== undefined);
   const dutyValues = duties.filter((value) => value !== null && value !== undefined);
   const maxTemp = tempValues.length ? Math.max(...tempValues) : null;
   const avgDuty = dutyValues.length ? dutyValues.reduce((sum, value) => sum + value, 0) / dutyValues.length : null;
-  return { maxTemp, avgDuty, warnings: warningCount, headline: headline({ maxTemp, avgDuty, warnings: warningCount }) };
+  const known = state === 'loaded' || state === 'stale';
+  return {
+    maxTemp: known ? maxTemp : null,
+    avgDuty: known ? avgDuty : null,
+    warnings: warningCount,
+    state,
+    headline: headline({ maxTemp, avgDuty, warnings: warningCount, state }),
+  };
+}
+
+export function unassignedControls(controls, assignments) {
+  return (controls || []).filter((control) => !(assignments && assignments[control.id]));
+}
+
+export function timedSparklinePath(samples, now, windowMs, width, height) {
+  if (!samples || samples.length < 2) return '';
+  const values = samples.map((sample) => sample.v);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  return samples
+    .map((sample, index) => {
+      const x = width - Math.min(1, Math.max(0, (now - sample.t) / windowMs)) * width;
+      const y = span === 0 ? height / 2 : height - 2 - ((sample.v - min) / span) * (height - 4);
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
 }
 
 export function trendArrow(delta) {

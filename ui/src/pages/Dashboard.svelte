@@ -1,17 +1,18 @@
 <script>
   import { onMount } from 'svelte';
-  import { snapshot } from '../lib/store.js';
+  import { snapshot, connected } from '../lib/store.js';
   import { getInventory, setControl, releaseControl, putDashboardUi } from '../lib/api.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { daemonConfig, refreshConfig } from '../lib/config.js';
   import { sensorHistory } from '../lib/sensorHistory.js';
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
-  import { curvePaths, curveScale, evalCurve, sparklinePath, curvePoints, createAxisHold, clamp } from '../lib/curveMath.js';
-  import { shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
-  import { openInGraph } from '../lib/page.js';
+  import { curvePaths, curveScale, evalCurve, curvePoints, createAxisHold, clamp } from '../lib/curveMath.js';
+  import { dashboardState, unassignedControls, timedSparklinePath, shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
+  import { openInGraph, page } from '../lib/page.js';
+  import { HISTORY_WINDOW_MS } from '../lib/history.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
-  import { sensorDisplay } from '../lib/graph/liveValues.js';
+  import { sensorDisplay, fallbackCurveIds, fallbackControlIds } from '../lib/graph/liveValues.js';
   import { axisMark } from '../lib/units.js';
 
   const CHART_W = 220;
@@ -21,6 +22,8 @@
   let inventory = $state(null);
   let editing = $state(false);
   let error = $state('');
+  let inventoryError = $state('');
+  let lastUpdated = $state(null);
   let hiddenIds = $derived(($daemonConfig && $daemonConfig.ui && $daemonConfig.ui.dashboard && $daemonConfig.ui.dashboard.hidden) || []);
 
   async function setHidden(id, hidden) {
@@ -36,20 +39,31 @@
   let pending = $state({});
   let drafts = $state({});
 
-  onMount(async () => {
+  async function loadInventory() {
+    inventoryError = '';
     try {
       inventory = await getInventory();
     } catch (err) {
-      error = err.message;
+      inventoryError = err.message;
     }
+  }
+
+  onMount(loadInventory);
+
+  $effect(() => {
+    if ($snapshot) lastUpdated = new Date();
   });
 
+  let state = $derived(dashboardState({ inventory, inventoryError, hasSnapshot: Boolean($snapshot), connected: $connected }));
+  let known = $derived(state === 'loaded' || state === 'stale');
+  let lastUpdatedText = $derived(lastUpdated ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+
   function fmtTemp(value) {
-    return value === null || value === undefined ? '—' : value.toFixed(1);
+    return value === null || value === undefined ? '–' : value.toFixed(1);
   }
 
   function fmtInt(value) {
-    return value === null || value === undefined ? '—' : String(Math.round(value));
+    return value === null || value === undefined ? '–' : String(Math.round(value));
   }
 
   let values = $derived(($snapshot && $snapshot.sensors) || {});
@@ -65,6 +79,7 @@
   let allTemps = $derived.by(() => {
     if (!inventory) return [];
     const history = $sensorHistory;
+    const now = Date.now();
     const hardware = inventory.sensors
       .filter((sensor) => sensor.kind === 'temp')
       .map((sensor) => ({ id: sensor.id, label: sensor.label, device: shortDevice(deviceOf(sensor.id)), unit: '°C', ranked: true }));
@@ -79,12 +94,13 @@
       const value = values[sensor.id] ?? null;
       const samples = history.get(sensor.id);
       const delta = history.delta(sensor.id);
+      const timed = history.samples(sensor.id);
       return {
         ...sensor,
         value,
         text: fmtTemp(value),
         hot: sensor.unit === '°C' && value !== null && value >= 60,
-        spark: sparklinePath(samples, 120, 36),
+        spark: timedSparklinePath(timed, now, HISTORY_WINDOW_MS, 120, 36),
         trend: samples.length > 1 ? trendArrow(delta) : '',
         trendText: samples.length > 1 ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}° over the last ${Math.round(samples.length * 5 / 60) || 1} min` : 'collecting history',
         hidden: hiddenIds.includes(sensor.id),
@@ -96,13 +112,13 @@
   let allMetrics = $derived.by(() => {
     if (!inventory) return [];
     const history = $sensorHistory;
+    const now = Date.now();
     return metricSensors(inventory).map((metric) => {
       const value = values[metric.id] ?? null;
-      const samples = history.get(metric.id);
       return {
         ...metric,
         value,
-        spark: sparklinePath(samples, 120, 36),
+        spark: timedSparklinePath(history.samples(metric.id), now, HISTORY_WINDOW_MS, 120, 36),
         hidden: hiddenIds.includes(metric.id),
       };
     });
@@ -163,6 +179,10 @@
     return config.type === 'mix' ? `mix · ${config.mode}` : config.type;
   }
 
+  let fallbackControls = $derived(
+    $snapshot && profile ? fallbackControlIds(fallbackCurveIds($snapshot, $snapshot.active_profile, profile), profile) : new Set()
+  );
+
   let allFans = $derived.by(() => {
     if (!inventory) return [];
     return inventory.controls.map((control) => {
@@ -178,6 +198,7 @@
         device: shortDevice(deviceOf(control.id)),
         duty,
         manual: control.id in manual,
+        fallback: fallbackControls.has(control.id),
         rpm,
         rpmMissing: tach !== null && rpm === null,
         spinPeriod: spinPeriodSeconds(tach ? rpm : null, tach ? null : duty),
@@ -203,9 +224,11 @@
     overview(
       temps.filter((sensor) => sensor.ranked).map((sensor) => sensor.value),
       fans.map((fan) => fan.duty),
-      $warnings.length
+      $warnings.length,
+      state
     )
   );
+  let unassigned = $derived(profile && inventory ? unassignedControls(inventory.controls, profile.assignments) : []);
   let manualCount = $derived(fans.filter((fan) => fan.manual).length);
 
   let draftValues = $derived.by(() => {
@@ -265,12 +288,13 @@
     <div class="page-title">
       <span class="eyebrow">Overview</span>
       <h1>{stats.headline}</h1>
+      {#if state === 'stale'}<span class="status-line" data-testid="stale-note">Live connection lost. Last updated {lastUpdatedText}</span>{/if}
     </div>
     <button type="button" class="btn edit-toggle" class:primary={editing} data-testid="dashboard-edit" onclick={() => (editing = !editing)}>{editing ? 'Done' : hiddenCount > 0 ? `Edit · ${hiddenCount} hidden` : 'Edit'}</button>
     <div class="stats">
-      <div class="stat"><span class="eyebrow">Hottest</span><span class="num mono temp">{fmtTemp(stats.maxTemp)}<small> °C</small></span></div>
-      <div class="stat"><span class="eyebrow">Avg duty</span><span class="num mono duty">{fmtInt(stats.avgDuty)}<small> %</small></span></div>
-      <div class="stat"><span class="eyebrow">Controls</span><span class="num mono">{fans.length}<small> · {manualCount} manual</small></span></div>
+      <div class="stat"><span class="eyebrow">Hottest</span><span class="num mono temp">{#if stats.maxTemp === null}<span class="placeholder">–</span>{:else}{fmtTemp(stats.maxTemp)}<small> °C</small>{/if}</span></div>
+      <div class="stat"><span class="eyebrow">Fan duty avg</span><span class="num mono duty">{#if stats.avgDuty === null}<span class="placeholder">–</span>{:else}{fmtInt(stats.avgDuty)}<small> %</small>{/if}</span></div>
+      <div class="stat"><span class="eyebrow">Controls</span><span class="num mono">{#if inventory}{fans.length}<small> · {manualCount} manual</small>{:else}<span class="placeholder">–</span>{/if}</span></div>
       <div class="stat"><span class="eyebrow">Warnings</span><span class="num mono" class:warn={$warnings.length > 0}>{$warnings.length}</span></div>
     </div>
   </div>
@@ -279,8 +303,19 @@
     <p class="error">{error}</p>
   {/if}
 
-  {#if !inventory}
-    <p class="muted">Loading inventory.</p>
+  {#if state === 'unavailable'}
+    <div class="unavailable" role="alert" data-testid="inventory-unavailable">
+      <h2>Inventory unavailable</h2>
+      <p class="muted">{inventoryError}</p>
+      <button type="button" class="btn primary" data-testid="inventory-retry" onclick={loadInventory}>Retry</button>
+    </div>
+  {:else if !inventory}
+    <section aria-busy="true" aria-label="Loading inventory">
+      <div class="section-head"><h2 class="section-title">Temperatures</h2></div>
+      <div class="temps">
+        {#each [0, 1, 2, 3] as slot (slot)}<div class="card temp-card skeleton" aria-hidden="true"></div>{/each}
+      </div>
+    </section>
   {:else}
     <section>
       <div class="section-head"><h2 class="section-title">Temperatures</h2><span class="hint">last 10 minutes</span></div>
@@ -303,24 +338,14 @@
       </div>
     </section>
 
-    {#if metrics.length > 0}
-      <section>
-        <h2>Metrics</h2>
-        <div class="grid metrics">
-          {#each metrics as metric (metric.id)}
-            {@const reading = sensorDisplay(metric.value, metric.kind)}
-            <div class="card temp-card" class:dimmed={metric.hidden} data-card-id={metric.id}>
-              <div class="temp-head"><span class="label">{metric.label}</span><span class="device mono">{metric.device}</span>{#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(metric.id, !metric.hidden)}>{metric.hidden ? 'Show' : 'Hide'}</button>{/if}</div>
-              <div class="temp-value mono">{reading.text}<small>{reading.unit}</small></div>
-              <svg class="spark" viewBox="0 0 120 36"><path d={metric.spark} /></svg>
-            </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
     <section>
       <div class="section-head"><h2 class="section-title">Fans</h2><span class="hint">where each control sits on its curve</span></div>
+      {#if unassigned.length > 0}
+        <div class="notice" data-testid="no-curve-notice">
+          <span>{unassigned.length === 1 ? '1 control has no curve' : `${unassigned.length} controls have no curve`} in this profile, so the daemon leaves {unassigned.length === 1 ? 'it' : 'them'} alone.</span>
+          <button type="button" class="btn" onclick={() => page.set('graph')}>Open Graph</button>
+        </div>
+      {/if}
       <div class="fans">
         {#if fans.length === 0}<p class="muted">Every fan is hidden. Use Edit to bring some back.</p>{/if}
         {#each fans as fan (fan.id)}
@@ -338,13 +363,18 @@
               </div>
               {#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(fan.id, !fan.hidden)}>{fan.hidden ? 'Show' : 'Hide'}</button>{/if}
               {#if fan.manual}<span class="badge pill">manual</span>{/if}
+              {#if fan.fallback}<span class="badge pill fallback" title="Its curve has no input, so the fan runs at its fallback duty">! fallback</span>{/if}
               <div class="readings">
-                <span class="duty-read mono">{fmtInt(fan.duty)}<small>%</small></span>
+                <span class="duty-read mono" class:fallback={fan.fallback}>{fmtInt(fan.duty)}<small>%</small></span>
                 <span class="rpm-read"><span class="mono" class:missing={fan.rpmMissing}>{fan.rpmMissing ? 'no tach' : fmtInt(fan.rpm)}</span><span class="eyebrow">rpm</span></span>
               </div>
             </div>
             {#if fan.chart}
               <div class="chart">
+                <div class="chart-tags mono">
+                  <span class="chart-tag left">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fan.chart.reading.text}${fan.chart.reading.unit}`}</span>
+                  <span class="chart-tag right">{fan.chart.via || `${fan.curveName} · ${fan.curveKind}`}</span>
+                </div>
                 <svg viewBox="0 0 {CHART_W} {CHART_H}" preserveAspectRatio="none">
                   <path d={fan.chart.area} class="area" />
                   <path d={fan.chart.line} class="line" vector-effect="non-scaling-stroke" />
@@ -353,8 +383,6 @@
                     <circle cx={fan.chart.dotX} cy={fan.chart.dotY} r="4" class="dot" />
                   {/if}
                 </svg>
-                <span class="chart-tag left mono">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fan.chart.reading.text}${fan.chart.reading.unit}`}</span>
-                <span class="chart-tag right mono">{fan.chart.via || `${fan.curveName} · ${fan.curveKind}`}</span>
               </div>
             {:else}
               <div class="chart empty mono">
@@ -388,10 +416,86 @@
         {/each}
       </div>
     </section>
+
+    {#if metrics.length > 0}
+      <section>
+        <div class="section-head"><h2 class="section-title">Metrics</h2><span class="hint">last 10 minutes</span></div>
+        <div class="grid metrics">
+          {#each metrics as metric (metric.id)}
+            {@const reading = sensorDisplay(metric.value, metric.kind)}
+            <div class="card temp-card" class:dimmed={metric.hidden} data-card-id={metric.id}>
+              <div class="temp-head"><span class="label">{metric.label}</span><span class="device mono">{metric.device}</span>{#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(metric.id, !metric.hidden)}>{metric.hidden ? 'Show' : 'Hide'}</button>{/if}</div>
+              <div class="temp-value mono">{reading.text}<small>{reading.unit}</small></div>
+              {#if metric.spark}
+                <svg viewBox="0 0 120 36" preserveAspectRatio="none" class="spark"><path d={metric.spark} /></svg>
+              {:else}
+                <div class="no-spark mono">collecting history</div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
   {/if}
 </main>
 
 <style>
+  .status-line {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .placeholder {
+    color: var(--faint);
+  }
+
+  .unavailable {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+  }
+
+  .unavailable h2,
+  .unavailable p {
+    margin: 0;
+  }
+
+  .skeleton {
+    background: var(--surface2);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton {
+      animation: none;
+    }
+  }
+
+  .notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--line2);
+    border-radius: var(--r);
+    background: var(--surface);
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
   .edit-toggle {
     align-self: flex-end;
   }
@@ -454,14 +558,20 @@
     gap: 0.75rem;
   }
 
-  .temps,
-  .grid.metrics {
+  .temps {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
     gap: 0.75rem;
   }
 
+  .grid.metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 20rem));
+    gap: 0.75rem;
+  }
+
   .temp-card {
+    min-width: 0;
     padding: 1rem 1rem 0.75rem;
     display: flex;
     flex-direction: column;
@@ -485,7 +595,7 @@
   }
 
   .spin-icon.spinning {
-    color: var(--accent);
+    color: var(--ink);
   }
 
   .spin-icon.spinning svg {
@@ -513,11 +623,14 @@
   }
 
   .label {
+    min-width: 0;
+    overflow-wrap: break-word;
     font-weight: 600;
     font-size: 0.8125rem;
   }
 
   .device {
+    min-width: 0;
     font-size: 0.625rem;
     color: var(--faint);
     white-space: nowrap;
@@ -621,6 +734,15 @@
     letter-spacing: -0.02em;
   }
 
+  .duty-read.fallback {
+    color: var(--warn);
+  }
+
+  .pill.fallback {
+    color: var(--warn);
+    border-color: var(--warn);
+  }
+
   .duty-read small {
     font-size: 0.75rem;
     color: var(--muted);
@@ -649,7 +771,6 @@
     border-radius: var(--r);
     border: 1px solid var(--line);
     overflow: hidden;
-    height: 5.25rem;
   }
 
   .chart svg {
@@ -681,23 +802,29 @@
     stroke-width: 2;
   }
 
-  .chart-tag {
-    position: absolute;
-    top: 0.375rem;
+  .chart-tags {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
     font-size: 0.625rem;
     color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chart-tag {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .chart-tag.left {
-    left: 0.5rem;
     color: var(--temp);
   }
 
-  .chart-tag.right {
-    right: 0.5rem;
-  }
-
   .chart.empty {
+    height: 5.25rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -765,8 +892,19 @@
 
     .temps,
     .grid.metrics {
-      grid-template-columns: repeat(2, 1fr);
-      gap: 0.625rem;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .temp-head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .temp-head .device {
+      max-width: 100%;
     }
 
     .temp-card {
