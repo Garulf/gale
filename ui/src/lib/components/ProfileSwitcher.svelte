@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte';
   import { snapshot } from '../store.js';
   import { daemonConfig, refreshConfig } from '../config.js';
   import { activateProfile } from '../api.js';
@@ -9,12 +10,34 @@
   let { compact = false } = $props();
 
   let open = $state(false);
+  let managing = $state(false);
   let error = $state('');
+  let root;
+  let trigger;
   let active = $derived($snapshot ? $snapshot.active_profile : $daemonConfig ? $daemonConfig.active_profile : '');
   let profiles = $derived($daemonConfig ? Object.keys($daemonConfig.profiles).sort() : []);
 
-  async function pick(name) {
+  async function openMenu() {
+    open = true;
+    managing = false;
+    await tick();
+    const target = root.querySelector('[role="option"][aria-selected="true"]') || root.querySelector('[role="option"]');
+    if (target) target.focus();
+  }
+
+  function close({ restoreFocus = false } = {}) {
     open = false;
+    managing = false;
+    if (restoreFocus && trigger) trigger.focus();
+  }
+
+  function toggle() {
+    if (open) close();
+    else openMenu();
+  }
+
+  async function pick(name) {
+    close({ restoreFocus: true });
     if (name === active) return;
     error = '';
     try {
@@ -26,7 +49,7 @@
   }
 
   async function createNew() {
-    open = false;
+    close({ restoreFocus: true });
     const name = (window.prompt('New profile name') || '').trim();
     if (!name) return;
     if (!window.confirm(`Create "${name}" and switch to it? It starts empty, so fans fall back to hardware control until you wire curves.`)) return;
@@ -53,39 +76,78 @@
   }
 
   function onWindowClick(event) {
-    if (!event.target.closest('.profile-switcher')) open = false;
+    if (open && !event.composedPath().includes(root)) close();
+  }
+
+  function onKeydown(event) {
+    if (!open) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      close({ restoreFocus: true });
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const items = Array.from(root.querySelectorAll('.menu button:not(:disabled)'));
+      if (items.length === 0) return;
+      event.preventDefault();
+      const index = items.indexOf(document.activeElement);
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(index + step + items.length) % items.length].focus();
+    }
   }
 </script>
 
 <svelte:window onclick={onWindowClick} />
 
-<div class="profile-switcher" class:compact>
-  <button type="button" class="current" onclick={() => (open = !open)} aria-haspopup="listbox" aria-expanded={open}>
+<div class="profile-switcher" class:compact bind:this={root} onkeydown={onKeydown} role="presentation">
+  <button type="button" class="current" bind:this={trigger} onclick={toggle} aria-haspopup="listbox" aria-expanded={open}>
     <span class="dot"></span>
     {#if compact}
       <span class="name">{active || '…'}</span>
     {:else}
       <span class="text"><span class="eyebrow">Profile</span><span class="name">{active || '…'}</span></span>
     {/if}
-    <span class="chev">▾</span>
+    <span class="chev" aria-hidden="true">▾</span>
   </button>
   {#if open}
-    <div class="menu" role="listbox">
-      {#each profiles as name}
-        <div class="entry">
-          <button type="button" role="option" aria-selected={name === active} onclick={() => pick(name)}>
-            <span>{name}</span>
-            {#if name === active}<span class="active mono">ACTIVE</span>{/if}
-          </button>
-          {#if name !== active}
-            <button type="button" class="remove" aria-label="Delete profile {name}" title="Delete profile" data-testid="profile-delete-{name}" onclick={() => remove(name)}>×</button>
-          {/if}
+    <div class="menu">
+      {#if managing}
+        <div class="group" role="group" aria-label="Manage profiles">
+          {#each profiles as name (name)}
+            <div class="row manage-row">
+              <span class="label">{name}</span>
+              {#if name === active}
+                <span class="active mono">ACTIVE</span>
+              {:else}
+                <button type="button" class="remove" aria-label="Delete profile {name}" data-testid="profile-delete-{name}" onclick={() => remove(name)}>Delete</button>
+              {/if}
+            </div>
+          {/each}
         </div>
-      {/each}
+      {:else}
+        <div class="group" role="listbox" aria-label="Profiles">
+          {#each profiles as name (name)}
+            <button type="button" class="row option" class:selected={name === active} role="option" aria-selected={name === active} onclick={() => pick(name)}>
+              <span class="label">{name}</span>
+              {#if name === active}<span class="active mono">ACTIVE</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
       {#if profiles.length === 0}
         <span class="empty">No profiles loaded.</span>
       {/if}
-      <button type="button" class="new" data-testid="profile-new" onclick={createNew}>+ New profile…</button>
+      <div class="footer">
+        {#if managing}
+          <button type="button" class="foot" data-testid="profile-manage-done" onclick={() => (managing = false)}>Done</button>
+        {:else}
+          <button type="button" class="foot" data-testid="profile-new" onclick={createNew}>+ New profile…</button>
+          {#if profiles.length > 1}
+            <button type="button" class="foot" data-testid="profile-manage" onclick={() => (managing = true)}>Manage profiles</button>
+          {/if}
+        {/if}
+      </div>
     </div>
   {/if}
   {#if error}
@@ -164,7 +226,7 @@
     left: 0;
     right: 0;
     top: calc(100% + 0.375rem);
-    min-width: 10rem;
+    min-width: 12rem;
     background: var(--surface);
     border: 1px solid var(--line2);
     border-radius: var(--r);
@@ -180,57 +242,94 @@
     left: auto;
   }
 
-  .entry {
+  .group {
     display: flex;
-    align-items: stretch;
+    flex-direction: column;
     gap: 2px;
   }
 
-  .entry > button:first-child {
-    flex: 1;
-  }
-
-  .entry .remove {
-    padding: 0 0.5rem;
-    color: var(--muted);
-  }
-
-  .entry .remove:hover {
-    color: var(--warn);
-  }
-
-  .menu button {
+  .row {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.625rem;
+    min-height: 2.75rem;
+    padding: 0 0.625rem;
+    border-radius: var(--r);
+    font-size: 0.8125rem;
+    color: var(--ink);
+  }
+
+  .label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .option {
+    width: 100%;
     border: none;
     background: none;
-    color: var(--ink);
-    border-radius: var(--r);
     text-align: left;
-    font-size: 0.8125rem;
+    border-left: 3px solid transparent;
   }
 
-  .menu button span:first-child {
-    flex: 1;
-  }
-
-  .menu button:hover {
+  .option:hover {
     background: var(--surface2);
+  }
+
+  .option.selected {
+    background: var(--surface2);
+    border-left-color: var(--accent);
+    font-weight: 600;
   }
 
   .active {
     font-size: 0.625rem;
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
-  .menu .new {
+  .remove {
+    min-width: 4rem;
+    min-height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line2);
+    border-radius: var(--r);
+    background: none;
+    color: var(--warn);
+    font-size: 0.75rem;
+  }
+
+  .remove:hover {
+    background: var(--surface2);
+  }
+
+  .footer {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 0.25rem;
+    padding-top: 0.25rem;
     border-top: 1px solid var(--line);
-    border-radius: 0;
-    margin-top: 2px;
-    padding-top: 0.625rem;
+  }
+
+  .foot {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 0.625rem;
+    border: none;
+    border-radius: var(--r);
+    background: none;
     color: var(--muted);
+    text-align: left;
+    font-size: 0.8125rem;
+  }
+
+  .foot:hover {
+    background: var(--surface2);
+    color: var(--ink);
   }
 
   .empty {

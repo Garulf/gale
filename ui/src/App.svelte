@@ -95,6 +95,12 @@
       <span class="wordmark">gale</span>
       <span class="spacer"></span>
       <ProfileSwitcher compact />
+      <span class="conn" role="img" aria-label={$connected ? 'Daemon connected' : 'Daemon disconnected, reconnecting'} title={$connected ? 'Daemon connected' : 'Daemon disconnected'}>
+        <span class="dot" class:live={$connected} class:reconnecting={!$connected}></span>
+      </span>
+      <button type="button" class="theme-icon" onclick={toggleTheme} aria-label={$theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+        <span aria-hidden="true">{$theme === 'dark' ? '☾' : '☀'}</span>
+      </button>
     </header>
     {#if $unauthorized}
       <form class="key-form" onsubmit={(e) => { e.preventDefault(); submitKey(); }}>
@@ -279,6 +285,33 @@
 
   .spacer {
     flex: 1;
+  }
+
+  .conn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 2.5rem;
+  }
+
+  .conn .dot {
+    width: 0.625rem;
+    height: 0.625rem;
+  }
+
+  .theme-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 1rem;
   }
 
   .key-form {
