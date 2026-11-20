@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.13.0](https://github.com/Garulf/gale/compare/gale-v0.12.0...gale-v0.13.0) (2026-11-20)
+
+
+### Features
+
+* show the daemon's version in the UI instead of building it in ([8122dff](https://github.com/Garulf/gale/commit/8122dff6e4c4e1569b37f5ae857522c4ef2b031c))
+* **ui:** design pass for contrast, phones, warnings and dashboard states ([0cf0542](https://github.com/Garulf/gale/commit/0cf05429e42f678321be3b14ad5c39cc900d9f28))
+* **ui:** expand config.toml and compact the phone temperature cards ([80ece12](https://github.com/Garulf/gale/commit/80ece1295b9d2bc4918ba6cbde7862116933f2b7))
+* **ui:** fit the graph to phones and point warnings at the broken curve ([e7d8123](https://github.com/Garulf/gale/commit/e7d8123d2d37d35723ffc890fab058f0da215d24))
+* **ui:** keep curve editor labels and points readable at any width ([5f18b64](https://github.com/Garulf/gale/commit/5f18b6443de1627328e58bd55839941baac0b5ba))
+* **ui:** make curves keyboard-reachable and separate profile deletion from switching ([ec34530](https://github.com/Garulf/gale/commit/ec345302b351dc77023063721172f76b3bd6de22))
+* **ui:** show honest dashboard states and fit the cards to phones and wide screens ([7cc93a4](https://github.com/Garulf/gale/commit/7cc93a46b5bdc87173572c5ec0bd74ad6a8f2505))
+* **ui:** wire ports by tapping on touch screens and quiet the overview ([ddd9e4c](https://github.com/Garulf/gale/commit/ddd9e4c868f26eef221ca76d42906ccdbf70612f))
+
+
+### Bug Fixes
+
+* **corsair:** iterate Commander Core temperature ports directly ([695e9d8](https://github.com/Garulf/gale/commit/695e9d822f390bf210b9c2b4a2ec0a6b0808b061))
+* **corsair:** reread Commander Pro polls that come back out of phase ([75dfeb9](https://github.com/Garulf/gale/commit/75dfeb9357af7d61b066fe0288c830e98c536d3a))
+* **corsair:** reread Commander Pro polls that come back out of phase ([f59203a](https://github.com/Garulf/gale/commit/f59203a2ddb6b01e015df4d623815e9ebb01c45d)), closes [#45](https://github.com/Garulf/gale/issues/45)
+* get CI green again and stop baking the version into the UI bundle ([fbc1a97](https://github.com/Garulf/gale/commit/fbc1a97d529bbffe53f9b41ab422bee4e3d3274b))
+* **hwmon:** take a fan back when its driver resets it to automatic ([fc9414e](https://github.com/Garulf/gale/commit/fc9414e96081b2d5102767528570dd9026f504f0))
+* **hwmon:** take a fan back when its driver resets it to automatic ([8a35b6c](https://github.com/Garulf/gale/commit/8a35b6c823c76f99cb8b50eb98f163eb1b4d224b))
+* **ui:** date readings by arrival and tell connecting apart from a lost daemon ([cb6fcbc](https://github.com/Garulf/gale/commit/cb6fcbc2eb2a5802ceb1da21573577503d58d3ad))
+* **ui:** fit group strips into view along with the members ([f8221b2](https://github.com/Garulf/gale/commit/f8221b205b5ba9ac9e65f994bfbfe1e1b6d6faaa))
+* **ui:** keep the selected path in view and make the graph usable from the keyboard ([ab15e7f](https://github.com/Garulf/gale/commit/ab15e7f0533127cd9c13788393551b61286a7936))
+* **ui:** meet contrast targets in both themes and draw a visible focus ring ([a6962a4](https://github.com/Garulf/gale/commit/a6962a488d86421b630bc29261fd7412f710647b))
+* **ui:** reveal the selected path after the inspector has finished opening ([1c1e9da](https://github.com/Garulf/gale/commit/1c1e9da1a5f89c7a934dc41602de016793f5ab5f))
+
 ## [0.12.0](https://github.com/Garulf/gale/compare/gale-v0.11.2...gale-v0.12.0) (2026-10-23)
 
 
