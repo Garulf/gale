@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { snapshot, connected } from '../lib/store.js';
+  import { snapshot, snapshotAt, connected, connectionLost } from '../lib/store.js';
   import { getInventory, setControl, releaseControl, putDashboardUi } from '../lib/api.js';
   import { warnings, refreshWarnings } from '../lib/warnings.js';
   import { daemonConfig, refreshConfig } from '../lib/config.js';
@@ -8,7 +8,7 @@
   import { virtualName, sensorLabel } from '../lib/sensors.js';
   import { tachSensorFor } from '../lib/tach.js';
   import { curvePaths, curveScale, evalCurve, curvePoints, createAxisHold, clamp } from '../lib/curveMath.js';
-  import { dashboardState, unassignedControls, timedSparklinePath, shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor } from '../lib/dashboard.js';
+  import { dashboardState, unassignedControls, timedSparklinePath, shortDevice, overview, trendArrow, temperatureUnit, chartCurve, spinPeriodSeconds, metricSensors, sensorKindFor, connectionNote } from '../lib/dashboard.js';
   import { openInGraph, page } from '../lib/page.js';
   import { HISTORY_WINDOW_MS } from '../lib/history.js';
   import { isCombineType, nodeIdForCurveRef, deviceOf } from '../lib/graph/ids.js';
@@ -23,7 +23,6 @@
   let editing = $state(false);
   let error = $state('');
   let inventoryError = $state('');
-  let lastUpdated = $state(null);
   let hiddenIds = $derived(($daemonConfig && $daemonConfig.ui && $daemonConfig.ui.dashboard && $daemonConfig.ui.dashboard.hidden) || []);
 
   async function setHidden(id, hidden) {
@@ -50,13 +49,9 @@
 
   onMount(loadInventory);
 
-  $effect(() => {
-    if ($snapshot) lastUpdated = new Date();
-  });
-
-  let state = $derived(dashboardState({ inventory, inventoryError, hasSnapshot: Boolean($snapshot), connected: $connected }));
+  let state = $derived(dashboardState({ inventory, inventoryError, hasSnapshot: Boolean($snapshot), connected: $connected, connectionLost: $connectionLost }));
   let known = $derived(state === 'loaded' || state === 'stale');
-  let lastUpdatedText = $derived(lastUpdated ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+  let note = $derived(connectionNote(state, $snapshotAt));
 
   function fmtTemp(value) {
     return value === null || value === undefined ? '–' : value.toFixed(1);
@@ -151,6 +146,9 @@
       showDot: temp !== null,
       dotX: temp === null ? 0 : scale.x(clamp(temp, 0, axis.max)),
       dotY: duty === null ? 0 : scale.y(duty),
+      dotLeft: temp === null ? 0 : (scale.x(clamp(temp, 0, axis.max)) / CHART_W) * 100,
+      dotTop: duty === null ? 0 : (scale.y(duty) / CHART_H) * 100,
+      axisEnd: `${axis.max}${axisMark(axis.unit)}`,
       sensor: sensorLabel(drawn.config.sensor, inventory.sensors),
       via: drawn.via ? `${drawn.via} → ${drawn.id}` : '',
       temp,
@@ -277,6 +275,15 @@
     }
   }
 
+  let fansSection;
+
+  function jumpToFans() {
+    if (!fansSection) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    fansSection.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    fansSection.querySelector('h2')?.focus({ preventScroll: true });
+  }
+
   function openCurve(fan) {
     if (!fan.curve) return;
     openInGraph({ nodeId: nodeIdForCurveRef(fan.curve.id, profile.curves) });
@@ -287,8 +294,9 @@
   <div class="overview">
     <div class="page-title">
       <span class="eyebrow">Overview</span>
-      <h1>{stats.headline}</h1>
-      {#if state === 'stale'}<span class="status-line" data-testid="stale-note">Live connection lost. Last updated {lastUpdatedText}</span>{/if}
+      <h1>Dashboard</h1>
+      <span class="headline" data-testid="dashboard-headline">{stats.headline}</span>
+      {#if note}<span class="status-line" data-testid={state === 'stale' ? 'stale-note' : 'connection-note'}>{note}</span>{/if}
     </div>
     <button type="button" class="btn edit-toggle" class:primary={editing} data-testid="dashboard-edit" onclick={() => (editing = !editing)}>{editing ? 'Done' : hiddenCount > 0 ? `Edit · ${hiddenCount} hidden` : 'Edit'}</button>
     <div class="stats">
@@ -318,7 +326,7 @@
     </section>
   {:else}
     <section>
-      <div class="section-head"><h2 class="section-title">Temperatures</h2><span class="hint">last 10 minutes</span></div>
+      <div class="section-head"><h2 class="section-title">Temperatures</h2><span class="hint">last 10 minutes</span>{#if fans.length > 0}<button type="button" class="jump-fans" data-testid="jump-fans" onclick={jumpToFans}>Jump to Fans ↓</button>{/if}</div>
       <div class="temps">
         {#if temps.length === 0}<p class="muted">Every sensor is hidden. Use Edit to bring some back.</p>{/if}
         {#each temps as sensor (sensor.id)}
@@ -338,8 +346,8 @@
       </div>
     </section>
 
-    <section>
-      <div class="section-head"><h2 class="section-title">Fans</h2><span class="hint">where each control sits on its curve</span></div>
+    <section id="dashboard-fans" bind:this={fansSection}>
+      <div class="section-head"><h2 class="section-title" tabindex="-1">Fans</h2><span class="hint">where each control sits on its curve</span></div>
       {#if unassigned.length > 0}
         <div class="notice" data-testid="no-curve-notice">
           <span>{unassigned.length === 1 ? '1 control has no curve' : `${unassigned.length} controls have no curve`} in this profile, so the daemon leaves {unassigned.length === 1 ? 'it' : 'them'} alone.</span>
@@ -359,11 +367,11 @@
                 {/if}
               </span>
               <div class="names">
-                <span class="label">{fan.label}</span><span class="device mono">{fan.device}</span>
+                <span class="label">{fan.label}</span>
+                <span class="meta"><span class="device mono">{fan.device}</span>{#if fan.fallback}<span class="badge pill fallback" title="Its curve has no input, so the fan runs at its fallback duty">! fallback</span>{/if}</span>
               </div>
               {#if editing}<button type="button" class="btn hide-toggle" data-testid="card-hide" onclick={() => setHidden(fan.id, !fan.hidden)}>{fan.hidden ? 'Show' : 'Hide'}</button>{/if}
               {#if fan.manual}<span class="badge pill">manual</span>{/if}
-              {#if fan.fallback}<span class="badge pill fallback" title="Its curve has no input, so the fan runs at its fallback duty">! fallback</span>{/if}
               <div class="readings">
                 <span class="duty-read mono" class:fallback={fan.fallback}>{fmtInt(fan.duty)}<small>%</small></span>
                 <span class="rpm-read"><span class="mono" class:missing={fan.rpmMissing}>{fan.rpmMissing ? 'no tach' : fmtInt(fan.rpm)}</span><span class="eyebrow">rpm</span></span>
@@ -375,14 +383,20 @@
                   <span class="chart-tag left">{fan.chart.sensor} {fan.chart.temp === null ? '' : `${fan.chart.reading.text}${fan.chart.reading.unit}`}</span>
                   <span class="chart-tag right">{fan.chart.via || `${fan.curveName} · ${fan.curveKind}`}</span>
                 </div>
-                <svg viewBox="0 0 {CHART_W} {CHART_H}" preserveAspectRatio="none">
-                  <path d={fan.chart.area} class="area" />
-                  <path d={fan.chart.line} class="line" vector-effect="non-scaling-stroke" />
+                <div class="plot">
+                  <svg viewBox="0 0 {CHART_W} {CHART_H}" preserveAspectRatio="none">
+                    <path d={fan.chart.area} class="area" />
+                    <path d={fan.chart.line} class="line" vector-effect="non-scaling-stroke" />
+                    {#if fan.chart.showDot}
+                      <line x1={fan.chart.dotX} y1="0" x2={fan.chart.dotX} y2={CHART_H} class="live" vector-effect="non-scaling-stroke" />
+                    {/if}
+                  </svg>
                   {#if fan.chart.showDot}
-                    <line x1={fan.chart.dotX} y1="0" x2={fan.chart.dotX} y2={CHART_H} class="live" vector-effect="non-scaling-stroke" />
-                    <circle cx={fan.chart.dotX} cy={fan.chart.dotY} r="4" class="dot" />
+                    <span class="live-dot" style:left="{fan.chart.dotLeft}%" style:top="{fan.chart.dotTop}%" aria-hidden="true"></span>
                   {/if}
-                </svg>
+                  <span class="axis-end start mono" aria-hidden="true">0</span>
+                  <span class="axis-end end mono" aria-hidden="true">{fan.chart.axisEnd}</span>
+                </div>
               </div>
             {:else}
               <div class="chart empty mono">
@@ -443,6 +457,27 @@
   .status-line {
     font-size: 0.75rem;
     color: var(--muted);
+  }
+
+  .headline {
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  .overview :global(.page-title) {
+    flex: 1 1 14rem;
+    min-width: 0;
+  }
+
+  .jump-fans {
+    display: none;
+    margin-left: auto;
+    padding: 0.25rem 0;
+    border: none;
+    background: none;
+    color: var(--accent-text);
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
   .placeholder {
@@ -796,10 +831,48 @@
     stroke-dasharray: 3 3;
   }
 
-  .chart .dot {
-    fill: var(--temp);
-    stroke: var(--surface2);
-    stroke-width: 2;
+  .plot {
+    position: relative;
+  }
+
+  .live-dot {
+    position: absolute;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--temp);
+    box-shadow: 0 0 0 2px var(--surface2);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .axis-end {
+    position: absolute;
+    bottom: 2px;
+    font-size: 0.5625rem;
+    line-height: 1;
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  .axis-end.start {
+    left: 4px;
+  }
+
+  .axis-end.end {
+    right: 4px;
+  }
+
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .meta .device {
+    flex: 0 1 auto;
   }
 
   .chart-tags {
@@ -908,12 +981,26 @@
     }
 
     .temp-card {
-      padding: 0.75rem;
+      padding: 0.625rem 0.75rem;
       min-height: 0;
+      gap: 0.25rem;
     }
 
     .value {
-      font-size: 1.625rem;
+      font-size: 1.5rem;
+    }
+
+    .temps .spark,
+    .temps .no-spark {
+      height: 1.25rem;
+    }
+
+    .jump-fans {
+      display: inline-flex;
+      align-items: center;
+      align-self: center;
+      min-height: 2.75rem;
+      margin-block: -0.875rem;
     }
 
     .fans {

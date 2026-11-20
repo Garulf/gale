@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { connect, connected } from './lib/store.js';
+  import { connect, connected, connectionLost } from './lib/store.js';
   import { page } from './lib/page.js';
   import { refreshWarnings } from './lib/warnings.js';
   import { daemonConfig, refreshConfig } from './lib/config.js';
@@ -95,9 +95,16 @@
       <span class="wordmark">gale</span>
       <span class="spacer"></span>
       <ProfileSwitcher compact />
-      <span class="conn" role="img" aria-label={$connected ? 'Daemon connected' : 'Daemon disconnected, reconnecting'} title={$connected ? 'Daemon connected' : 'Daemon disconnected'}>
-        <span class="dot" class:live={$connected} class:reconnecting={!$connected}></span>
-      </span>
+      {#if !$connectionLost}
+        <span class="conn" role="img" aria-label={$connected ? 'Daemon connected' : 'Connecting to daemon'} title={$connected ? 'Daemon connected' : 'Connecting to daemon'}>
+          <span class="dot" class:live={$connected}></span>
+        </span>
+      {:else}
+        <span class="conn offline" role="status" data-testid="conn-offline">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 8a5 5 0 0 1 8.5-3.5M13 8a5 5 0 0 1-8.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /><path d="M12.5 1.5v3.2H9.3M3.5 14.5v-3.2h3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          Reconnecting
+        </span>
+      {/if}
       <button type="button" class="theme-icon" onclick={toggleTheme} aria-label={$theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
         <span aria-hidden="true">{$theme === 'dark' ? '☾' : '☀'}</span>
       </button>
@@ -298,6 +305,19 @@
   .conn .dot {
     width: 0.625rem;
     height: 0.625rem;
+  }
+
+  .conn.offline {
+    width: auto;
+    gap: 0.3125rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--warn);
+    border-radius: var(--r);
+    height: 2.25rem;
+    color: var(--warn);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .theme-icon {

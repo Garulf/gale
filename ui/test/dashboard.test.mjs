@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dashboardState, unassignedControls, timedSparklinePath, shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors, sensorKindFor } from '../src/lib/dashboard.js';
+import { dashboardState, unassignedControls, timedSparklinePath, shortDevice, overview, trendArrow, temperatureUnit, chartCurve, metricSensors, sensorKindFor, connectionNote, formatReceivedTime } from '../src/lib/dashboard.js';
 
 test('shortDevice compacts known vendor prefixes', () => {
   assert.equal(shortDevice('hwmon/nct6798'), 'nct6798');
@@ -107,7 +107,9 @@ test('dashboardState separates loading, unavailable, loaded and stale', () => {
   const base = { inventory: {}, inventoryError: '', hasSnapshot: true, connected: true };
   assert.equal(dashboardState(base), 'loaded');
   assert.equal(dashboardState({ ...base, connected: false }), 'stale');
-  assert.equal(dashboardState({ ...base, hasSnapshot: false }), 'loading');
+  assert.equal(dashboardState({ ...base, hasSnapshot: false }), 'awaiting');
+  assert.equal(dashboardState({ ...base, hasSnapshot: false, connected: false }), 'offline');
+  assert.equal(dashboardState({ ...base, hasSnapshot: false, connected: false, connectionLost: false }), 'awaiting');
   assert.equal(dashboardState({ ...base, inventory: null }), 'loading');
   assert.equal(dashboardState({ ...base, inventory: null, inventoryError: '503' }), 'unavailable');
 });
@@ -140,4 +142,22 @@ test('timedSparklinePath places samples by age inside the labeled window', () =>
   assert.equal(timedSparklinePath([{ t: 0, v: 1 }], 10, 600000, 120, 36), '');
   const old = [{ t: 0, v: 1 }, { t: 100, v: 1 }];
   assert.equal(timedSparklinePath(old, 1200000, 600000, 120, 36), 'M 0.0 18.0 L 0.0 18.0');
+});
+
+test('headline tells waiting for a first reading apart from having none and being offline', () => {
+  assert.equal(overview([], [], 0, 'awaiting').headline, 'Reading the system');
+  assert.equal(overview([], [], 0, 'offline').headline, 'No live readings');
+  assert.equal(overview([40], [20], 0, 'offline').maxTemp, null);
+});
+
+test('connectionNote keeps the receipt time of the last sample and stays blank when live', () => {
+  const at = new Date(2026, 0, 1, 15, 40, 1).getTime();
+  assert.equal(formatReceivedTime(null), '');
+  assert.equal(formatReceivedTime(at, 'en-US'), '03:40:01 PM');
+  assert.equal(connectionNote('stale', at, 'en-US'), 'Live connection lost. Last updated 03:40:01 PM');
+  assert.equal(connectionNote('stale', at + 5000, 'en-US'), 'Live connection lost. Last updated 03:40:06 PM');
+  assert.equal(connectionNote('stale', null), 'Live connection lost');
+  assert.equal(connectionNote('awaiting', null), 'Connected. Waiting for the first reading');
+  assert.match(connectionNote('offline', null), /unreachable/);
+  assert.equal(connectionNote('loaded', at), '');
 });

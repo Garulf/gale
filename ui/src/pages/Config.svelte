@@ -271,11 +271,11 @@
 
     .toml {
       position: sticky;
-      top: 0;
+      top: 1rem;
     }
 
     .toml pre {
-      max-height: calc(100dvh - 10rem);
+      max-height: calc(100dvh - 14.5rem);
       overflow: auto;
     }
   }

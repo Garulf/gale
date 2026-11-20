@@ -34,14 +34,16 @@ const WARM_AT = 60;
 const HOT_AT = 80;
 const BUSY_DUTY = 70;
 
-export function dashboardState({ inventory, inventoryError, hasSnapshot, connected }) {
+export function dashboardState({ inventory, inventoryError, hasSnapshot, connected, connectionLost = true }) {
   if (!inventory) return inventoryError ? 'unavailable' : 'loading';
-  if (!hasSnapshot) return 'loading';
-  return connected ? 'loaded' : 'stale';
+  if (hasSnapshot) return connected ? 'loaded' : 'stale';
+  return connected || !connectionLost ? 'awaiting' : 'offline';
 }
 
 const STATE_HEADLINES = {
   loading: 'Reading the system',
+  awaiting: 'Reading the system',
+  offline: 'No live readings',
   unavailable: 'Inventory unavailable',
 };
 
@@ -56,6 +58,21 @@ export function headline({ maxTemp, avgDuty, warnings, state = 'loaded' }) {
   else if (maxTemp >= WARM_AT) verdict = 'System is running warm';
   else verdict = 'Temperatures are normal';
   return prefix ? `${prefix}${verdict.charAt(0).toLowerCase()}${verdict.slice(1)}` : verdict;
+}
+
+export function formatReceivedTime(receivedAt, locale = []) {
+  if (receivedAt === null || receivedAt === undefined) return '';
+  return new Date(receivedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+export function connectionNote(state, receivedAt, locale = []) {
+  if (state === 'stale') {
+    const time = formatReceivedTime(receivedAt, locale);
+    return time ? `Live connection lost. Last updated ${time}` : 'Live connection lost';
+  }
+  if (state === 'awaiting') return 'Connected. Waiting for the first reading';
+  if (state === 'offline') return 'Daemon unreachable. No readings yet, retrying';
+  return '';
 }
 
 export function overview(temps, duties, warningCount, state = 'loaded') {

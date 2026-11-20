@@ -31,6 +31,22 @@
     if (restoreFocus && trigger) trigger.focus();
   }
 
+  async function focusInMenu(selector) {
+    await tick();
+    const target = root && root.querySelector(selector);
+    if (target) target.focus();
+  }
+
+  function startManaging() {
+    managing = true;
+    focusInMenu('[data-testid="profile-manage-done"]');
+  }
+
+  function stopManaging() {
+    managing = false;
+    focusInMenu('[data-testid="profile-manage"]');
+  }
+
   function toggle() {
     if (open) close();
     else openMenu();
@@ -88,10 +104,11 @@
       return;
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      const items = Array.from(root.querySelectorAll('.menu button:not(:disabled)'));
-      if (items.length === 0) return;
-      event.preventDefault();
+      const scope = managing ? '.menu button:not(:disabled)' : '.menu [role="option"]';
+      const items = Array.from(root.querySelectorAll(scope));
       const index = items.indexOf(document.activeElement);
+      if (index === -1) return;
+      event.preventDefault();
       const step = event.key === 'ArrowDown' ? 1 : -1;
       items[(index + step + items.length) % items.length].focus();
     }
@@ -140,11 +157,11 @@
       {/if}
       <div class="footer">
         {#if managing}
-          <button type="button" class="foot" data-testid="profile-manage-done" onclick={() => (managing = false)}>Done</button>
+          <button type="button" class="foot" data-testid="profile-manage-done" onclick={stopManaging}>Done</button>
         {:else}
           <button type="button" class="foot" data-testid="profile-new" onclick={createNew}>+ New profile…</button>
           {#if profiles.length > 1}
-            <button type="button" class="foot" data-testid="profile-manage" onclick={() => (managing = true)}>Manage profiles</button>
+            <button type="button" class="foot" data-testid="profile-manage" onclick={startManaging}>Manage profiles</button>
           {/if}
         {/if}
       </div>

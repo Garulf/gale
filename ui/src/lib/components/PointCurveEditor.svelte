@@ -97,7 +97,10 @@
     if (svgEl.hasPointerCapture(event.pointerId)) svgEl.releasePointerCapture(event.pointerId);
   }
 
+  const touchInput = window.matchMedia('(pointer: coarse), (hover: none)');
+
   function addPointAt(event) {
+    if (touchInput.matches) return;
     if (didDrag) {
       didDrag = false;
       return;
@@ -152,7 +155,7 @@
 </script>
 
 <div class="editor">
-  <div class="head"><span class="eyebrow">Curve</span><span class="tip tip-pointer">drag points · double-click to remove</span><span class="tip tip-touch">drag points · use × to remove</span></div>
+  <div class="head"><span class="eyebrow">Curve</span><span class="tip tip-pointer">drag points · click empty space to add · double-click to remove</span><span class="tip tip-touch">drag points · + Add point to add · × to remove</span></div>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="axis-title">Duty (%)</div>
@@ -246,7 +249,7 @@
     display: none;
   }
 
-  @media (hover: none) {
+  @media (hover: none), (pointer: coarse) {
     .tip-pointer {
       display: none;
     }
@@ -308,6 +311,13 @@
     cursor: crosshair;
   }
 
+  @media (hover: none), (pointer: coarse) {
+    .graph {
+      touch-action: pan-y;
+      cursor: default;
+    }
+  }
+
   .plot-bg {
     fill: transparent;
   }
@@ -333,6 +343,7 @@
 
   .curve-hit {
     fill: transparent;
+    touch-action: none;
     cursor: grab;
     outline: none;
   }
