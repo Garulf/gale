@@ -16,7 +16,7 @@
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
   import { effectivePorts, endpointDisplayLabel } from '../groups.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode, onRenamePort, onRemovePort } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode, onRenamePort, onRemovePort, expandCurve = false } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
   const sensorKind = getContext('galeSensorKind');
@@ -896,7 +896,7 @@
   </div>
 
   {#if config.type === 'point'}
-    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} axis={curveAxis} />
+    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} axis={curveAxis} expandable={expandCurve} />
     {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">

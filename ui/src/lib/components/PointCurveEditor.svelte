@@ -1,8 +1,11 @@
 <script>
+  import { tick } from 'svelte';
+  import PointCurveEditor from './PointCurveEditor.svelte';
+  import { inertOutside } from '../graph/inert.js';
   import { evalCurve, clamp, nextPointTemp, axisFor, axisTicks, pointFieldValue } from '../curveMath.js';
   import { axisMark } from '../units.js';
 
-  let { points, liveTemp = null, onChange, axis = axisFor('temp') } = $props();
+  let { points, liveTemp = null, onChange, axis = axisFor('temp'), expandable = false } = $props();
 
   let xMax = $derived(axis.max);
   let xUnit = $derived(axis.unit);
@@ -97,7 +100,7 @@
     if (svgEl.hasPointerCapture(event.pointerId)) svgEl.releasePointerCapture(event.pointerId);
   }
 
-  const touchInput = window.matchMedia('(pointer: coarse), (hover: none)');
+  const touchInput = window.matchMedia('(pointer: coarse)');
 
   function addPointAt(event) {
     if (touchInput.matches) return;
@@ -152,13 +155,45 @@
   let xTitle = $derived(xUnit ? `${AXIS_NAMES[xUnit] || 'Input'} (${xUnit})` : 'Input');
   let gridTemps = $derived(axisTicks(axis));
   const gridDuties = [0, 25, 50, 75, 100];
+
+  let expanded = $state(false);
+  let expandButton = $state(null);
+  let dialogHeading = $state(null);
+  const dialogTitleId = `curve-dialog-${crypto.randomUUID()}`;
+
+  function toBody(node) {
+    document.body.appendChild(node);
+    const releaseInert = inertOutside(node);
+    return () => {
+      releaseInert();
+      node.remove();
+    };
+  }
+
+  async function openExpanded() {
+    expanded = true;
+    await tick();
+    if (dialogHeading) dialogHeading.focus();
+  }
+
+  async function closeExpanded() {
+    expanded = false;
+    await tick();
+    if (expandButton) expandButton.focus();
+  }
+
+  function onDialogKey(event) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeExpanded();
+  }
 </script>
 
 <div class="editor">
-  <div class="head"><span class="eyebrow">Curve</span><span class="tip tip-pointer">drag points · click empty space to add · double-click to remove</span><span class="tip tip-touch">drag points · + Add point to add · × to remove</span></div>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="head"><span class="eyebrow">Curve</span><span class="tip tip-pointer">drag points · click empty space to add · double-click to remove</span><span class="tip tip-touch">drag points · + Add point to add · × to remove</span>{#if expandable}<button type="button" class="btn expand" aria-haspopup="dialog" data-testid="curve-expand" bind:this={expandButton} onclick={openExpanded}>Expand</button>{/if}</div>
   <div class="axis-title">Duty (%)</div>
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <svg
     bind:this={svgEl}
     viewBox="0 0 {WIDTH} {HEIGHT}"
@@ -227,6 +262,19 @@
   </div>
 </div>
 
+{#if expanded}
+  <div class="curve-dialog-layer" {@attach toBody}>
+    <div class="curve-dialog-scrim" role="presentation" onclick={closeExpanded}></div>
+    <div class="curve-dialog" role="dialog" aria-modal="true" aria-labelledby={dialogTitleId} tabindex="-1" data-testid="curve-dialog" onkeydown={onDialogKey}>
+      <div class="curve-dialog-head">
+        <h2 id={dialogTitleId} tabindex="-1" bind:this={dialogHeading}>Edit curve points</h2>
+        <button type="button" class="btn" data-testid="curve-dialog-close" onclick={closeExpanded}>Close</button>
+      </div>
+      <PointCurveEditor {points} {liveTemp} {onChange} {axis} />
+    </div>
+  </div>
+{/if}
+
 <style>
   .editor {
     display: flex;
@@ -236,8 +284,59 @@
 
   .head {
     display: flex;
-    align-items: baseline;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: space-between;
+    gap: 0.25rem 0.5rem;
+  }
+
+  .head .tip {
+    flex: 1;
+    text-align: right;
+  }
+
+  .expand {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+  }
+
+  .curve-dialog-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 60;
+  }
+
+  .curve-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(90vw, 56rem);
+    max-height: 90vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.125rem 1.25rem 1.25rem;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg, 12px);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+    z-index: 61;
+  }
+
+  .curve-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .curve-dialog-head h2 {
+    margin: 0;
+    font-size: 1rem;
   }
 
   .tip {
@@ -249,7 +348,7 @@
     display: none;
   }
 
-  @media (hover: none), (pointer: coarse) {
+  @media (pointer: coarse) {
     .tip-pointer {
       display: none;
     }
@@ -311,7 +410,7 @@
     cursor: crosshair;
   }
 
-  @media (hover: none), (pointer: coarse) {
+  @media (pointer: coarse) {
     .graph {
       touch-action: pan-y;
       cursor: default;

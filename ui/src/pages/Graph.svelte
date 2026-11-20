@@ -39,7 +39,7 @@
   import { fallbackCurveIds, fallbackControlIds } from '../lib/graph/liveValues.js';
   import { emphasizeEdges, carryEdgeSelection, connectedNodeIds } from '../lib/graph/emphasis.js';
   import { inertOutside } from '../lib/graph/inert.js';
-  import { MIN_ZOOM, NARROW_QUERY } from '../lib/graph/viewport.js';
+  import { MIN_ZOOM, NARROW_QUERY, COARSE_POINTER_QUERY } from '../lib/graph/viewport.js';
   import { nodeKind, nodeName, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
@@ -64,6 +64,7 @@
   import CanvasFit from '../lib/graph/components/CanvasFit.svelte';
   import SelectionReveal from '../lib/graph/components/SelectionReveal.svelte';
   import NarrowGraphHeader from '../lib/graph/components/NarrowGraphHeader.svelte';
+  import TapConnect from '../lib/graph/components/TapConnect.svelte';
 
   let config = $state.raw(null);
   let inventory = $state.raw(null);
@@ -157,6 +158,11 @@
   const onMobileChange = (event) => (isMobile = event.matches);
   mobileQuery.addEventListener('change', onMobileChange);
   onDestroy(() => mobileQuery.removeEventListener('change', onMobileChange));
+  const coarseQuery = window.matchMedia(COARSE_POINTER_QUERY);
+  let coarsePointer = $state(coarseQuery.matches);
+  const onPointerChange = (event) => (coarsePointer = event.matches);
+  coarseQuery.addEventListener('change', onPointerChange);
+  onDestroy(() => coarseQuery.removeEventListener('change', onPointerChange));
   const nodeTypes = {
     deviceSensor: DeviceSensorNode,
     deviceControl: DeviceControlNode,
@@ -526,6 +532,14 @@
     groups = nextGroups;
     dirty = true;
     future = [];
+  }
+
+  function canConnect(canvasConnection) {
+    const flat = unprojectConnection(canvasConnection, connectionContext());
+    if (flat === null) return false;
+    if (flat.kind === 'declare' || flat.kind === 'retarget') return true;
+    const candidate = flat.kind === 'replace-source' ? replacedSourceConnection(flat) : flat;
+    return candidate !== null && isValidConnection(candidate, nodes, edges);
   }
 
   function onBeforeConnect(canvasConnection) {
@@ -1068,13 +1082,7 @@
       bind:edges={viewEdges}
       {nodeTypes}
       {edgeTypes}
-      isValidConnection={(connection) => {
-        const flat = unprojectConnection(connection, connectionContext());
-        if (flat === null) return false;
-        if (flat.kind === 'declare' || flat.kind === 'retarget') return true;
-        const candidate = flat.kind === 'replace-source' ? replacedSourceConnection(flat) : flat;
-        return candidate !== null && isValidConnection(candidate, nodes, edges);
-      }}
+      isValidConnection={canConnect}
       onbeforeconnect={onBeforeConnect}
       onnodedragstart={onNodeDragStart}
       onnodedragstop={onNodeDragStop}
@@ -1108,6 +1116,9 @@
         />
       {/if}
       <ZoomControls />
+      {#if coarsePointer}
+        <TapConnect {canConnect} onConnect={onBeforeConnect} resetKey={`${scope || ''}|${editingProfile}|${canvasActive}`} />
+      {/if}
     </SvelteFlow>
 
     <div class="gale-legend">
@@ -1199,6 +1210,7 @@
         onSelectNode={selectNode}
         onRenamePort={renameGroupPort}
         onRemovePort={removeGroupPort}
+        expandCurve
       />
       {#if saveWarnings.length > 0}
         <ul class="save-warnings">

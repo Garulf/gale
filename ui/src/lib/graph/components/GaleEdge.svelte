@@ -1,10 +1,11 @@
 <script>
   import { getContext } from 'svelte';
-  import { BaseEdge, EdgeLabel, getBezierPath } from '@xyflow/svelte';
+  import { BaseEdge, EdgeLabel, getBezierPath, useViewport } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { tempValue, dutyValue, sensorDisplay } from '../liveValues.js';
   import { nodeKind } from '../ids.js';
   import { axisMark } from '../../units.js';
+  import { showsEdgeLabel } from '../viewport.js';
 
   let {
     id,
@@ -21,7 +22,11 @@
     markerStart,
     markerEnd,
     data,
+    selected = false,
   } = $props();
+
+  const viewport = useViewport();
+  let overviewHidden = $derived(!showsEdgeLabel(viewport.current.zoom, selected || data.emphasis === 'active'));
 
   const edgeSaved = getContext('galeEdgeSaved');
   const sensorKind = getContext('galeSensorKind');
@@ -74,6 +79,6 @@
 {/if}
 {#if label}
   <EdgeLabel x={path[1]} y={path[2]}>
-    <div class="elabel {data.kind}" class:edge-active={data.emphasis === 'active'}>{label}</div>
+    <div class="elabel {data.kind}" class:edge-active={data.emphasis === 'active'} class:overview-hidden={overviewHidden}>{label}</div>
   </EdgeLabel>
 {/if}

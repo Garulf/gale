@@ -1,6 +1,12 @@
 export const MIN_ZOOM = 0.15;
 export const MAX_FIT_ZOOM = 1.1;
 export const NARROW_QUERY = '(max-width: 720px)';
+export const COARSE_POINTER_QUERY = '(pointer: coarse)';
+export const OVERVIEW_ZOOM = 0.6;
+
+export function showsEdgeLabel(zoom, emphasized) {
+  return emphasized || zoom >= OVERVIEW_ZOOM;
+}
 
 const NARROW_INSET = { top: 16, right: 16, bottom: 80, left: 16 };
 const WIDE_INSET = { top: 72, right: 32, bottom: 64, left: 32 };
