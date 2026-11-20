@@ -11,12 +11,32 @@
   const HEIGHT = 300;
   const PAD_LEFT = 44;
   const PAD_RIGHT = 16;
-  const PAD_TOP = 16;
-  const PAD_BOTTOM = 30;
   const PLOT_W = WIDTH - PAD_LEFT - PAD_RIGHT;
-  const PLOT_H = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const TICK_PX = 11;
+  const POINT_PX = 11;
+  const LIVE_PX = 10;
+  const HIT_PX = 26;
+  const AXIS_NAMES = { '°C': 'Temperature', MHz: 'Clock', MiB: 'Memory', W: 'Power', '%': 'Load' };
 
   let svgEl;
+  let scale = $state(1);
+  let PAD_TOP = $derived(Math.max(16, px(8)));
+  let PAD_BOTTOM = $derived(Math.max(30, px(18)));
+  let PLOT_H = $derived(HEIGHT - PAD_TOP - PAD_BOTTOM);
+
+  function px(cssPixels) {
+    return cssPixels / scale;
+  }
+
+  $effect(() => {
+    const measure = () => {
+      if (svgEl && svgEl.clientWidth > 0) scale = svgEl.clientWidth / WIDTH;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(svgEl);
+    return () => observer.disconnect();
+  });
   let dragId = null;
   let didDrag = false;
 
@@ -126,14 +146,16 @@
     return yToPx(evalCurve(pairs(sorted), clamp(liveTemp, 0, xMax)));
   });
 
+  let xTitle = $derived(xUnit ? `${AXIS_NAMES[xUnit] || 'Input'} (${xUnit})` : 'Input');
   let gridTemps = $derived(axisTicks(axis));
   const gridDuties = [0, 25, 50, 75, 100];
 </script>
 
 <div class="editor">
-  <div class="head"><span class="eyebrow">Curve</span><span class="tip">drag points · double-click to remove</span></div>
+  <div class="head"><span class="eyebrow">Curve</span><span class="tip tip-pointer">drag points · double-click to remove</span><span class="tip tip-touch">drag points · use × to remove</span></div>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="axis-title">Duty (%)</div>
   <svg
     bind:this={svgEl}
     viewBox="0 0 {WIDTH} {HEIGHT}"
@@ -147,16 +169,16 @@
     <rect class="plot-bg" x={PAD_LEFT} y={PAD_TOP} width={PLOT_W} height={PLOT_H} />
     {#each gridTemps as temp, index}
       <line x1={xToPx(temp)} y1={PAD_TOP} x2={xToPx(temp)} y2={PAD_TOP + PLOT_H} class="grid-line" />
-      <text x={xToPx(temp)} y={HEIGHT - 10} class="axis-label" text-anchor={index === gridTemps.length - 1 ? 'end' : 'middle'}>{tickLabel(temp, index === gridTemps.length - 1)}</text>
+      <text x={xToPx(temp)} y={HEIGHT - px(4)} class="axis-label" style:font-size="{px(TICK_PX)}px" text-anchor={index === gridTemps.length - 1 ? 'end' : 'middle'}>{tickLabel(temp, index === gridTemps.length - 1)}</text>
     {/each}
     {#each gridDuties as duty}
       <line x1={PAD_LEFT} y1={yToPx(duty)} x2={PAD_LEFT + PLOT_W} y2={yToPx(duty)} class="grid-line" />
-      <text x={PAD_LEFT - 8} y={yToPx(duty)} class="axis-label" text-anchor="end" dominant-baseline="middle">{duty}</text>
+      <text x={PAD_LEFT - px(4)} y={yToPx(duty)} class="axis-label" style:font-size="{px(TICK_PX)}px" text-anchor="end" dominant-baseline="middle">{duty}</text>
     {/each}
     {#if liveX !== null}
       <line x1={liveX} y1={PAD_TOP} x2={liveX} y2={PAD_TOP + PLOT_H} class="live-marker" />
       {#if liveY !== null}
-        <circle cx={liveX} cy={liveY} r="5" class="live-dot" />
+        <circle cx={liveX} cy={liveY} r={px(LIVE_PX / 2)} class="live-dot"><title>Live input</title></circle>
       {/if}
     {/if}
     <path d={pathD} class="curve-line" />
@@ -164,8 +186,8 @@
       <circle
         cx={xToPx(point.temp)}
         cy={yToPx(point.duty)}
-        r="7"
-        class="curve-point"
+        r={px(HIT_PX / 2)}
+        class="curve-hit"
         role="button"
         tabindex="0"
         aria-label="Curve point at {point.temp} {xUnit || 'input'}, {point.duty} percent"
@@ -181,8 +203,14 @@
           }
         }}
       />
+      <circle cx={xToPx(point.temp)} cy={yToPx(point.duty)} r={px(POINT_PX / 2)} class="curve-point" />
     {/each}
   </svg>
+  <div class="axis-foot">
+    <span class="legend"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" class="key-point" /></svg>point</span>
+    <span class="legend"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" class="key-live" /></svg>live</span>
+    <span class="axis-title x">{xTitle}</span>
+  </div>
 
   <div class="points">
     {#each sorted as point (point.id)}
@@ -214,6 +242,60 @@
     color: var(--faint);
   }
 
+  .tip-touch {
+    display: none;
+  }
+
+  @media (hover: none) {
+    .tip-pointer {
+      display: none;
+    }
+
+    .tip-touch {
+      display: inline;
+    }
+  }
+
+  .axis-title {
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+
+  .axis-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+
+  .axis-title.x {
+    margin-left: auto;
+  }
+
+  .legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .legend svg {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+
+  .key-point {
+    fill: var(--surface);
+    stroke: var(--duty-stroke);
+    stroke-width: 2;
+  }
+
+  .key-live {
+    fill: var(--temp-stroke);
+    stroke: var(--ink);
+    stroke-width: 1.5;
+  }
+
   .graph {
     width: 100%;
     aspect-ratio: 560 / 300;
@@ -233,43 +315,58 @@
   .grid-line {
     stroke: var(--grid);
     stroke-width: 1;
+    vector-effect: non-scaling-stroke;
   }
 
   .axis-label {
     fill: var(--muted);
-    font-size: 0.625rem;
     font-family: var(--mono);
   }
 
   .curve-line {
     fill: none;
-    stroke: var(--duty);
+    stroke: var(--duty-stroke);
     stroke-width: 2;
     stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .curve-hit {
+    fill: transparent;
+    cursor: grab;
+    outline: none;
   }
 
   .curve-point {
     fill: var(--surface);
-    stroke: var(--duty);
+    stroke: var(--duty-stroke);
     stroke-width: 2;
-    cursor: grab;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
   }
 
-  .curve-point:focus {
-    outline: none;
-    stroke: var(--accent);
+  .curve-hit:hover + .curve-point {
+    stroke-width: 3;
+  }
+
+  .curve-hit:focus-visible + .curve-point {
+    stroke: var(--focus);
+    stroke-width: 3;
   }
 
   .live-marker {
-    stroke: var(--temp);
-    stroke-width: 1;
+    stroke: var(--temp-stroke);
+    stroke-width: 1.5;
     stroke-dasharray: 4 4;
+    vector-effect: non-scaling-stroke;
   }
 
   .live-dot {
-    fill: var(--temp);
-    stroke: var(--canvas);
-    stroke-width: 2;
+    fill: var(--temp-stroke);
+    stroke: var(--ink);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
   }
 
   .points {
