@@ -11,15 +11,16 @@
   import { CURVE_TYPES } from '../edit.js';
   import { tempValue, dutyValue, formatDeltaRate, sensorDisplay } from '../liveValues.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
-  import { nodeKind } from '../ids.js';
+  import { nodeKind, nodeName as idName } from '../ids.js';
   import { shortDevice } from '../../dashboard.js';
   import { presets, savePreset, removePreset, refreshPresets, presetNameFor } from '../../presets.js';
-  import { effectivePorts } from '../groups.js';
+  import { effectivePorts, endpointDisplayLabel } from '../groups.js';
 
-  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode, onRenamePort, onRemovePort } = $props();
+  let { node, nodes = [], edges, savedAt, onUpdateData, onDeleteNode, onRenameNode, onRetypeNode, onApplyPreset, onDuplicateNode, onHideNode, onClose, onRenameRow, onToggleRow, onToggleCompact, groups = [], onRenameGroup, onUngroup, onEnterGroup, onSetMembership, onSelectNode, onRenamePort, onRemovePort, expandCurve = false } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
   const sensorKind = getContext('galeSensorKind');
+  const curveFallback = getContext('galeCurveFallback');
 
   function memberName(memberId) {
     return memberId.slice(memberId.indexOf(':') + 1);
@@ -379,6 +380,10 @@
     return outgoingEdges().map((edge) => ({ label: targetLabel(edge), handle: edge.targetHandle, isControl: nodeKind(edge.target) === 'control' }));
   });
 
+  let outputFallback = $derived(
+    Boolean(node && curveFallback && (node.type === 'curve' || node.type === 'combine') && curveFallback(idName(node.id)))
+  );
+
   let liveOutputDuty = $derived.by(() => {
     const control = outputTargets.find((target) => target.isControl);
     if (!control) return null;
@@ -550,6 +555,11 @@
   {/if}
 {/snippet}
 
+{#snippet fallbackDuty(size)}
+  <span class="{size} mono fallback-duty" data-testid="output-fallback">Fallback · {fmtInt(liveOutputDuty)}%</span>
+  <span class="sub fallback-note">The input has no reading, so the fans run at the fail-safe duty.</span>
+{/snippet}
+
 {#snippet nodeActions()}
   <div class="actions">
     <button type="button" class="btn" data-testid="node-duplicate" onclick={() => onDuplicateNode(node.id)}>Duplicate</button>
@@ -591,6 +601,11 @@
             <span class="tip">{port.wired ? 'wired' : 'unwired'}</span>
             <button type="button" class="btn" onclick={() => onRemovePort(groupId, direction, port.node, port.handle)}>Remove</button>
           </div>
+          {#if port.destinations.length > 0}
+            <p class="tip port-ends" data-testid="group-port-ends">
+              {direction === 'in' ? 'from' : 'to'} {port.destinations.map((end) => endpointDisplayLabel(nodes, end.node, end.handle)).join(', ')}
+            </p>
+          {/if}
         {/each}
       </div>
     {/if}
@@ -869,15 +884,19 @@
       <span class="mid mono temp">{config.type === 'flat' ? '—' : `${curveInputReading.text}${curveInputReading.unit}`}</span>
       <span class="sub">{config.type === 'flat' ? 'no sensor' : sensorName}</span>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" class:fallback={outputFallback}>
       <span class="eyebrow">Output</span>
-      <span class="mid mono duty">{fmtInt(liveOutputDuty)}%</span>
+      {#if outputFallback}
+        {@render fallbackDuty('mid')}
+      {:else}
+        <span class="mid mono duty">{fmtInt(liveOutputDuty)}%</span>
+      {/if}
       <span class="sub">→ {outputTargets.map((target) => target.label).join(', ') || 'unassigned'}</span>
     </div>
   </div>
 
   {#if config.type === 'point'}
-    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} axis={curveAxis} />
+    <PointCurveEditor points={taggedPoints} liveTemp={liveSensorTemp} onChange={onPointsChange} axis={curveAxis} expandable={expandCurve} />
     {@render smoothing(true)}
   {:else if config.type === 'linear'}
     <div class="two">
@@ -923,9 +942,13 @@
 {:else if node.type === 'combine'}
   {@const config = node.data.combine.config}
   {@render identity('duty', CURVE_TYPES, undefined)}
-  <div class="stat-card">
+  <div class="stat-card" class:fallback={outputFallback}>
     <span class="eyebrow">Output duty</span>
-    <span class="big mono duty">{fmtInt(liveOutputDuty)}%</span>
+    {#if outputFallback}
+      {@render fallbackDuty('big')}
+    {:else}
+      <span class="big mono duty">{fmtInt(liveOutputDuty)}%</span>
+    {/if}
     <span class="sub">{config.type === 'mix' ? `${config.mode} of ${combineSources.join(', ') || 'nothing yet'}` : config.type === 'offset' ? `${combineSources[0] || 'nothing yet'} × ${config.scale} + ${config.add}` : `follows ${combineSources[0] || 'nothing yet'}`} → {outputTargets.map((target) => target.label).join(', ') || 'unassigned'}</span>
   </div>
   {#if config.type === 'offset'}
@@ -1184,6 +1207,25 @@
 
   .mid {
     font-size: 1rem;
+  }
+
+  .stat-card.fallback {
+    grid-column: 1 / -1;
+    border-color: var(--warn);
+  }
+
+  .fallback-duty,
+  .fallback-note {
+    color: var(--warn);
+  }
+
+  .fallback-note {
+    white-space: normal;
+  }
+
+  .port-ends {
+    padding: 0 0.625rem 0.25rem;
+    overflow-wrap: anywhere;
   }
 
   .big {

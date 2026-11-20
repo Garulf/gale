@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDeltaRate, isOverridden, sensorDisplay, curveOutput, isCurveInputKind } from '../../src/lib/graph/liveValues.js';
+import { formatDeltaRate, isOverridden, sensorDisplay, curveOutput, isCurveInputKind, portReading, NO_READING } from '../../src/lib/graph/liveValues.js';
 
 test('formatDeltaRate formats a rate in degrees per minute', () => {
   assert.equal(formatDeltaRate(2.5), '2.5 C/min');
@@ -61,4 +61,11 @@ test('curveOutput is null for a missing curve, a missing map, or no snapshot', (
   assert.equal(curveOutput({ curves: {} }, 'cpu'), null);
   assert.equal(curveOutput({ duties: { pwm1: 10 } }, 'cpu'), null);
   assert.equal(curveOutput(null, 'cpu'), null);
+});
+
+test('a wired port with no sample says No reading, others keep their reading', () => {
+  const reading = { text: '41.2', unit: '°C' };
+  assert.deepEqual(portReading('unavailable', sensorDisplay(null, 'temp')), { text: NO_READING, unit: '' });
+  assert.equal(portReading('connected', reading), reading);
+  assert.equal(portReading('spare', reading), reading);
 });

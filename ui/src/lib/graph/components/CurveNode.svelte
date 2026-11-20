@@ -3,7 +3,7 @@
   import WarningBadge from './WarningBadge.svelte';
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
-  import { tempValue, dutyValue, curveOutput, sensorDisplay } from '../liveValues.js';
+  import { tempValue, dutyValue, curveOutput, sensorDisplay, portState } from '../liveValues.js';
   import { curvePaths, curveScale, evalCurve, clamp, curvePoints, createAxisHold } from '../../curveMath.js';
   import { axisMark as unitMark } from '../../units.js';
   import { shouldSnapshotEdit } from '../snapshotDebounce.js';
@@ -38,17 +38,23 @@
   const outputConnections = useNodeConnections({ handleType: 'source', handleId: 'out' });
 
   const sensorKind = getContext('galeSensorKind');
+  const resolveSource = getContext('galeResolveSource');
+  const resolveTargets = getContext('galeResolveTargets');
+  const curveFallback = getContext('galeCurveFallback');
 
-  let inputKind = $derived.by(() => {
-    const connection = sensorConnections.current[0];
-    return connection && sensorKind ? sensorKind(connection.source, connection.sourceHandle) : undefined;
-  });
-
-  let sensorTemp = $derived.by(() => {
+  let sensorOrigin = $derived.by(() => {
     const connection = sensorConnections.current[0];
     if (!connection) return null;
-    return tempValue($snapshot, connection.source, connection.sourceHandle);
+    return resolveSource ? resolveSource(connection.source, connection.sourceHandle) : { node: connection.source, handle: connection.sourceHandle };
   });
+
+  let inputKind = $derived(sensorOrigin && sensorKind ? sensorKind(sensorOrigin.node, sensorOrigin.handle) : undefined);
+
+  let sensorTemp = $derived(sensorOrigin ? tempValue($snapshot, sensorOrigin.node, sensorOrigin.handle) : null);
+
+  let sensorState = $derived(portState(sensorConnections.current.length > 0, sensorTemp));
+
+  let fallback = $derived(curveFallback ? curveFallback(data.curve.id) : false);
 
   let sensorReading = $derived(sensorDisplay(sensorTemp, inputKind));
 
@@ -57,7 +63,8 @@
     if (published !== null) return published;
     const connection = outputConnections.current[0];
     if (!connection) return null;
-    return dutyValue($snapshot, connection.targetHandle);
+    const targets = resolveTargets ? resolveTargets(connection.target, connection.targetHandle) : [{ node: connection.target, handle: connection.targetHandle }];
+    return targets.length > 0 ? dutyValue($snapshot, targets[0].handle) : null;
   });
 
   const holdAxis = createAxisHold();
@@ -95,7 +102,7 @@
   </h4>
   {#if hasSensorInput}
     <div class="rows">
-      <div class="row in" class:missing={sensorTemp === null}>
+      <div class="row in {sensorState}" class:missing={sensorState === 'spare'} title={sensorState === 'unavailable' ? 'Wired, but no live reading' : undefined}>
         <Handle type="target" position={Position.Left} id="sensor" class="port in" />
         <span>sensor</span>
         <span class="val temp">{sensorReading.text}<span class="unit">{sensorReading.unit}</span></span>
@@ -121,8 +128,11 @@
     </div>
   {/if}
   <div class="rows">
-    <div class="row out">
+    <div class="row out" class:fallback>
       <span>{summary || 'duty'}</span>
+      {#if fallback}
+        <span class="fallback-tag" data-testid="curve-fallback" title="This curve has no usable input, so its fans run at the fail-safe duty"><span aria-hidden="true">!</span>Fallback</span>
+      {/if}
       <span class="val duty">{outputDuty === null ? '—' : Math.round(outputDuty)}<span class="unit">%</span></span>
       <Handle type="source" position={Position.Right} id="out" class="port out duty" />
     </div>

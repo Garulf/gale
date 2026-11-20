@@ -322,8 +322,8 @@ impl CorsairDevice for CommanderCore {
             sensors.push((id.clone(), SensorKind::Rpm, self.speed_channel_label(port)));
             controls.push((id, self.duty_channel_label(port)));
         }
-        for index in 0..self.temp_ports.len() {
-            if !self.temp_ports[index] {
+        for (index, &present) in self.temp_ports.iter().enumerate() {
+            if !present {
                 continue;
             }
             sensors.push((
@@ -355,8 +355,8 @@ impl CorsairDevice for CommanderCore {
                 speeds.get(port).copied().flatten(),
             );
         }
-        for index in 0..self.temp_ports.len() {
-            if !self.temp_ports[index] {
+        for (index, &present) in self.temp_ports.iter().enumerate() {
+            if !present {
                 continue;
             }
             values.insert(

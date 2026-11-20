@@ -4,8 +4,9 @@
   import { snapshot } from '../lib/store.js';
   import { getInventory, activateProfile, getConfigToml } from '../lib/api.js';
   import { refreshWarnings } from '../lib/warnings.js';
-  import { openInGraph } from '../lib/page.js';
+  import { openInGraph, page } from '../lib/page.js';
   import { sensorLabel } from '../lib/sensors.js';
+  import { inertOutside } from '../lib/graph/inert.js';
   import { isCombineType, nodeIdForCurveRef } from '../lib/graph/ids.js';
 
   let inventory = $state(null);
@@ -13,7 +14,48 @@
   let error = $state('');
   let busy = $state('');
 
-  onMount(load);
+  let copied = $state(false);
+  let copiedTimer;
+
+  let expanded = $state(false);
+  let expandButton = $state();
+  let overlay = $state();
+  let closeButton = $state();
+
+  $effect(() => {
+    if (!expanded || !overlay) return;
+    const restore = inertOutside(overlay);
+    closeButton?.focus();
+    return restore;
+  });
+
+  function closeExpanded() {
+    expanded = false;
+    expandButton?.focus();
+  }
+
+  function overlayKeydown(event) {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    closeExpanded();
+  }
+
+  onMount(() => {
+    load();
+    return () => clearTimeout(copiedTimer);
+  });
+
+  async function copyToml() {
+    try {
+      await navigator.clipboard.writeText(toml);
+    } catch (err) {
+      error = 'Could not copy to the clipboard.';
+      return;
+    }
+    copied = true;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied = false), 1500);
+  }
 
   async function load() {
     refreshConfig();
@@ -168,38 +210,88 @@
         </section>
 
         <section class="card block">
-          <div class="section-head"><h2 class="section-title">Curves in {activeName}</h2><span class="hint">click a row to open it in the graph</span></div>
-          <div class="table-wrap">
-            <table class="curves">
-              <thead>
-                <tr><th>name</th><th>type</th><th>input</th><th>drives</th><th>detail</th></tr>
-              </thead>
-              <tbody>
-                {#each curves as curve (curve.id)}
-                  <tr onclick={() => openInGraph({ nodeId: curve.nodeId })}>
-                    <td class="strong">{curve.id}</td>
-                    <td class="muted">{curve.type}</td>
-                    <td class="temp-ink">{curve.input}</td>
-                    <td class="duty-ink">{curve.drives}</td>
-                    <td class="mono detail">{curve.detail}</td>
-                  </tr>
-                {/each}
-                {#if curves.length === 0}
-                  <tr><td colspan="5" class="muted">No curves in this profile yet.</td></tr>
-                {/if}
-              </tbody>
-            </table>
-          </div>
+          <div class="section-head"><h2 class="section-title">Curves in {activeName}</h2>{#if curves.length > 0}<span class="hint">select a curve to open it in the graph</span>{/if}</div>
+          {#if curves.length === 0}
+            <div class="empty-state">
+              <p class="muted">No curves in this profile yet. Fans stay under hardware control until a curve drives them.</p>
+              <button type="button" class="btn primary" data-testid="config-add-curve" onclick={() => page.set('graph')}>Add a curve in Graph</button>
+            </div>
+          {:else}
+            <div class="table-wrap">
+              <table class="curves">
+                <thead>
+                  <tr><th>name</th><th>type</th><th>input</th><th>drives</th><th>detail</th></tr>
+                </thead>
+                <tbody>
+                  {#each curves as curve (curve.id)}
+                    <tr onclick={() => openInGraph({ nodeId: curve.nodeId })}>
+                      <td class="strong">
+                        <button type="button" class="open-curve" aria-label="Open curve {curve.id} in graph" onclick={(event) => { event.stopPropagation(); openInGraph({ nodeId: curve.nodeId }); }}>{curve.id}<span aria-hidden="true"> ›</span></button>
+                      </td>
+                      <td class="muted">{curve.type}</td>
+                      <td class="temp-ink">{curve.input}</td>
+                      <td class="duty-ink">{curve.drives}</td>
+                      <td class="mono detail">{curve.detail}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+            <ul class="curve-cards">
+              {#each curves as curve (curve.id)}
+                <li class="curve-card">
+                  <div class="card-top">
+                    <button type="button" class="open-curve strong" aria-label="Open curve {curve.id} in graph" onclick={() => openInGraph({ nodeId: curve.nodeId })}>{curve.id}<span aria-hidden="true"> ›</span></button>
+                    <span class="muted type">{curve.type}</span>
+                  </div>
+                  <div class="chain">
+                    <span class="temp-ink">{curve.input}</span>
+                    <span class="muted">→ {curve.type} →</span>
+                    <span class="duty-ink">{curve.drives}</span>
+                  </div>
+                  {#if curve.detail}
+                    <details>
+                      <summary>Details</summary>
+                      <span class="mono detail">{curve.detail}</span>
+                    </details>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
         </section>
       </div>
 
       <section class="card block toml">
-        <div class="section-head"><h2 class="section-title">config.toml</h2><span class="hint mono">as the daemon holds it</span></div>
+        <div class="section-head">
+          <h2 class="section-title">config.toml</h2>
+          <span class="head-actions">
+            <span class="hint mono">as the daemon holds it</span>
+            <button type="button" class="btn expand" data-testid="config-expand" bind:this={expandButton} onclick={() => (expanded = true)}>Expand</button>
+            <button type="button" class="btn copy" onclick={copyToml}>{copied ? 'Copied' : 'Copy'}</button>
+            <span class="sr-only" role="status">{copied ? 'Copied to clipboard' : ''}</span>
+          </span>
+        </div>
         <pre class="mono">{toml}</pre>
       </section>
     </div>
   {/if}
 </main>
+
+{#if expanded}
+  <div class="scrim" role="presentation">
+    <div class="overlay card" role="dialog" aria-modal="true" aria-labelledby="toml-overlay-title" tabindex="-1" bind:this={overlay} onkeydown={overlayKeydown}>
+      <div class="section-head">
+        <h2 class="section-title" id="toml-overlay-title">config.toml</h2>
+        <span class="head-actions">
+          <button type="button" class="btn copy" onclick={copyToml}>{copied ? 'Copied' : 'Copy'}</button>
+          <button type="button" class="btn" data-testid="config-expand-close" bind:this={closeButton} onclick={closeExpanded}>Close</button>
+        </span>
+      </div>
+      <pre class="mono">{toml}</pre>
+    </div>
+  </div>
+{/if}
 
 <style>
   .layout,
@@ -219,8 +311,142 @@
 
     .toml {
       position: sticky;
-      top: 0;
+      top: 1rem;
     }
+
+    .toml pre {
+      max-height: calc(100dvh - 14.5rem);
+      overflow: auto;
+    }
+  }
+
+  .head-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .copy {
+    min-width: 4.5rem;
+  }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    background: rgb(0 0 0 / 0.55);
+  }
+
+  .overlay {
+    width: min(92vw, 72rem);
+    height: 90dvh;
+    padding: 1.125rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    min-height: 0;
+  }
+
+  .overlay pre {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 0.8125rem;
+  }
+
+  .open-curve {
+    padding: 0.25rem 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .open-curve:hover {
+    text-decoration: underline;
+  }
+
+  .curve-cards {
+    display: none;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .curve-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface2);
+    font-size: 0.8125rem;
+  }
+
+  .card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .card-top .open-curve {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .type {
+    font-size: 0.75rem;
+  }
+
+  .chain {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    overflow-wrap: anywhere;
+  }
+
+  .curve-card summary {
+    color: var(--muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0.25rem 0;
+  }
+
+  .curve-card .detail {
+    display: block;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .two-up {
@@ -306,7 +532,7 @@
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .table-wrap {
@@ -370,12 +596,24 @@
   }
 
   @media (max-width: 720px) {
+    .expand {
+      display: none;
+    }
+
     .two-up {
       grid-template-columns: 1fr;
     }
 
     .meta {
       display: none;
+    }
+
+    .table-wrap {
+      display: none;
+    }
+
+    .curve-cards {
+      display: flex;
     }
   }
 </style>

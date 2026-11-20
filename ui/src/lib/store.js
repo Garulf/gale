@@ -3,7 +3,9 @@ import { getStatus } from './api.js';
 import { apiKey } from './auth.js';
 
 export const snapshot = writable(null);
+export const snapshotAt = writable(null);
 export const connected = writable(false);
+export const connectionLost = writable(false);
 
 const MAX_BACKOFF_MS = 10000;
 
@@ -25,11 +27,14 @@ export function connect() {
     socket.onopen = () => {
       backoff = 1000;
       connected.set(true);
+      connectionLost.set(false);
     };
 
     socket.onmessage = (event) => {
       try {
-        snapshot.set(JSON.parse(event.data));
+        const parsed = JSON.parse(event.data);
+        snapshotAt.set(Date.now());
+        snapshot.set(parsed);
       } catch (error) {
         connected.set(true);
       }
@@ -40,6 +45,7 @@ export function connect() {
       if (closedByUs) {
         return;
       }
+      connectionLost.set(true);
       getStatus().catch(() => {});
       setTimeout(open, backoff);
       backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);

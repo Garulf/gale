@@ -1,6 +1,7 @@
 <script>
   import { useSvelteFlow } from '@xyflow/svelte';
-  import { PALETTE, paletteEntryId } from '../palette.js';
+  import AddNodeMenu from './AddNodeMenu.svelte';
+  import { fitOptions } from '../viewport.js';
 
   let {
     showEdgeLabels,
@@ -16,53 +17,20 @@
     onToggleLabels,
     onAddNode,
     scopeName = '',
-    scope = '',
     onExitScope,
     canGroup = false,
     onGroup,
   } = $props();
 
-  let addMenuOpen = $state(false);
-
-  const { fitView, screenToFlowPosition } = useSvelteFlow();
-
-  function centerPosition() {
-    return screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  }
-
-  function add(entry) {
-    onAddNode(entry, centerPosition());
-    addMenuOpen = false;
-  }
-
-  let lastScope = '';
-
-  $effect(() => {
-    if (scope === lastScope) return;
-    lastScope = scope;
-    const timer = setTimeout(() => fitView(), 0);
-    return () => clearTimeout(timer);
-  });
+  const { fitView } = useSvelteFlow();
 </script>
 
 <div class="gale-toolbar">
   <div>
-    <div class="add-node-menu">
-      <button type="button" onclick={() => (addMenuOpen = !addMenuOpen)}>+ Node</button>
-      {#if addMenuOpen}
-        <div class="add-node-options">
-          {#each PALETTE as group (group.label)}
-            <span class="palette-group">{group.label}</span>
-            {#each group.entries as entry (paletteEntryId(entry))}
-              <button type="button" data-testid="add-node-{paletteEntryId(entry)}" onclick={() => add(entry)}><strong>{entry.label}</strong><small>{entry.hint}</small></button>
-            {/each}
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <AddNodeMenu {onAddNode} />
     <div class="group">
       <button type="button" onclick={onAutoLayout}>Auto layout</button>
-      <button type="button" onclick={() => fitView()}>Fit view</button>
+      <button type="button" onclick={() => fitView(fitOptions(false))}>Fit view</button>
       <button type="button" disabled={!canUndo} onclick={onUndo}>Undo</button>
       <button type="button" disabled={!canRedo} onclick={onRedo}>Redo</button>
       <button type="button" onclick={onToggleLabels}>Labels {showEdgeLabels ? 'on' : 'off'}</button>

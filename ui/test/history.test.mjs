@@ -20,3 +20,11 @@ test('history ignores null readings and reports the delta over the window', () =
   assert.equal(history.delta('a'), 0);
   assert.equal(history.delta('b'), 2.5);
 });
+
+test('history samples expose timestamps alongside values', () => {
+  const history = createHistory(1000, 100);
+  history.record({ a: 1 }, 0);
+  history.record({ a: 2 }, 100);
+  assert.deepEqual(history.samples('a'), [{ t: 0, v: 1 }, { t: 100, v: 2 }]);
+  assert.deepEqual(history.samples('none'), []);
+});

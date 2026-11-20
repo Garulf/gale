@@ -1445,6 +1445,7 @@ async function main() {
         });
         await step("open menu for delete", openSidebarMenu);
         await step("delete smoke_profile", async () => {
+          await page.click('.sidebar [data-testid="profile-manage"]');
           await page.click(
             '.sidebar [data-testid="profile-delete-smoke_profile"]',
           );

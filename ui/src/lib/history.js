@@ -24,11 +24,15 @@ export function createHistory(windowMs = HISTORY_WINDOW_MS, stepMs = HISTORY_STE
     return (series.get(id) || []).map((sample) => sample.v);
   }
 
+  function samples(id) {
+    return (series.get(id) || []).map((sample) => ({ t: sample.t, v: sample.v }));
+  }
+
   function delta(id) {
     const entry = series.get(id);
     if (!entry || entry.length < 2) return 0;
     return entry[entry.length - 1].v - entry[0].v;
   }
 
-  return { record, get, delta };
+  return { record, get, samples, delta };
 }

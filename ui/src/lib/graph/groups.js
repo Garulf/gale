@@ -144,6 +144,11 @@ function displayName(node) {
   return node.data[node.type].id;
 }
 
+export function nodeDisplayName(node) {
+  if (node && node.type === 'group') return node.data.group.name;
+  return displayName(node);
+}
+
 function handleLabel(node, handle) {
   if (!node) return handle;
   const rows = node.type === 'deviceSensor' ? node.data.deviceSensor.rows : node.type === 'deviceControl' ? node.data.deviceControl.rows : null;
@@ -214,17 +219,24 @@ function boundaryEdgeFor(edges, members, direction, node, handle) {
   );
 }
 
-function portEntry(byId, nodes, direction, node, handle, name, wired, implied, outside) {
+function portEntry(byId, nodes, direction, node, handle, name, implied, matched) {
+  const destinations = matched.map((edge) => outsideOf(edge, direction));
   return {
     node,
     handle,
     name: name || null,
     label: name || endpointLabel(byId, node, handle),
     kind: portKind(nodes, node, handle, direction),
-    wired,
+    wired: matched.length > 0,
     implied,
-    outside,
+    outside: destinations[0] || null,
+    destinations,
   };
+}
+
+function matchesEndpoint(edge, direction, node, handle) {
+  const endpoint = endpointOf(edge, direction);
+  return endpoint.node === node && endpoint.handle === handle;
 }
 
 function portsFor(group, nodes, edges, direction) {
@@ -240,30 +252,29 @@ function portsFor(group, nodes, edges, direction) {
     const key = groupHandleId(port.node, port.handle);
     if (seen.has(key)) continue;
     seen.add(key);
-    const edge = boundary.find((candidate) => {
-      const endpoint = endpointOf(candidate, direction);
-      return endpoint.node === port.node && endpoint.handle === port.handle;
-    });
-    result.push(
-      portEntry(byId, nodes, direction, port.node, port.handle, port.name, Boolean(edge), false, edge ? outsideOf(edge, direction) : null)
-    );
+    const matched = boundary.filter((edge) => matchesEndpoint(edge, direction, port.node, port.handle));
+    result.push(portEntry(byId, nodes, direction, port.node, port.handle, port.name, false, matched));
   }
 
-  const implied = [];
+  const impliedEdges = new Map();
   for (const edge of boundary) {
     const endpoint = endpointOf(edge, direction);
     const key = groupHandleId(endpoint.node, endpoint.handle);
     if (seen.has(key)) continue;
-    seen.add(key);
-    implied.push(portEntry(byId, nodes, direction, endpoint.node, endpoint.handle, null, true, true, outsideOf(edge, direction)));
+    if (!impliedEdges.has(key)) impliedEdges.set(key, { endpoint, matched: [] });
+    impliedEdges.get(key).matched.push(edge);
   }
+  const implied = [...impliedEdges.values()].map(({ endpoint, matched }) =>
+    portEntry(byId, nodes, direction, endpoint.node, endpoint.handle, null, true, matched)
+  );
   implied.sort((a, b) => (order.get(a.node) - order.get(b.node)) || a.handle.localeCompare(b.handle));
 
   return [...result, ...implied];
 }
 
 // `outside` is the far endpoint of the first boundary edge for that port, so an output wired to
-// several outside targets stays one row and `replace-source` rewrites that first edge.
+// several outside targets stays one row and `replace-source` rewrites that first edge;
+// `destinations` lists every far endpoint in edge order.
 export function effectivePorts(group, nodes, edges) {
   return {
     inputs: portsFor(group, nodes, edges, 'in'),
@@ -535,4 +546,46 @@ export function unprojectConnection(connection, context = null) {
     return context ? unprojectInGroup(connection, context) : null;
   }
   return unprojectAtRoot(connection);
+}
+
+function groupMembers(groups, groupId) {
+  const group = (groups || []).find((candidate) => candidate.id === groupId);
+  return new Set(group ? group.members : []);
+}
+
+export function resolveSource(nodeId, handle, edges) {
+  if (isGroupNodeId(nodeId)) {
+    const inner = parseGroupHandleId(handle);
+    return { node: inner.nodeId, handle: inner.handle };
+  }
+  if (portsNodeDirection(nodeId) === 'in') {
+    const inner = parseGroupHandleId(handle);
+    const edge = (edges || []).find((candidate) => candidate.target === inner.nodeId && candidate.targetHandle === inner.handle);
+    return edge ? { node: edge.source, handle: edge.sourceHandle } : null;
+  }
+  return { node: nodeId, handle };
+}
+
+export function resolveTargets(nodeId, handle, edges, groups) {
+  if (isGroupNodeId(nodeId)) {
+    const inner = parseGroupHandleId(handle);
+    return [{ node: inner.nodeId, handle: inner.handle }];
+  }
+  if (portsNodeDirection(nodeId) === 'out') {
+    const inner = parseGroupHandleId(handle);
+    const members = groupMembers(groups, portsNodeGroupId(nodeId));
+    return (edges || [])
+      .filter((edge) => edge.source === inner.nodeId && edge.sourceHandle === inner.handle && !members.has(edge.target))
+      .map((edge) => ({ node: edge.target, handle: edge.targetHandle }));
+  }
+  return [{ node: nodeId, handle }];
+}
+
+export function destinationSummary(destinations, labelOf, name = null) {
+  const labels = destinations.map((destination) => labelOf(destination.node, destination.handle));
+  if (labels.length === 0) return { text: name || 'spare', title: '' };
+  if (labels.length === 1) return { text: name ? `${name} · ${labels[0]}` : labels[0], title: labels[0] };
+  const allFans = destinations.every((destination) => nodeTypeOf([], destination.node) === 'deviceControl');
+  const count = `${labels.length} ${allFans ? 'fans' : 'targets'}`;
+  return { text: name ? `${name} · ${count}` : count, title: labels.join(', ') };
 }

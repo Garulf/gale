@@ -1,11 +1,11 @@
 <script>
   import { onMount, onDestroy, setContext, tick, untrack } from 'svelte';
-  import { SvelteFlow, Background } from '@xyflow/svelte';
+  import { SvelteFlow, SvelteFlowProvider, Background } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import '../lib/graph/styles.css';
   import { getConfig, putConfig, getInventory, putLabel, deleteLabel } from '../lib/api.js';
   import { snapshot } from '../lib/store.js';
-  import { warnings, refreshWarnings } from '../lib/warnings.js';
+  import { warnings, refreshWarnings, describeWarning } from '../lib/warnings.js';
   import { refreshConfig } from '../lib/config.js';
   import { page, graphFocus } from '../lib/page.js';
   import { configToGraph, graphToConfig, edgeInto, replaceEdge, withWiredRows } from '../lib/graph/model.js';
@@ -32,7 +32,14 @@
     isDeclarationEdgeId,
     parseDeclarationEdgeId,
     endpointDisplayLabel,
+    resolveSource,
+    resolveTargets,
+    nodeDisplayName,
   } from '../lib/graph/groups.js';
+  import { fallbackCurveIds, fallbackControlIds } from '../lib/graph/liveValues.js';
+  import { emphasizeEdges, carryEdgeSelection, connectedNodeIds } from '../lib/graph/emphasis.js';
+  import { inertOutside } from '../lib/graph/inert.js';
+  import { MIN_ZOOM, NARROW_QUERY, COARSE_POINTER_QUERY } from '../lib/graph/viewport.js';
   import { nodeKind, nodeName, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
   import { defaultCurve } from '../lib/graph/defaults.js';
@@ -54,6 +61,10 @@
   import GraphToolbar from '../lib/graph/components/GraphToolbar.svelte';
   import ZoomControls from '../lib/graph/components/ZoomControls.svelte';
   import ChainView from '../lib/graph/components/ChainView.svelte';
+  import CanvasFit from '../lib/graph/components/CanvasFit.svelte';
+  import SelectionReveal from '../lib/graph/components/SelectionReveal.svelte';
+  import NarrowGraphHeader from '../lib/graph/components/NarrowGraphHeader.svelte';
+  import TapConnect from '../lib/graph/components/TapConnect.svelte';
 
   let config = $state.raw(null);
   let inventory = $state.raw(null);
@@ -78,6 +89,7 @@
   const PANEL_WIDTH_KEY = 'gale.graph.panelWidth';
   const PANEL_MIN = 260;
   const PANEL_MAX = 1080;
+  const PANEL_STEP = 16;
   let storedPanelWidth = readStoredPanelWidth();
   let panelWidth = $state(storedPanelWidth ?? defaultPanelWidth());
   let resizing = $state(false);
@@ -111,28 +123,46 @@
     };
     const stop = () => {
       resizing = false;
-      storedPanelWidth = panelWidth;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
-      try {
-        localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth));
-      } catch (err) {
-        return;
-      }
+      persistPanelWidth();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+  }
+
+  function persistPanelWidth() {
+    storedPanelWidth = panelWidth;
+    try {
+      localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth));
+    } catch (err) {
+      return;
+    }
+  }
+
+  function onResizeKey(event) {
+    const step = event.shiftKey ? PANEL_STEP * 4 : PANEL_STEP;
+    const targets = { ArrowLeft: panelWidth + step, ArrowRight: panelWidth - step, Home: PANEL_MIN, End: PANEL_MAX };
+    if (!(event.key in targets)) return;
+    event.preventDefault();
+    panelWidth = clampPanelWidth(targets[event.key]);
+    persistPanelWidth();
   }
 
   function onViewportResize() {
     panelWidth = clampPanelWidth(storedPanelWidth ?? defaultPanelWidth());
   }
   let sheetOpen = $state(false);
-  const mobileQuery = window.matchMedia('(max-width: 720px)');
+  const mobileQuery = window.matchMedia(NARROW_QUERY);
   let isMobile = $state(mobileQuery.matches);
   const onMobileChange = (event) => (isMobile = event.matches);
   mobileQuery.addEventListener('change', onMobileChange);
   onDestroy(() => mobileQuery.removeEventListener('change', onMobileChange));
+  const coarseQuery = window.matchMedia(COARSE_POINTER_QUERY);
+  let coarsePointer = $state(coarseQuery.matches);
+  const onPointerChange = (event) => (coarsePointer = event.matches);
+  coarseQuery.addEventListener('change', onPointerChange);
+  onDestroy(() => coarseQuery.removeEventListener('change', onPointerChange));
   const nodeTypes = {
     deviceSensor: DeviceSensorNode,
     deviceControl: DeviceControlNode,
@@ -161,8 +191,9 @@
       return;
     }
     const view = projectScope(nodes, edges, groups, scope);
+    const flowEdges = emphasizeEdges(toFlowEdges(view.edges, showEdgeLabels), selectedNodeId);
     viewNodes = untrack(() => carryCanvasState(viewNodes, view.nodes.map(dockable)));
-    viewEdges = toFlowEdges(view.edges, showEdgeLabels);
+    viewEdges = untrack(() => carryEdgeSelection(viewEdges, flowEdges));
   });
 
   function dockable(node) {
@@ -212,6 +243,14 @@
     return row ? row.kind : undefined;
   }
   setContext('galeSensorKind', sensorKindOf);
+  setContext('galeResolveSource', (nodeId, handle) => resolveSource(nodeId, handle, edges));
+  setContext('galeResolveTargets', (nodeId, handle) => resolveTargets(nodeId, handle, edges, groups));
+
+  let savedProfile = $derived(config && config.profiles ? config.profiles[editingProfile] || null : null);
+  let fallbackCurves = $derived(fallbackCurveIds($snapshot, editingProfile, savedProfile));
+  let fallbackControls = $derived(fallbackControlIds(fallbackCurves, savedProfile));
+  setContext('galeCurveFallback', (curveId) => fallbackCurves.has(curveId));
+  setContext('galeControlFallback', (handle) => fallbackControls.has(handle));
 
   let previousPage = 'graph';
   const unsubscribePage = page.subscribe((value) => {
@@ -305,24 +344,40 @@
     }
   }
 
+  function hasNode(id) {
+    return Boolean(id) && nodes.some((node) => node.id === id);
+  }
+
+  function focusTarget(focus) {
+    if (hasNode(focus.nodeId)) return focus.nodeId;
+    if (!focus.warning) return '';
+    const described = describeWarning(focus.warning, { profile: savedProfile });
+    if (hasNode(described.nodeId)) return described.nodeId;
+    return attributeWarning(focus.warning, nodes, edges)[0] || '';
+  }
+
   function applyFocus() {
     const focus = $graphFocus;
     if (!focus) return;
     graphFocus.set(null);
-    let target = focus.nodeId || '';
-    if (!target && focus.warning) {
-      target = attributeWarning(focus.warning, nodes, edges)[0] || '';
-    }
-    if (target && nodes.some((node) => node.id === target)) {
+    const target = focusTarget(focus);
+    if (hasNode(target)) {
       const owner = groupOf(groups, target);
       if (owner !== scope) scope = owner;
       selectNode(target);
     }
   }
 
+  let revealRequest = $state(0);
+
+  function requestReveal() {
+    untrack(() => (revealRequest += 1));
+  }
+
   function selectNode(id) {
     selectedNodeId = id;
     sheetOpen = true;
+    requestReveal();
     nodes = nodes.map((node) => (node.selected !== (node.id === id) ? { ...node, selected: node.id === id } : node));
   }
 
@@ -479,6 +534,14 @@
     future = [];
   }
 
+  function canConnect(canvasConnection) {
+    const flat = unprojectConnection(canvasConnection, connectionContext());
+    if (flat === null) return false;
+    if (flat.kind === 'declare' || flat.kind === 'retarget') return true;
+    const candidate = flat.kind === 'replace-source' ? replacedSourceConnection(flat) : flat;
+    return candidate !== null && isValidConnection(candidate, nodes, edges);
+  }
+
   function onBeforeConnect(canvasConnection) {
     const connection = unprojectConnection(canvasConnection, connectionContext());
     if (!connection) return false;
@@ -570,6 +633,7 @@
   function onPaneClick() {
     clearFlatSelection();
     selectedNodeId = '';
+    inspectorPinned = false;
   }
 
   function updateNodeData(id, updater, shouldSnapshot = true) {
@@ -873,10 +937,6 @@
     });
   }
 
-  function addCurveNode(position = fallbackPosition()) {
-    addPaletteNode({ kind: 'curve', type: 'point' }, position);
-  }
-
 
   async function save() {
     saving = true;
@@ -911,6 +971,69 @@
 
   let selectedNode = $derived(viewNodes.find((node) => node.id === selectedNodeId) || nodes.find((node) => node.id === selectedNodeId) || null);
   let hiddenNodes = $derived(nodes.filter((node) => node.hidden === true));
+  let inspectorPinned = $state(false);
+  let inspectorOpen = $derived(
+    Boolean(selectedNode) || inspectorPinned || Boolean(error) || Boolean(profileChangedTo) || saveWarnings.length > 0
+  );
+  let canvasActive = $derived(!isMobile || mobileView === 'canvas');
+  let revealIds = $derived(connectedNodeIds(viewEdges, selectedNodeId));
+
+  let inspectorWasOpen = false;
+  $effect(() => {
+    const open = inspectorOpen;
+    if (open && !inspectorWasOpen && selectedNodeId) requestReveal();
+    inspectorWasOpen = open;
+  });
+
+  let railButton = $state(null);
+  let collapseButton = $state(null);
+
+  async function openInspector() {
+    inspectorPinned = true;
+    await tick();
+    if (collapseButton) collapseButton.focus();
+  }
+
+  async function collapseInspector() {
+    inspectorPinned = false;
+    await tick();
+    if (railButton) railButton.focus();
+  }
+
+  let sheetVisible = $derived(isMobile && sheetOpen && Boolean(selectedNode));
+  let sheetLayer = $state(null);
+  let sheetHeading = $state(null);
+  let graphHeading = $state(null);
+  let pageSection = $state(null);
+
+  function isFocusable(element) {
+    return element instanceof HTMLElement && element.isConnected && element !== document.body && element.getClientRects().length > 0;
+  }
+
+  function sheetReturnTarget(opener) {
+    if (isFocusable(opener)) return opener;
+    if (isFocusable(graphHeading)) return graphHeading;
+    return pageSection ? pageSection.querySelector('.view-switch [aria-pressed="true"]') : null;
+  }
+
+  $effect(() => {
+    if (!sheetVisible || !sheetLayer || !sheetHeading) return;
+    const opener = document.activeElement;
+    const releaseInert = inertOutside(sheetLayer);
+    sheetHeading.focus();
+    return () => {
+      releaseInert();
+      const target = sheetReturnTarget(opener);
+      if (target) target.focus();
+    };
+  });
+
+  function onSheetKey(event) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    sheetOpen = false;
+  }
   let visibleNodes = $derived(nodes.filter((node) => node.hidden !== true));
 
   $effect(() => {
@@ -923,20 +1046,43 @@
 
 <svelte:window onkeydown={onClipboardKey} onresize={onViewportResize} />
 
-<section class="gale-graph-page" data-mobile-view={mobileView} style="--gale-panel-width: {panelWidth}px">
+<SvelteFlowProvider>
+<section
+  class="gale-graph-page"
+  class:inspector-collapsed={!inspectorOpen}
+  data-mobile-view={mobileView}
+  style="--gale-panel-width: {inspectorOpen ? `${panelWidth}px` : 'var(--gale-rail-width)'}"
+  bind:this={pageSection}
+>
+  {#if isMobile}
+    <NarrowGraphHeader
+      view={mobileView}
+      onViewChange={(view) => (mobileView = view)}
+      {showEdgeLabels}
+      canUndo={history.length > 0}
+      canRedo={future.length > 0}
+      {saving}
+      {dirty}
+      onAutoLayout={runAutoLayout}
+      onUndo={undo}
+      onRedo={redo}
+      onSave={save}
+      onDiscard={discard}
+      onToggleLabels={toggleEdgeLabels}
+      onAddNode={addPaletteNode}
+      {scopeName}
+      onExitScope={exitScope}
+      {canGroup}
+      onGroup={groupSelection}
+    />
+  {/if}
   <div class="gale-canvas" class:mobile-hidden={mobileView === 'chains'}>
     <SvelteFlow
       bind:nodes={viewNodes}
       bind:edges={viewEdges}
       {nodeTypes}
       {edgeTypes}
-      isValidConnection={(connection) => {
-        const flat = unprojectConnection(connection, connectionContext());
-        if (flat === null) return false;
-        if (flat.kind === 'declare' || flat.kind === 'retarget') return true;
-        const candidate = flat.kind === 'replace-source' ? replacedSourceConnection(flat) : flat;
-        return candidate !== null && isValidConnection(candidate, nodes, edges);
-      }}
+      isValidConnection={canConnect}
       onbeforeconnect={onBeforeConnect}
       onnodedragstart={onNodeDragStart}
       onnodedragstop={onNodeDragStop}
@@ -944,29 +1090,35 @@
       onnodeclick={onNodeClick}
       onpaneclick={onPaneClick}
       proOptions={{ hideAttribution: true }}
-      fitView
+      minZoom={MIN_ZOOM}
     >
       <Background gap={20} size={1} />
-      <GraphToolbar
-        {showEdgeLabels}
-        canUndo={history.length > 0}
-        canRedo={future.length > 0}
-        {saving}
-        {dirty}
-        onAutoLayout={runAutoLayout}
-        onUndo={undo}
-        onRedo={redo}
-        onSave={save}
-        onDiscard={discard}
-        onToggleLabels={toggleEdgeLabels}
-        onAddNode={addPaletteNode}
-        {scopeName}
-        scope={scope || ''}
-        onExitScope={exitScope}
-        {canGroup}
-        onGroup={groupSelection}
-      />
+      <CanvasFit active={canvasActive} narrow={isMobile} fitKey={`${editingProfile}|${scope || ''}`} />
+      <SelectionReveal request={revealRequest} nodeIds={revealIds} active={!isMobile} />
+      {#if !isMobile}
+        <GraphToolbar
+          {showEdgeLabels}
+          canUndo={history.length > 0}
+          canRedo={future.length > 0}
+          {saving}
+          {dirty}
+          onAutoLayout={runAutoLayout}
+          onUndo={undo}
+          onRedo={redo}
+          onSave={save}
+          onDiscard={discard}
+          onToggleLabels={toggleEdgeLabels}
+          onAddNode={addPaletteNode}
+          {scopeName}
+          onExitScope={exitScope}
+          {canGroup}
+          onGroup={groupSelection}
+        />
+      {/if}
       <ZoomControls />
+      {#if coarsePointer}
+        <TapConnect {canConnect} onConnect={onBeforeConnect} resetKey={`${scope || ''}|${editingProfile}|${canvasActive}`} />
+      {/if}
     </SvelteFlow>
 
     <div class="gale-legend">
@@ -991,12 +1143,11 @@
     <div class="chains-head">
       <div class="page-title">
         <span class="eyebrow">Profile · {editingProfile}</span>
-        <h1>Graph</h1>
+        <h1 tabindex="-1" bind:this={graphHeading}>Graph</h1>
       </div>
-      <div class="chains-actions">
-        <button type="button" class="btn" onclick={() => (mobileView = 'canvas')}>Canvas</button>
-        <button type="button" class="btn primary" onclick={() => addCurveNode()}>+ Node</button>
-      </div>
+      {#if dirty}
+        <span class="unsaved">unsaved changes</span>
+      {/if}
     </div>
     {#if error}
       <p class="error">{error}</p>
@@ -1004,57 +1155,79 @@
     {#if isMobile}
       <ChainView nodes={visibleNodes} {edges} {selectedNodeId} onSelect={selectNode} />
     {/if}
-    <div class="chains-foot">
-      <button type="button" class="btn" disabled={!dirty || saving} onclick={discard}>Discard</button>
-      <button type="button" class="btn" class:primary={dirty} disabled={saving} onclick={save}>Save profile</button>
-    </div>
   </div>
 
-  <aside class="gale-panel" class:resizing>
-    <div class="resize-handle" class:active={resizing} role="separator" aria-orientation="vertical" aria-label="Resize panel" data-testid="panel-resize" onpointerdown={startPanelResize}></div>
-    {#if profileChangedTo}
-      <p class="notice">Active profile is now "{profileChangedTo}". You have unsaved edits here. <button type="button" class="btn" data-testid="graph-reload-profile" onclick={reloadForActiveProfile}>Discard and switch</button></p>
-    {/if}
-    {#if error}
-      <p class="error">{error}</p>
-    {/if}
-    <NodePanel
-      node={selectedNode}
-      {nodes}
-      {edges}
-      {savedAt}
-      onUpdateData={updateNodeData}
-      onDeleteNode={deleteNode}
-      onRenameNode={renameGraphNode}
-      onRetypeNode={retypeNode}
-      onApplyPreset={applyCurvePreset}
-      onDuplicateNode={duplicateGraphNode}
-      onRenameRow={renameDeviceRow}
-      onToggleRow={toggleRowHidden}
-      onToggleCompact={toggleCompact}
-      onHideNode={hideNode}
-      {groups}
-      onRenameGroup={renameGroup}
-      onUngroup={ungroupById}
-      onEnterGroup={enterGroup}
-      onSetMembership={setNodeGroup}
-      onSelectNode={selectNode}
-      onRenamePort={renameGroupPort}
-      onRemovePort={removeGroupPort}
-    />
-    {#if saveWarnings.length > 0}
-      <ul class="save-warnings">
-        {#each saveWarnings as warning}
-          <li>{warning}</li>
-        {/each}
-      </ul>
+  <aside class="gale-panel" class:resizing class:collapsed={!inspectorOpen}>
+    {#if !inspectorOpen}
+      <button type="button" class="inspector-rail" aria-label="Open inspector" title="Open inspector" data-testid="inspector-rail" bind:this={railButton} onclick={openInspector}>
+        <span aria-hidden="true">⌖</span>
+      </button>
+    {:else}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <div
+        class="resize-handle"
+        class:active={resizing}
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        aria-valuemin={PANEL_MIN}
+        aria-valuemax={PANEL_MAX}
+        aria-valuenow={panelWidth}
+        data-testid="panel-resize"
+        onpointerdown={startPanelResize}
+        onkeydown={onResizeKey}
+      ></div>
+      {#if inspectorPinned && !selectedNode}
+        <button type="button" class="inspector-collapse" aria-label="Collapse inspector" title="Collapse inspector" bind:this={collapseButton} onclick={collapseInspector}>×</button>
+      {/if}
+      {#if profileChangedTo}
+        <p class="notice">Active profile is now "{profileChangedTo}". You have unsaved edits here. <button type="button" class="btn" data-testid="graph-reload-profile" onclick={reloadForActiveProfile}>Discard and switch</button></p>
+      {/if}
+      {#if error}
+        <p class="error">{error}</p>
+      {/if}
+      <NodePanel
+        node={selectedNode}
+        {nodes}
+        {edges}
+        {savedAt}
+        onUpdateData={updateNodeData}
+        onDeleteNode={deleteNode}
+        onRenameNode={renameGraphNode}
+        onRetypeNode={retypeNode}
+        onApplyPreset={applyCurvePreset}
+        onDuplicateNode={duplicateGraphNode}
+        onRenameRow={renameDeviceRow}
+        onToggleRow={toggleRowHidden}
+        onToggleCompact={toggleCompact}
+        onHideNode={hideNode}
+        {groups}
+        onRenameGroup={renameGroup}
+        onUngroup={ungroupById}
+        onEnterGroup={enterGroup}
+        onSetMembership={setNodeGroup}
+        onSelectNode={selectNode}
+        onRenamePort={renameGroupPort}
+        onRemovePort={removeGroupPort}
+        expandCurve
+      />
+      {#if saveWarnings.length > 0}
+        <ul class="save-warnings">
+          {#each saveWarnings as warning}
+            <li>{warning}</li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   </aside>
 
-  {#if isMobile && sheetOpen && selectedNode}
+  {#if sheetVisible}
+    <div class="sheet-layer" bind:this={sheetLayer}>
     <div class="sheet-scrim" role="presentation" onclick={() => (sheetOpen = false)}></div>
-    <div class="sheet" role="dialog" aria-label="Edit node">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gale-sheet-title" tabindex="-1" onkeydown={onSheetKey}>
       <div class="grip"><span></span></div>
+      <h2 class="sheet-title" id="gale-sheet-title" tabindex="-1" bind:this={sheetHeading}>Edit {nodeDisplayName(selectedNode)}</h2>
       <div class="sheet-body">
         <NodePanel
           node={selectedNode}
@@ -1087,12 +1260,11 @@
         <button type="button" class="btn primary" disabled={saving} onclick={() => { sheetOpen = false; save(); }}>Apply to profile</button>
       </div>
     </div>
+    </div>
   {/if}
 
-  {#if mobileView === 'canvas'}
-    <button type="button" class="btn gale-view-toggle" onclick={() => (mobileView = 'chains')}>Chains</button>
-  {/if}
 </section>
+</SvelteFlowProvider>
 
 <style>
   .save-warnings {
@@ -1141,35 +1313,11 @@
       font-size: 1.25rem;
     }
 
-    .chains-actions {
+    .chains-head .unsaved {
       margin-left: auto;
-      display: flex;
-      gap: 0.375rem;
-    }
-
-    .chains-actions .btn {
-      height: 2.25rem;
-      padding: 0 0.75rem;
-    }
-
-    .chains-foot {
-      display: flex;
-      gap: 0.375rem;
-    }
-
-    .chains-foot .btn {
-      flex: 1;
-      height: 2.75rem;
-      font-size: 0.8125rem;
-    }
-
-    .gale-view-toggle {
-      display: block;
-      position: absolute;
-      top: 3.625rem;
-      left: 0.625rem;
-      z-index: 6;
-      background: var(--surface);
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      color: var(--warn);
     }
 
     .sheet-scrim {
@@ -1200,6 +1348,18 @@
       display: flex;
       justify-content: center;
       padding: 0.5rem 0 0;
+    }
+
+    .sheet-title {
+      margin: 0;
+      padding: 0.375rem 1rem 0;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .grip span {
