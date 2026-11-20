@@ -82,7 +82,6 @@
 
   .raw {
     font-size: 0.75rem;
-    opacity: 0.85;
   }
 
   .text a {

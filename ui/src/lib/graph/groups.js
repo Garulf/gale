@@ -144,6 +144,11 @@ function displayName(node) {
   return node.data[node.type].id;
 }
 
+export function nodeDisplayName(node) {
+  if (node && node.type === 'group') return node.data.group.name;
+  return displayName(node);
+}
+
 function handleLabel(node, handle) {
   if (!node) return handle;
   const rows = node.type === 'deviceSensor' ? node.data.deviceSensor.rows : node.type === 'deviceControl' ? node.data.deviceControl.rows : null;

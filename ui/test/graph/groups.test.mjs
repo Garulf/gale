@@ -493,3 +493,11 @@ test('renamePort and retargetPort return the same array when they change nothing
     'retargeting onto an already declared endpoint changes nothing'
   );
 });
+
+import { nodeDisplayName } from '../../src/lib/graph/groups.js';
+
+test('nodeDisplayName names groups by their label and other nodes like endpoint labels do', () => {
+  assert.equal(nodeDisplayName({ type: 'group', data: { group: { id: 'g1', name: 'Case' } } }), 'Case');
+  assert.equal(nodeDisplayName({ type: 'curve', data: { curve: { id: 'exhaust_bias' } } }), 'exhaust_bias');
+  assert.equal(nodeDisplayName({ type: 'virtual', data: { virtual: { name: 'probe' } } }), 'probe');
+});

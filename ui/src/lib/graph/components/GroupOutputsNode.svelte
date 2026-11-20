@@ -3,7 +3,7 @@
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { NEW_PORT_HANDLE, destinationSummary, parseGroupHandleId } from '../groups.js';
-  import { tempValue, curveOutput, sensorDisplay, portState } from '../liveValues.js';
+  import { tempValue, curveOutput, sensorDisplay, portState, portReading } from '../liveValues.js';
   import { nodeName } from '../ids.js';
 
   let { id, data } = $props();
@@ -12,6 +12,18 @@
   const curveFallback = getContext('galeCurveFallback');
 
   let rows = $derived(data.ports.rows);
+  let expanded = $state(new Set());
+
+  function toggleEnds(handle) {
+    const next = new Set(expanded);
+    if (next.has(handle)) next.delete(handle);
+    else next.add(handle);
+    expanded = next;
+  }
+
+  function endsId(handle) {
+    return `${id}-ends-${handle}`.replace(/[^A-Za-z0-9_-]/g, '_');
+  }
 
   function labelOf(nodeId, handle) {
     return endpointLabel ? endpointLabel(nodeId, handle) : `${nodeId} · ${handle}`;
@@ -47,17 +59,36 @@
     {#each rows as row (row.handle)}
       {@const value = rowValue(row)}
       {@const state = portState(row.wired, value)}
-      {@const reading = rowReading(row, value)}
+      {@const reading = portReading(state, rowReading(row, value))}
       {@const described = summary(row)}
       {@const fallback = isFallback(row)}
-      <div class="row in {state}" class:fallback title={described.title || (state === 'spare' ? 'Spare output, nothing outside reads it' : undefined)}>
+      {@const ends = row.destinations || []}
+      {@const open = expanded.has(row.handle)}
+      <div class="row in {state}" class:fallback class:has-ends={ends.length > 1} title={described.title || (state === 'spare' ? 'Spare output, nothing outside reads it' : undefined)}>
         <Handle type="target" position={Position.Left} id={row.handle} class="port in {row.kind}{row.wired ? '' : ' hollow'}" />
-        <span class:unwired={!row.wired}>{described.text}</span>
+        {#if ends.length > 1}
+          <button
+            type="button"
+            class="ends-toggle nodrag nopan"
+            aria-expanded={open}
+            aria-controls={endsId(row.handle)}
+            onclick={() => toggleEnds(row.handle)}
+          ><span class="caret" aria-hidden="true">{open ? '▾' : '▸'}</span>{described.text}</button>
+        {:else}
+          <span class:unwired={!row.wired}>{described.text}</span>
+        {/if}
         {#if fallback}
           <span class="fallback-tag" title="The curve has no usable input, so its fans run at the fail-safe duty"><span aria-hidden="true">!</span>Fallback</span>
         {/if}
         {#if state !== 'spare'}
           <span class="val {row.kind}">{reading.text}<span class="unit">{reading.unit}</span></span>
+        {/if}
+        {#if ends.length > 1 && open}
+          <ul class="ends" id={endsId(row.handle)}>
+            {#each ends as end (end.node + '|' + end.handle)}
+              <li>{labelOf(end.node, end.handle)}</li>
+            {/each}
+          </ul>
         {/if}
       </div>
     {/each}

@@ -74,6 +74,6 @@
 {/if}
 {#if label}
   <EdgeLabel x={path[1]} y={path[2]}>
-    <div class="elabel {data.kind}" class:edge-dim={data.emphasis === 'dim'}>{label}</div>
+    <div class="elabel {data.kind}" class:edge-active={data.emphasis === 'active'}>{label}</div>
   </EdgeLabel>
 {/if}

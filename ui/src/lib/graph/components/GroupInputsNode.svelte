@@ -3,7 +3,7 @@
   import { Handle, Position } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { NEW_PORT_HANDLE } from '../groups.js';
-  import { tempValue, curveOutput, sensorDisplay, portState } from '../liveValues.js';
+  import { tempValue, curveOutput, sensorDisplay, portState, portReading } from '../liveValues.js';
   import { nodeName } from '../ids.js';
 
   let { id, data } = $props();
@@ -46,7 +46,7 @@
     {#each rows as row (row.handle)}
       {@const value = rowValue(row)}
       {@const state = portState(row.wired, value)}
-      {@const reading = rowReading(row, value)}
+      {@const reading = portReading(state, rowReading(row, value))}
       <div class="row out {state}" title={rowTitle(state)}>
         <span class:unwired={!row.wired}>{rowLabel(row)}</span>
         {#if state !== 'spare'}

@@ -34,9 +34,11 @@
     endpointDisplayLabel,
     resolveSource,
     resolveTargets,
+    nodeDisplayName,
   } from '../lib/graph/groups.js';
   import { fallbackCurveIds, fallbackControlIds } from '../lib/graph/liveValues.js';
-  import { emphasizeEdges, carryEdgeSelection } from '../lib/graph/emphasis.js';
+  import { emphasizeEdges, carryEdgeSelection, connectedNodeIds } from '../lib/graph/emphasis.js';
+  import { inertOutside } from '../lib/graph/inert.js';
   import { MIN_ZOOM, NARROW_QUERY } from '../lib/graph/viewport.js';
   import { nodeKind, nodeName, edgeId } from '../lib/graph/ids.js';
   import { defaultVirtualSensor } from '../lib/sensors.js';
@@ -60,6 +62,7 @@
   import ZoomControls from '../lib/graph/components/ZoomControls.svelte';
   import ChainView from '../lib/graph/components/ChainView.svelte';
   import CanvasFit from '../lib/graph/components/CanvasFit.svelte';
+  import SelectionReveal from '../lib/graph/components/SelectionReveal.svelte';
   import NarrowGraphHeader from '../lib/graph/components/NarrowGraphHeader.svelte';
 
   let config = $state.raw(null);
@@ -86,7 +89,6 @@
   const PANEL_MIN = 260;
   const PANEL_MAX = 1080;
   const PANEL_STEP = 16;
-  const RAIL_WIDTH = 44;
   let storedPanelWidth = readStoredPanelWidth();
   let panelWidth = $state(storedPanelWidth ?? defaultPanelWidth());
   let resizing = $state(false);
@@ -360,9 +362,16 @@
     }
   }
 
+  let revealRequest = $state(0);
+
+  function requestReveal() {
+    untrack(() => (revealRequest += 1));
+  }
+
   function selectNode(id) {
     selectedNodeId = id;
     sheetOpen = true;
+    requestReveal();
     nodes = nodes.map((node) => (node.selected !== (node.id === id) ? { ...node, selected: node.id === id } : node));
   }
 
@@ -953,6 +962,64 @@
     Boolean(selectedNode) || inspectorPinned || Boolean(error) || Boolean(profileChangedTo) || saveWarnings.length > 0
   );
   let canvasActive = $derived(!isMobile || mobileView === 'canvas');
+  let revealIds = $derived(connectedNodeIds(viewEdges, selectedNodeId));
+
+  let inspectorWasOpen = false;
+  $effect(() => {
+    const open = inspectorOpen;
+    if (open && !inspectorWasOpen && selectedNodeId) requestReveal();
+    inspectorWasOpen = open;
+  });
+
+  let railButton = $state(null);
+  let collapseButton = $state(null);
+
+  async function openInspector() {
+    inspectorPinned = true;
+    await tick();
+    if (collapseButton) collapseButton.focus();
+  }
+
+  async function collapseInspector() {
+    inspectorPinned = false;
+    await tick();
+    if (railButton) railButton.focus();
+  }
+
+  let sheetVisible = $derived(isMobile && sheetOpen && Boolean(selectedNode));
+  let sheetLayer = $state(null);
+  let sheetHeading = $state(null);
+  let graphHeading = $state(null);
+  let pageSection = $state(null);
+
+  function isFocusable(element) {
+    return element instanceof HTMLElement && element.isConnected && element !== document.body && element.getClientRects().length > 0;
+  }
+
+  function sheetReturnTarget(opener) {
+    if (isFocusable(opener)) return opener;
+    if (isFocusable(graphHeading)) return graphHeading;
+    return pageSection ? pageSection.querySelector('.view-switch [aria-pressed="true"]') : null;
+  }
+
+  $effect(() => {
+    if (!sheetVisible || !sheetLayer || !sheetHeading) return;
+    const opener = document.activeElement;
+    const releaseInert = inertOutside(sheetLayer);
+    sheetHeading.focus();
+    return () => {
+      releaseInert();
+      const target = sheetReturnTarget(opener);
+      if (target) target.focus();
+    };
+  });
+
+  function onSheetKey(event) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    sheetOpen = false;
+  }
   let visibleNodes = $derived(nodes.filter((node) => node.hidden !== true));
 
   $effect(() => {
@@ -970,7 +1037,8 @@
   class="gale-graph-page"
   class:inspector-collapsed={!inspectorOpen}
   data-mobile-view={mobileView}
-  style="--gale-panel-width: {inspectorOpen ? panelWidth : RAIL_WIDTH}px"
+  style="--gale-panel-width: {inspectorOpen ? `${panelWidth}px` : 'var(--gale-rail-width)'}"
+  bind:this={pageSection}
 >
   {#if isMobile}
     <NarrowGraphHeader
@@ -1018,6 +1086,7 @@
     >
       <Background gap={20} size={1} />
       <CanvasFit active={canvasActive} narrow={isMobile} fitKey={`${editingProfile}|${scope || ''}`} />
+      <SelectionReveal request={revealRequest} nodeIds={revealIds} active={!isMobile} />
       {#if !isMobile}
         <GraphToolbar
           {showEdgeLabels}
@@ -1063,7 +1132,7 @@
     <div class="chains-head">
       <div class="page-title">
         <span class="eyebrow">Profile · {editingProfile}</span>
-        <h1>Graph</h1>
+        <h1 tabindex="-1" bind:this={graphHeading}>Graph</h1>
       </div>
       {#if dirty}
         <span class="unsaved">unsaved changes</span>
@@ -1079,7 +1148,7 @@
 
   <aside class="gale-panel" class:resizing class:collapsed={!inspectorOpen}>
     {#if !inspectorOpen}
-      <button type="button" class="inspector-rail" aria-label="Open inspector" title="Open inspector" data-testid="inspector-rail" onclick={() => (inspectorPinned = true)}>
+      <button type="button" class="inspector-rail" aria-label="Open inspector" title="Open inspector" data-testid="inspector-rail" bind:this={railButton} onclick={openInspector}>
         <span aria-hidden="true">⌖</span>
       </button>
     {:else}
@@ -1099,7 +1168,7 @@
         onkeydown={onResizeKey}
       ></div>
       {#if inspectorPinned && !selectedNode}
-        <button type="button" class="inspector-collapse" aria-label="Collapse inspector" title="Collapse inspector" onclick={() => (inspectorPinned = false)}>×</button>
+        <button type="button" class="inspector-collapse" aria-label="Collapse inspector" title="Collapse inspector" bind:this={collapseButton} onclick={collapseInspector}>×</button>
       {/if}
       {#if profileChangedTo}
         <p class="notice">Active profile is now "{profileChangedTo}". You have unsaved edits here. <button type="button" class="btn" data-testid="graph-reload-profile" onclick={reloadForActiveProfile}>Discard and switch</button></p>
@@ -1141,10 +1210,12 @@
     {/if}
   </aside>
 
-  {#if isMobile && sheetOpen && selectedNode}
+  {#if sheetVisible}
+    <div class="sheet-layer" bind:this={sheetLayer}>
     <div class="sheet-scrim" role="presentation" onclick={() => (sheetOpen = false)}></div>
-    <div class="sheet" role="dialog" aria-label="Edit node">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gale-sheet-title" tabindex="-1" onkeydown={onSheetKey}>
       <div class="grip"><span></span></div>
+      <h2 class="sheet-title" id="gale-sheet-title" tabindex="-1" bind:this={sheetHeading}>Edit {nodeDisplayName(selectedNode)}</h2>
       <div class="sheet-body">
         <NodePanel
           node={selectedNode}
@@ -1176,6 +1247,7 @@
         <button type="button" class="btn" onclick={() => (sheetOpen = false)}>Done</button>
         <button type="button" class="btn primary" disabled={saving} onclick={() => { sheetOpen = false; save(); }}>Apply to profile</button>
       </div>
+    </div>
     </div>
   {/if}
 
@@ -1264,6 +1336,18 @@
       display: flex;
       justify-content: center;
       padding: 0.5rem 0 0;
+    }
+
+    .sheet-title {
+      margin: 0;
+      padding: 0.375rem 1rem 0;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .grip span {

@@ -11,3 +11,13 @@ export function carryEdgeSelection(previous, next) {
   if (selected.size === 0) return next;
   return next.map((edge) => (selected.has(edge.id) ? { ...edge, selected: true } : edge));
 }
+
+export function connectedNodeIds(edges, nodeId) {
+  if (!nodeId) return [];
+  const ids = new Set([nodeId]);
+  for (const edge of edges) {
+    if (edge.source === nodeId) ids.add(edge.target);
+    if (edge.target === nodeId) ids.add(edge.source);
+  }
+  return [...ids];
+}

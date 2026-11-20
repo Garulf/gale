@@ -19,7 +19,7 @@
 </script>
 
 <div class="add-node-menu">
-  <button type="button" aria-expanded={open} onclick={() => (open = !open)}>+ Node</button>
+  <button type="button" aria-label="Add node" aria-expanded={open} onclick={() => (open = !open)}><span aria-hidden="true">+</span><span class="add-word" aria-hidden="true"> Node</span></button>
   {#if open}
     <div class="add-node-options">
       {#each PALETTE as group (group.label)}

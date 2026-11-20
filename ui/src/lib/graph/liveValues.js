@@ -65,3 +65,9 @@ export function portState(wired, value) {
   if (!wired) return 'spare';
   return value === null || value === undefined ? 'unavailable' : 'connected';
 }
+
+export const NO_READING = 'No reading';
+
+export function portReading(state, reading) {
+  return state === 'unavailable' ? { text: NO_READING, unit: '' } : reading;
+}
