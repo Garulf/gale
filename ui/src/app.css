@@ -6,13 +6,18 @@
   --line: #232830;
   --line2: #2d333d;
   --ink: #e8eaee;
-  --muted: #8b929c;
-  --faint: #5b626c;
+  --muted: #818b99;
+  --faint: #79828f;
   --accent: #f59e0b;
   --accent-ink: #0c0e11;
+  --accent-text: #f59e0b;
+  --focus: #f59e0b;
   --temp: #f59e0b;
   --duty: #22c55e;
+  --temp-stroke: #f59e0b;
+  --duty-stroke: #22c55e;
   --warn: #fbbf24;
+  --warn-ink: #0c0e11;
   --danger: #f87171;
   --canvas: #0a0c0f;
   --grid: #1a1e25;
@@ -47,14 +52,19 @@
   --line: #e3e3df;
   --line2: #d3d3ce;
   --ink: #15181d;
-  --muted: #6b7280;
-  --faint: #a1a7b0;
+  --muted: #606977;
+  --faint: #636b78;
   --accent: #d97706;
-  --accent-ink: #ffffff;
-  --temp: #d97706;
-  --duty: #16a34a;
-  --warn: #b45309;
-  --danger: #dc2626;
+  --accent-ink: #15181d;
+  --accent-text: #9a4b00;
+  --focus: #9a4b00;
+  --temp: #9a4b00;
+  --temp-stroke: #b65a00;
+  --duty: #12743a;
+  --duty-stroke: #12803b;
+  --warn: #994500;
+  --warn-ink: #ffffff;
+  --danger: #b42318;
   --canvas: #ecece9;
   --grid: #dcdcd7;
   --node: #ffffff;
@@ -90,7 +100,7 @@ body {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 a:hover {
@@ -123,6 +133,33 @@ button {
 
 button:disabled {
   cursor: default;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+[tabindex='-1']:focus-visible {
+  outline: none;
+}
+
+.field input:focus-visible,
+.field select:focus-visible {
+  outline: none;
+}
+
+.field:has(input:focus-visible, select:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 button,
@@ -276,7 +313,7 @@ textarea,
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-text);
   border: 1px solid var(--accent);
   border-radius: 999px;
   padding: 2px 0.5rem;
