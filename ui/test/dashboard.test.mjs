@@ -142,6 +142,8 @@ test('timedSparklinePath places samples by age inside the labeled window', () =>
   assert.equal(timedSparklinePath([{ t: 0, v: 1 }], 10, 600000, 120, 36), '');
   const old = [{ t: 0, v: 1 }, { t: 100, v: 1 }];
   assert.equal(timedSparklinePath(old, 1200000, 600000, 120, 36), 'M 0.0 18.0 L 0.0 18.0');
+  assert.equal(timedSparklinePath(samples, 600000, 600000, 120, 36, 5000), 'M 118.0 34.0 L 120.0 2.0');
+  assert.equal(timedSparklinePath([{ t: 0, v: 1 }, { t: 2000, v: 2 }], 2000, 600000, 120, 36, 5000), '');
 });
 
 test('headline tells waiting for a first reading apart from having none and being offline', () => {

@@ -94,8 +94,9 @@ export function unassignedControls(controls, assignments) {
   return (controls || []).filter((control) => !(assignments && assignments[control.id]));
 }
 
-export function timedSparklinePath(samples, now, windowMs, width, height) {
+export function timedSparklinePath(samples, now, windowMs, width, height, minSpanMs = 0) {
   if (!samples || samples.length < 2) return '';
+  if (samples[samples.length - 1].t - samples[0].t < minSpanMs) return '';
   const values = samples.map((sample) => sample.v);
   const min = Math.min(...values);
   const max = Math.max(...values);

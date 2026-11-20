@@ -18,6 +18,7 @@
   const CHART_W = 220;
   const CHART_H = 84;
   const CHART_PAD = 6;
+  const MIN_SPARK_SPAN_MS = 5000;
 
   let inventory = $state(null);
   let editing = $state(false);
@@ -95,7 +96,7 @@
         value,
         text: fmtTemp(value),
         hot: sensor.unit === '°C' && value !== null && value >= 60,
-        spark: timedSparklinePath(timed, now, HISTORY_WINDOW_MS, 120, 36),
+        spark: timedSparklinePath(timed, now, HISTORY_WINDOW_MS, 120, 36, MIN_SPARK_SPAN_MS),
         trend: samples.length > 1 ? trendArrow(delta) : '',
         trendText: samples.length > 1 ? `${delta > 0 ? '+' : ''}${delta.toFixed(1)}° over the last ${Math.round(samples.length * 5 / 60) || 1} min` : 'collecting history',
         hidden: hiddenIds.includes(sensor.id),
@@ -113,7 +114,7 @@
       return {
         ...metric,
         value,
-        spark: timedSparklinePath(history.samples(metric.id), now, HISTORY_WINDOW_MS, 120, 36),
+        spark: timedSparklinePath(history.samples(metric.id), now, HISTORY_WINDOW_MS, 120, 36, MIN_SPARK_SPAN_MS),
         hidden: hiddenIds.includes(metric.id),
       };
     });
@@ -275,7 +276,7 @@
     }
   }
 
-  let fansSection;
+  let fansSection = $state();
 
   function jumpToFans() {
     if (!fansSection) return;
@@ -969,30 +970,62 @@
       gap: 0.75rem;
     }
 
+    .temp-card {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto auto;
+      align-items: center;
+      column-gap: 0.5rem;
+      row-gap: 0.125rem;
+      padding: 0.5rem 0.75rem;
+      min-height: 0;
+    }
+
+    .temp-card.skeleton {
+      min-height: 4.25rem;
+    }
+
     .temp-head {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 2px;
-      min-width: 0;
+      display: contents;
+    }
+
+    .temp-head .label {
+      grid-area: 1 / 1 / 2 / 4;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      line-height: 1.25;
     }
 
     .temp-head .device {
-      max-width: 100%;
+      grid-area: 3 / 1 / 4 / 3;
+      font-size: 0.625rem;
+      line-height: 1.2;
     }
 
-    .temp-card {
-      padding: 0.625rem 0.75rem;
+    .temp-head .hide-toggle {
+      grid-area: 3 / 3;
       min-height: 0;
-      gap: 0.25rem;
+      padding: 0 0.5rem;
+      font-size: 0.6875rem;
+    }
+
+    .temp-value {
+      grid-area: 2 / 1;
     }
 
     .value {
-      font-size: 1.5rem;
+      font-size: 1.25rem;
+      line-height: 1.15;
     }
 
-    .temps .spark,
-    .temps .no-spark {
+    .temp-card .spark {
+      grid-area: 2 / 2 / 3 / 4;
       height: 1.25rem;
+    }
+
+    .temp-card .no-spark {
+      display: none;
     }
 
     .jump-fans {

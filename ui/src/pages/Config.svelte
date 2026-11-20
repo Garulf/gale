@@ -6,6 +6,7 @@
   import { refreshWarnings } from '../lib/warnings.js';
   import { openInGraph, page } from '../lib/page.js';
   import { sensorLabel } from '../lib/sensors.js';
+  import { inertOutside } from '../lib/graph/inert.js';
   import { isCombineType, nodeIdForCurveRef } from '../lib/graph/ids.js';
 
   let inventory = $state(null);
@@ -15,6 +16,29 @@
 
   let copied = $state(false);
   let copiedTimer;
+
+  let expanded = $state(false);
+  let expandButton = $state();
+  let overlay = $state();
+  let closeButton = $state();
+
+  $effect(() => {
+    if (!expanded || !overlay) return;
+    const restore = inertOutside(overlay);
+    closeButton?.focus();
+    return restore;
+  });
+
+  function closeExpanded() {
+    expanded = false;
+    expandButton?.focus();
+  }
+
+  function overlayKeydown(event) {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    closeExpanded();
+  }
 
   onMount(() => {
     load();
@@ -243,6 +267,7 @@
           <h2 class="section-title">config.toml</h2>
           <span class="head-actions">
             <span class="hint mono">as the daemon holds it</span>
+            <button type="button" class="btn expand" data-testid="config-expand" bind:this={expandButton} onclick={() => (expanded = true)}>Expand</button>
             <button type="button" class="btn copy" onclick={copyToml}>{copied ? 'Copied' : 'Copy'}</button>
             <span class="sr-only" role="status">{copied ? 'Copied to clipboard' : ''}</span>
           </span>
@@ -252,6 +277,21 @@
     </div>
   {/if}
 </main>
+
+{#if expanded}
+  <div class="scrim" role="presentation">
+    <div class="overlay card" role="dialog" aria-modal="true" aria-labelledby="toml-overlay-title" tabindex="-1" bind:this={overlay} onkeydown={overlayKeydown}>
+      <div class="section-head">
+        <h2 class="section-title" id="toml-overlay-title">config.toml</h2>
+        <span class="head-actions">
+          <button type="button" class="btn copy" onclick={copyToml}>{copied ? 'Copied' : 'Copy'}</button>
+          <button type="button" class="btn" data-testid="config-expand-close" bind:this={closeButton} onclick={closeExpanded}>Close</button>
+        </span>
+      </div>
+      <pre class="mono">{toml}</pre>
+    </div>
+  </div>
+{/if}
 
 <style>
   .layout,
@@ -288,6 +328,31 @@
 
   .copy {
     min-width: 4.5rem;
+  }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    background: rgb(0 0 0 / 0.55);
+  }
+
+  .overlay {
+    width: min(92vw, 72rem);
+    height: 90dvh;
+    padding: 1.125rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    min-height: 0;
+  }
+
+  .overlay pre {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
 
   .sr-only {
@@ -531,6 +596,10 @@
   }
 
   @media (max-width: 720px) {
+    .expand {
+      display: none;
+    }
+
     .two-up {
       grid-template-columns: 1fr;
     }
