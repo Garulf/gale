@@ -29,6 +29,16 @@
   <h4>
     <span class="kind"></span>
     <span class="title"><span class="name">{group.name}<WarningBadge messages={memberWarnings} /></span><small>group · {group.members.length} nodes</small></span>
+    <button
+      type="button"
+      class="enter-group nodrag"
+      data-testid="group-open"
+      aria-label="Open group {group.name}"
+      onclick={(event) => {
+        event.stopPropagation();
+        if (enterGroup) enterGroup(group.id);
+      }}
+    >Open <span aria-hidden="true">›</span></button>
   </h4>
   <div class="rows">
     {#each Array.from({ length: rows }, (_, i) => i) as index (index)}
@@ -48,5 +58,4 @@
       </div>
     {/each}
   </div>
-  <button type="button" class="fold" data-testid="group-open" onclick={() => enterGroup && enterGroup(group.id)}>Open</button>
 </div>

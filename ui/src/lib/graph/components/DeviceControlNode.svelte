@@ -11,6 +11,7 @@
   let { id, data, selected } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
+  const controlFallback = getContext('galeControlFallback');
   let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
   let expanded = $state(false);
 
@@ -39,9 +40,13 @@
     {#each visibleRows as row (row.handle)}
       {@const value = valueFor(row.handle)}
       {@const rpm = rpmFor(row)}
-      <div class="row in" class:missing={value === null}>
+      {@const fallback = controlFallback ? controlFallback(row.handle) : false}
+      <div class="row in" class:missing={value === null} class:fallback>
         <Handle type="target" position={Position.Left} id={row.handle} class="port in duty" />
         <span>{row.label}<OverrideBadge active={isOverridden($snapshot, row.handle)} /></span>
+        {#if fallback}
+          <span class="fallback-tag" title="Its curve has no usable input, so this fan runs at the fail-safe duty"><span aria-hidden="true">!</span>Fallback</span>
+        {/if}
         {#if rpm !== undefined}
           <span class="rpm-tag" class:warn={rpm === null}>{rpm === null ? 'no tach' : `${Math.round(rpm)} rpm`}</span>
         {/if}

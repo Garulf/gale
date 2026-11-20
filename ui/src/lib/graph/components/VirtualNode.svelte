@@ -4,12 +4,13 @@
   import { Handle, Position, useNodeConnections } from '@xyflow/svelte';
   import { snapshot } from '../../store.js';
   import { virtualInputHandles, numberedInputCount } from '../ids.js';
-  import { tempValue } from '../liveValues.js';
+  import { tempValue, portState } from '../liveValues.js';
   import { operationLabel } from '../palette.js';
 
   let { id, data, selected } = $props();
 
   const nodeWarnings = getContext('galeNodeWarnings');
+  const resolveSource = getContext('galeResolveSource');
   let warnings = $derived(nodeWarnings ? nodeWarnings()[id] || [] : []);
 
   let config = $derived(data.virtual.config);
@@ -18,10 +19,14 @@
   let connectedHandles = $derived(connections.current.map((c) => c.targetHandle));
   let handles = $derived(virtualInputHandles(config.type, numberedInputCount(connectedHandles) + 1));
 
-  function inputValue(handle) {
-    const connection = connections.current.find((c) => c.targetHandle === handle);
+  function inputConnection(handle) {
+    return connections.current.find((c) => c.targetHandle === handle) || null;
+  }
+
+  function inputValue(connection) {
     if (!connection) return null;
-    return tempValue($snapshot, connection.source, connection.sourceHandle);
+    const origin = resolveSource ? resolveSource(connection.source, connection.sourceHandle) : { node: connection.source, handle: connection.sourceHandle };
+    return origin ? tempValue($snapshot, origin.node, origin.handle) : null;
   }
 
   function inputLabel(handle) {
@@ -49,8 +54,10 @@
   </h4>
   <div class="rows">
     {#each handles as handle (handle)}
-      {@const value = inputValue(handle)}
-      <div class="row in" class:missing={value === null}>
+      {@const connection = inputConnection(handle)}
+      {@const value = inputValue(connection)}
+      {@const state = portState(Boolean(connection), value)}
+      <div class="row in {state}" class:missing={state === 'spare'} title={state === 'unavailable' ? 'Wired, but no live reading' : undefined}>
         <Handle type="target" position={Position.Left} id={handle} class="port in" />
         <span>{inputLabel(handle)}</span>
         <span class="val temp">{display(value)}{#if value !== null}<span class="unit">°C</span>{/if}</span>

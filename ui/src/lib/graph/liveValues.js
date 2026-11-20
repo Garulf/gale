@@ -46,3 +46,22 @@ export function sensorDisplay(value, kind) {
   }
   return { text, unit: KIND_UNITS[resolved] };
 }
+
+export function fallbackCurveIds(snap, profileName, profile) {
+  if (!snap || !snap.curves || !profile || snap.active_profile !== profileName) return new Set();
+  return new Set(Object.keys(profile.curves || {}).filter((id) => !(id in snap.curves)));
+}
+
+export function fallbackControlIds(fallbackCurves, profile) {
+  if (!profile || fallbackCurves.size === 0) return new Set();
+  return new Set(
+    Object.entries(profile.assignments || {})
+      .filter(([, curveId]) => fallbackCurves.has(curveId))
+      .map(([controlId]) => controlId)
+  );
+}
+
+export function portState(wired, value) {
+  if (!wired) return 'spare';
+  return value === null || value === undefined ? 'unavailable' : 'connected';
+}
